@@ -1,70 +1,166 @@
-# EQEmuPatcher
+# EQEmu Launcher
 
-EQEmu File Comparison and Patcher
+Electron-based EQEmu patcher and launcher with backward compatibility for servers already using the original EQEmu patcher manifest format.
 
-![alt tag](http://i.imgur.com/FSVgkzh.png)
----
-It is REQUIRED as a server administrator to compile eqemupatcher.exe yourself to configure it properly.
-* eqemupatcher.exe is the client side patcher. Read Client Setup for more information on how to use it.
-* filelistbuilder.exe is the server side patch prepper. Read Server Setup for more information on how to use it.
+## What This Fork Is
 
-### Client Setup
+This fork replaces the old desktop client with a lightweight Electron launcher while preserving the original patching model:
 
-After finishing the Server Setup process, simply distribute eqemupatcher.exe to your players. There are no additional dependencies for modern Windows users. They will need to place it in the same directory as eqgame.exe (Your Everquest directory).
-* It is recommended to advise players that if they copy this file into Program Files for their EQ dir, it will need to run with administrator privileges.
+* detect `eqgame.exe` from a selected EverQuest directory
+* identify the client by executable hash
+* fetch `filelist_<client>.yml`
+* compare local files by MD5
+* delete stale files and download patch files
+* persist `eqemupatcher.yml` in the game directory
+* launch `eqgame.exe patchme` on Windows
 
-### Server Setup
+The main client application in this fork is the Electron app under [src/electron](/Users/robg/Documents/GitHub/eqemupatcher/src/electron).
 
-There are two parts to getting eqemupatcher working. First is getting filelistbuilder configured, second is configuring and compiling the eqemupatcher client.
+## Compatibility
 
-* Fork this repository, so you can modify and version your own changes. If you are unfamiliar with forking, I suggest checking out https://help.github.com/articles/fork-a-repo/ to learn more. When I refer to the EQemu Patcher\ directory, I am referring to your forked copy of the source code here.
+The launcher is intended to remain backward compatible with existing patch servers that were built for the original EQEmu patcher.
 
-#### Filelistbuilder setup - Building the patch data.
-* *Optional:* If you have golang installed, you can compile filelistbuilder.go yourself by going into your EQEmu Patcher\flielistbuilder\ directory and compiling filelistbuilder.go. 
-* Download the filelistbuilder binary version that fits your server operating system here: https://github.com/xackery/eqemupatcher/releases
-* *Note:* It is important that your server generates the filelist.yml file, as an md5 can change when being hosted and cause challenges.
-* Copy the filelistbuilder binary from releases to your server into a fresh directory, for now on we'll call it filelistbuilder\. Note that this should be set in a PATH directory so it can be referred to from anywhere. Or if you're lazy, copy it in the SAME directory you have any filelistbuilder.yml files.
-* Make a subdirectory representing clients you plan to support, e.g. filelistbuilder\rof\ and filelistbuilder\und\
-* By default, all versiontypes are not supported except rof, you can edit this during client configuration if you plan to use another client.
-A list of supported types by default are: 
+The preserved server-side contract is:
+
+* manifests are published as `filelist_<suffix>.yml`
+* patch files are hosted under the existing `downloadprefix`
+* `delete.txt`-driven delete entries from `filelistbuilder` are still honored
+* client patch state is still persisted in `eqemupatcher.yml`
+
+The legacy C# project under [EQEmu Patcher](/Users/robg/Documents/GitHub/eqemupatcher/EQEmu%20Patcher) is kept as historical/reference code only. It is not the primary app for this fork.
+
+## Configuration
+
+Runtime defaults for the Electron launcher live in [launcher-config.yml](/Users/robg/Documents/GitHub/eqemupatcher/launcher-config.yml).
+
+Current fields:
+
+```yaml
+serverName: Rebuild EQ
+filelistUrl: https://patch.clumsysworld.com/
+defaultAutoPatch: false
+defaultAutoPlay: false
+supportedClients:
+  - Rain_Of_Fear
+  - Rain_Of_Fear_2
 ```
-VersionTypes.Unknown, //unk
-VersionTypes.Titanium, //tit
-VersionTypes.Underfoot, //und
-VersionTypes.Secrets_Of_Feydwer, //sof
-VersionTypes.Seeds_Of_Destruction, //sod
-VersionTypes.Rain_Of_Fear, //rof
-VersionTypes.Rain_Of_Fear_2 //rof
-VersionTypes.Broken_Mirror, //bro
+
+Update this file before packaging if you are shipping a launcher for a different server.
+
+## Local Development
+
+Requirements:
+
+* Node.js and npm
+
+Run locally:
+
+```bash
+npm install
+npm test
+npm start
 ```
-* Copy EQEmu Patcher\filelistbuilder.yml to filelistbuilder\rof\ and any other clients.
-* Copy the files that need to be patched into filelistbuilder\rof\ and any other clients.
-* Edit filelistbuilder\rof\filelistbuilder.yml and change the downloadprefix line to match where the patches will be hosted. (For the example, it will be http://example.com/rof/). 
-* Run the filelistbuilder binary. If all succeeds, it will generate 2 new files: filelist_rof.yml and patch.zip. (the _rof suffix will change if you modify the client)
-* Patch.zip is a fully encompassed zip you can link players to who do not trust your patcher. Open it and you should see all patch contents.
-* You can take a peek at filelist_rof.yml to verify the files expected to be patched are located correctly, and if the prefixdownload url looks correct.
-* You can now copy all contents, except the filelistbuilder binary and filelistbuilder.yml, to your patch URL with a subdir of your client.. e.g. copy all files for a rof patch to http://example.com/rof/ so that if you access http://example.com/rof/filelist_rof.yml it will succeed to find the file
-* *Note:* eqemupatcher supports deleting files by adding a delete.txt file to filelistbuilder\rof\. Inside it, simply list all files to be deleted in a different line, e.g.: (Be careful with this feature)
+
+Useful scripts:
+
+```bash
+npm run check
+npm test
+npm run dist:dir
+npm run dist:win
+npm run dist:win:installer
 ```
-nektulos.eqg
-anotherfile.txt
+
+Notes:
+
+* the UI is cross-platform, but actual `eqgame.exe` launch remains Windows-only
+* the launcher stores the last selected EQ directory in Electron app data
+* `eqemupatcher.yml` is still written into the selected EverQuest directory for compatibility with the original patcher behavior
+
+## Packaging
+
+The preferred distributable for this fork is a portable Windows executable.
+
+Build the portable Windows launcher:
+
+```bash
+npm install
+npm test
+npm run dist:win
 ```
-* *Note:* You can make a custom splash screen by creating a 400x450 png file named eqemupatcher.png and including it in your patcher.
-* You're done! Any time you run the filelistbuilder binary in future, it will regenerate the filelist_rof.yml and patch.zip. It stores md5 checksums so that eqemupatcher.exe can compare existing files and decide to download and patch or not.
 
-#### Visual Studio Setup - Building the Client
-* Get Visual Studio if you don't have it already. You can obtain the latest copy of Visual Studio for free from Microsoft here: https://www.visualstudio.com/downloads/ Click the Community Edition.
+Fallback installer build:
 
-* Navigate into the EQEmu Patcher directory and open EQEmu Patcher.sln. It will open in Visual Studio.
-* On the Debug dropdown on the top center of screen, change it to Release.
-* Click play. It should prompt a message box noting you must run this patcher in your Everquest directory.
-* Go to your Everquest directory, and copy eqgame.exe from your EQ directory to the EQEmu Patcher\EQEmu Patcher\bin\Release directory. 
-* Click play again. This time, it should detect your client and start the patcher. (By default, it is configured to use rebuildeq and may not work as desired.).
-* Right click MainForm.cs on the right side of Visual Studio and click View Code.
-* On the header section of this file, you will see options to configure. Change serverName, fileListUrl (set it to the ROOT URL, e.g. http://example.com/, etc to the directory you have planned to prep everything.
-* In your EQEmu Patcher\EQEmu Patcher\bin\Release\ folder should be an eqemupatcher.exe file. Copy this to your server to be downloaded by clients.
-* You can also verify all is ok by copying eqemupatcher.exe to your Everquest directory. 
+```bash
+npm install
+npm test
+npm run dist:win:installer
+```
 
-That's it!
+Notes:
 
+* `npm run dist:win` targets Electron Builder's `portable` output
+* building the Windows portable executable is best done on Windows
+* packaged output is written under `dist/electron/`
+* the package includes the launcher config and legacy media assets used by the Electron app
 
+## Player Usage
+
+Distribute the packaged Electron launcher to players after you have configured `launcher-config.yml` and built the app.
+
+Players do not need Node.js or Electron installed separately.
+
+On first run they:
+
+1. choose their EverQuest directory
+2. let the launcher detect the client and compare files
+3. patch if needed
+4. launch the game on Windows
+
+If the EverQuest directory is inside `Program Files`, patching or launch behavior may require elevated permissions depending on the system.
+
+## Server Setup
+
+This repository still includes the original Go `filelistbuilder` source under [filelistbuilder](/Users/robg/Documents/GitHub/eqemupatcher/filelistbuilder).
+
+Build it with Go:
+
+```bash
+go build -o filelistbuilder/filelistbuilder ./filelistbuilder
+```
+
+The builder is configured by [filelistbuilder.yml](/Users/robg/Documents/GitHub/eqemupatcher/filelistbuilder.yml):
+
+```yaml
+client: rof
+downloadprefix: https://example.com/patch/rof/
+```
+
+Typical server workflow:
+
+1. create a working directory for a client build such as `rof/`
+2. copy `filelistbuilder` and `filelistbuilder.yml` into that directory
+3. copy the files you want to patch into that same directory
+4. update `downloadprefix` so it matches the final hosted patch URL
+5. optionally add `delete.txt` listing files to remove on the client
+6. optionally add `ignore.txt` listing files the builder should skip
+7. run `filelistbuilder`
+
+Outputs:
+
+* `filelist_<client>.yml`
+* `patch.zip`
+
+Host the generated files so the manifest is reachable at the expected URL, for example:
+
+```text
+https://example.com/patch/rof/filelist_rof.yml
+```
+
+## Custom Splash Art
+
+Servers can still provide a custom splash image by placing `eqemupatcher.png` in the player's game directory. The Electron launcher will prefer that file over its built-in hero art when present.
+
+## Validation In This Fork
+
+The Electron backend is covered by automated tests in [test/electron-backend.test.js](/Users/robg/Documents/GitHub/eqemupatcher/test/electron-backend.test.js), including compatibility coverage for legacy `filelistbuilder` manifest output.
