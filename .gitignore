@@ -162,6 +162,9 @@ ClientBin/
 *.publishsettings
 node_modules/
 bower_components/
+.DS_Store
+.cache/
+dist/
 
 # RIA/Silverlight projects
 Generated_Code/

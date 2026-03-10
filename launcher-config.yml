@@ -1,0 +1,7 @@
+serverName: Rebuild EQ
+filelistUrl: https://patch.clumsysworld.com/
+defaultAutoPatch: false
+defaultAutoPlay: false
+supportedClients:
+  - Rain_Of_Fear
+  - Rain_Of_Fear_2

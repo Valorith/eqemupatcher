@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EQEmu Launcher</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <div class="ambient ambient-left"></div>
+      <div class="ambient ambient-right"></div>
+
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Cross-Platform Command Deck</p>
+          <h1 class="title">EQEmu Launcher</h1>
+          <p class="subtitle">Electron frontend with the original patcher strategy ported into a Node backend.</p>
+        </div>
+        <div class="status-panel">
+          <span class="status-caption">Current State</span>
+          <div class="status-chip" id="statusChip">Standby</div>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="hero-card panel">
+          <div class="hero-image-wrap">
+            <img id="heroImage" alt="Client artwork" />
+            <div class="hero-overlay">
+              <p class="eyebrow">Live Deployment Channel</p>
+              <h2 id="heroTitle">Select Your Game Folder</h2>
+              <p id="heroDetail">Point the launcher at an EverQuest directory to begin detection and manifest sync.</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel command-card">
+          <div class="panel-heading command-heading">
+            <p class="eyebrow">Session State</p>
+            <button id="refreshButton" class="ghost-button">Refresh</button>
+          </div>
+          <div class="summary-grid">
+            <div class="summary-item">
+              <span class="summary-label">Server</span>
+              <strong id="serverValue">Rebuild EQ</strong>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">Client</span>
+              <strong id="clientValue">Unknown</strong>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">Manifest</span>
+              <strong id="manifestValue">Not loaded</strong>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">Patch State</span>
+              <strong id="patchStateValue">Idle</strong>
+            </div>
+          </div>
+          <div class="command-lower">
+            <div class="directory-block">
+              <div>
+                <span class="summary-label">Game Directory</span>
+                <p id="gameDirectoryValue" class="directory-value">No folder selected</p>
+              </div>
+              <button id="browseButton" class="accent-button">Choose Folder</button>
+            </div>
+
+            <div class="actions-cluster">
+              <div class="panel-heading compact-heading">
+                <p class="eyebrow">Deployment Controls</p>
+              </div>
+              <div class="actions-row">
+                <button id="patchButton" class="primary-button">Deploy Patch</button>
+                <button id="launchButton" class="secondary-button">Launch Game</button>
+              </div>
+              <div class="toggle-row">
+                <label class="toggle">
+                  <input id="autoPatchToggle" type="checkbox" />
+                  <span class="toggle-track"></span>
+                  <span class="toggle-label">Auto Patch</span>
+                </label>
+                <label class="toggle">
+                  <input id="autoPlayToggle" type="checkbox" />
+                  <span class="toggle-track"></span>
+                  <span class="toggle-label">Auto Play</span>
+                </label>
+              </div>
+              <div class="platform-note" id="platformNote"></div>
+              <a id="reportLink" class="report-link hidden" href="#">Report unknown client hash</a>
+            </div>
+          </div>
+        </section>
+
+        <section class="console-card panel">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">Operations Console</p>
+              <h2 class="section-title">Patch Feed</h2>
+            </div>
+            <div class="progress-meta">
+              <span id="progressLabel">Waiting for input</span>
+              <strong id="progressValue">0 / 1</strong>
+            </div>
+          </div>
+          <div class="progress-rail">
+            <div id="progressBar" class="progress-fill"></div>
+          </div>
+          <div class="log-frame" id="logFrame">
+            <p class="log-placeholder" id="logPlaceholder">No activity yet. Manifest sync, hashing, downloads, and launch events will appear here.</p>
+            <div id="logList" class="log-list"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
