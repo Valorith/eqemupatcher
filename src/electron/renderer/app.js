@@ -1,22 +1,22 @@
 const state = {
   current: null,
-  logs: []
+  logs: [],
+  consoleVisible: false
 };
 
 const elements = {
+  leftStage: document.getElementById("leftStage"),
   statusChip: document.getElementById("statusChip"),
   heroImage: document.getElementById("heroImage"),
-  heroTitle: document.getElementById("heroTitle"),
-  heroDetail: document.getElementById("heroDetail"),
+  titleValue: document.getElementById("titleValue"),
   serverValue: document.getElementById("serverValue"),
   clientValue: document.getElementById("clientValue"),
-  manifestValue: document.getElementById("manifestValue"),
   patchStateValue: document.getElementById("patchStateValue"),
-  gameDirectoryValue: document.getElementById("gameDirectoryValue"),
   patchButton: document.getElementById("patchButton"),
   launchButton: document.getElementById("launchButton"),
   refreshButton: document.getElementById("refreshButton"),
-  browseButton: document.getElementById("browseButton"),
+  minimizeButton: document.getElementById("minimizeButton"),
+  closeButton: document.getElementById("closeButton"),
   autoPatchToggle: document.getElementById("autoPatchToggle"),
   autoPlayToggle: document.getElementById("autoPlayToggle"),
   platformNote: document.getElementById("platformNote"),
@@ -32,8 +32,6 @@ function derivePresentation(nextState) {
   const presentation = {
     chipText: nextState.statusBadge,
     chipTone: "neutral",
-    heroTitle: nextState.statusBadge,
-    heroDetail: nextState.statusDetail,
     patchStateText: nextState.needsPatch ? "Update Ready" : nextState.manifestVersion ? "Ready" : "Idle",
     patchLabel: nextState.patchActionLabel,
     launchLabel: nextState.launchActionLabel,
@@ -43,11 +41,9 @@ function derivePresentation(nextState) {
   };
 
   if (!nextState.gameDirectory) {
-    presentation.chipText = "Awaiting Directory";
+    presentation.chipText = "Run In Folder";
     presentation.chipTone = "attention";
-    presentation.heroTitle = "Prime the Launcher";
-    presentation.heroDetail = "Choose your EverQuest directory to detect the client, load the manifest, and unlock deployment controls.";
-    presentation.patchStateText = "Awaiting directory";
+    presentation.patchStateText = "Waiting for eqgame.exe";
     presentation.patchLabel = "Patch Locked";
     presentation.launchLabel = "Launch Locked";
     return presentation;
@@ -56,8 +52,6 @@ function derivePresentation(nextState) {
   if (nextState.isPatching) {
     presentation.chipText = "Patching";
     presentation.chipTone = "active";
-    presentation.heroTitle = "Deploying Update";
-    presentation.heroDetail = nextState.statusDetail;
     presentation.patchStateText = "Patching";
     presentation.patchLabel = "Cancel Patch";
     return presentation;
@@ -66,8 +60,6 @@ function derivePresentation(nextState) {
   if (nextState.reportUrl) {
     presentation.chipText = "Unknown Client";
     presentation.chipTone = "warning";
-    presentation.heroTitle = "Unknown Client Build";
-    presentation.heroDetail = "This executable hash is not recognized. Report it before patching.";
     presentation.patchStateText = "Unknown client";
     presentation.patchLabel = "Patch Unavailable";
     presentation.launchLabel = "Launch Locked";
@@ -77,8 +69,6 @@ function derivePresentation(nextState) {
   if (!nextState.clientSupported && nextState.clientVersion !== "Unknown") {
     presentation.chipText = "Unsupported";
     presentation.chipTone = "warning";
-    presentation.heroTitle = "Unsupported Client";
-    presentation.heroDetail = nextState.statusDetail;
     presentation.patchStateText = "Unsupported";
     presentation.patchLabel = "Patch Unavailable";
     return presentation;
@@ -87,8 +77,6 @@ function derivePresentation(nextState) {
   if (nextState.statusBadge === "Manifest Error") {
     presentation.chipText = "Manifest Error";
     presentation.chipTone = "warning";
-    presentation.heroTitle = "Manifest Sync Failed";
-    presentation.heroDetail = nextState.statusDetail;
     presentation.patchStateText = "Manifest offline";
     presentation.patchLabel = "Manifest Error";
     return presentation;
@@ -97,10 +85,6 @@ function derivePresentation(nextState) {
   if (nextState.needsPatch) {
     presentation.chipText = "Update Ready";
     presentation.chipTone = "active";
-    presentation.heroTitle = "Update Ready";
-    presentation.heroDetail = nextState.manifestVersion
-      ? `Manifest ${nextState.manifestVersion} is ready to deploy for ${nextState.clientLabel}.`
-      : nextState.statusDetail;
     presentation.patchStateText = "Update Ready";
     presentation.patchLabel = "Deploy Patch";
     return presentation;
@@ -109,10 +93,6 @@ function derivePresentation(nextState) {
   if (nextState.manifestVersion) {
     presentation.chipText = "Launch Ready";
     presentation.chipTone = "success";
-    presentation.heroTitle = "Launch Ready";
-    presentation.heroDetail = nextState.launchSupported
-      ? "Files are in sync. Verify again or launch straight into the client."
-      : "Files are in sync. Verification works here; launching eqgame.exe still requires Windows.";
     presentation.patchStateText = "Ready";
     presentation.patchLabel = "Verify Integrity";
     return presentation;
@@ -131,6 +111,11 @@ function setBusy(button, busyText, busy) {
 
 function formatProgress(value, max) {
   return `${value} / ${max}`;
+}
+
+function showConsole() {
+  state.consoleVisible = true;
+  elements.leftStage.classList.add("console-visible");
 }
 
 function renderLogs() {
@@ -163,17 +148,20 @@ function renderLogs() {
 function renderState(nextState) {
   state.current = nextState;
   const presentation = derivePresentation(nextState);
+  const resolvedTitle = nextState.serverName || "Launcher";
+
+  if (nextState.isPatching) {
+    showConsole();
+  }
 
   elements.statusChip.textContent = presentation.chipText;
   elements.statusChip.dataset.tone = presentation.chipTone;
   elements.heroImage.src = nextState.heroImageUrl;
-  elements.heroTitle.textContent = presentation.heroTitle;
-  elements.heroDetail.textContent = presentation.heroDetail;
+  elements.titleValue.textContent = resolvedTitle;
   elements.serverValue.textContent = nextState.serverName;
   elements.clientValue.textContent = nextState.clientLabel;
-  elements.manifestValue.textContent = nextState.manifestVersion || "Not loaded";
   elements.patchStateValue.textContent = presentation.patchStateText;
-  elements.gameDirectoryValue.textContent = nextState.gameDirectory || "No folder selected";
+  document.title = resolvedTitle;
 
   elements.patchButton.dataset.originalText = presentation.patchLabel;
   elements.patchButton.textContent = presentation.patchLabel;
@@ -222,14 +210,12 @@ function pushLog(entry) {
 }
 
 function wireEvents() {
-  elements.browseButton.addEventListener("click", async () => {
-    setBusy(elements.browseButton, "Opening...", true);
-    try {
-      const nextState = await window.launcher.chooseGameDirectory();
-      renderState(nextState);
-    } finally {
-      setBusy(elements.browseButton, "Opening...", false);
-    }
+  elements.minimizeButton.addEventListener("click", async () => {
+    await window.launcher.minimizeWindow();
+  });
+
+  elements.closeButton.addEventListener("click", async () => {
+    await window.launcher.closeWindow();
   });
 
   elements.refreshButton.addEventListener("click", async () => {
@@ -252,6 +238,7 @@ function wireEvents() {
       return;
     }
 
+    showConsole();
     await window.launcher.startPatch();
   });
 

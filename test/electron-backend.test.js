@@ -66,7 +66,7 @@ test("initialize without a selected game directory reports selection state", asy
   const state = await backend.initialize();
 
   assert.equal(state.gameDirectory, "");
-  assert.equal(state.statusBadge, "Select Folder");
+  assert.equal(state.statusBadge, "Run In Folder");
   assert.equal(state.patchActionLabel, "Deploy Patch");
   assert.equal(state.autoPatch, false);
   assert.equal(state.autoPlay, false);
@@ -74,6 +74,93 @@ test("initialize without a selected game directory reports selection state", asy
   const appStatePath = path.join(appUserDataPath, "launcher-state.yml");
   const savedState = await fsp.readFile(appStatePath, "utf8");
   assert.match(savedState, /gameDirectory: ""/);
+});
+
+test("initialize uses the launcher directory when it already contains eqgame.exe", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  const { backend, appUserDataPath } = await createBackendHarness(t, { launchDirectory });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(path.join(launchDirectory, "eqgame.exe"), "dummy", "utf8");
+
+  const state = await backend.initialize();
+
+  assert.equal(state.gameDirectory, launchDirectory);
+
+  const appStatePath = path.join(appUserDataPath, "launcher-state.yml");
+  const savedState = await fsp.readFile(appStatePath, "utf8");
+  assert.match(savedState, /gameDirectory:/);
+  assert.match(savedState, /eqemu-launch-/);
+});
+
+test("launch directory config overrides the bundled default server config", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  const { backend, projectRoot } = await createBackendHarness(t, { launchDirectory });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Bundled Default\nfilelistUrl: https://default.invalid/\n",
+    "utf8"
+  );
+  await fsp.writeFile(
+    path.join(launchDirectory, "launcher-config.yml"),
+    "serverName: Install Realm\nfilelistUrl: https://install.invalid/\nsupportedClients:\n  - Rain_Of_Fear\n",
+    "utf8"
+  );
+
+  const state = await backend.initialize();
+
+  assert.equal(state.serverName, "Install Realm");
+  assert.equal(state.filelistUrl, "https://install.invalid/");
+});
+
+test("runtime directory config is used when launch directory has no config", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  const runtimeDirectory = await createTempDir("eqemu-runtime-");
+  const { backend, projectRoot } = await createBackendHarness(t, { launchDirectory, runtimeDirectory });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+    await fsp.rm(runtimeDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Bundled Default\nfilelistUrl: https://default.invalid/\n",
+    "utf8"
+  );
+  await fsp.writeFile(
+    path.join(runtimeDirectory, "launcher-config.yml"),
+    "serverName: Portable Realm\nfilelistUrl: https://portable.invalid/\nsupportedClients:\n  - Rain_Of_Fear\n",
+    "utf8"
+  );
+
+  const state = await backend.initialize();
+
+  assert.equal(state.serverName, "Portable Realm");
+  assert.equal(state.filelistUrl, "https://portable.invalid/");
+});
+
+test("legacy placeholder server names are replaced with a label derived from the patch host", async (t) => {
+  const { backend, projectRoot } = await createBackendHarness(t);
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Rebuild EQ\nfilelistUrl: https://patch.clumsysworld.com/\n",
+    "utf8"
+  );
+
+  const state = await backend.initialize();
+
+  assert.equal(state.serverName, "Clumsy's World");
+  assert.equal(state.filelistUrl, "https://patch.clumsysworld.com/");
 });
 
 test("refreshState recognizes a configured supported client and manifest status", async (t) => {
@@ -117,6 +204,68 @@ test("refreshState recognizes a configured supported client and manifest status"
   assert.equal(state.needsPatch, true);
   assert.equal(state.patchActionLabel, "Deploy Patch");
   assert.equal(state.statusBadge, "Update Ready");
+});
+
+test("manifest and download URLs work without trailing slashes", async (t) => {
+  const { backend, projectRoot } = await createBackendHarness(t);
+  const gameDirectory = await createTempDir("eqemu-game-");
+  const downloadContent = "patched content";
+  const downloadHash = md5(downloadContent);
+  let manifestRequests = 0;
+  let fileRequests = 0;
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  const { server, baseUrl } = await startFixtureServer({
+    "/patch/rof/filelist_rof.yml": (_req, res) => {
+      manifestRequests += 1;
+      res.writeHead(200, { "content-type": "text/yaml" });
+      res.end(
+        [
+          "version: 11",
+          `downloadprefix: ${baseUrl}/downloads`,
+          "downloads:",
+          "  - name: target.txt",
+          `    md5: ${downloadHash}`,
+          `    size: ${Buffer.byteLength(downloadContent)}`,
+          ""
+        ].join("\n")
+      );
+    },
+    "/downloads/target.txt": (_req, res) => {
+      fileRequests += 1;
+      res.writeHead(200, { "content-type": "application/octet-stream" });
+      res.end(downloadContent);
+    }
+  });
+
+  t.after(() => server.close());
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    `serverName: Test Realm\nfilelistUrl: ${baseUrl}/patch\ndefaultAutoPatch: false\ndefaultAutoPlay: false\nsupportedClients:\n  - Rain_Of_Fear\n`,
+    "utf8"
+  );
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+
+  await backend.initialize();
+  backend.detectClientVersion = async () => ({
+    found: true,
+    hash: "KNOWN",
+    version: "Rain_Of_Fear"
+  });
+
+  const refreshed = await backend.setGameDirectory(gameDirectory);
+  const patched = await backend.startPatch();
+
+  assert.equal(refreshed.manifestVersion, "11");
+  assert.equal(patched.needsPatch, false);
+  assert.equal(await fsp.readFile(path.join(gameDirectory, "target.txt"), "utf8"), downloadContent);
+  assert.equal(manifestRequests, 1);
+  assert.equal(fileRequests, 1);
 });
 
 test("startPatch downloads changed files, writes settings, and clears needsPatch", async (t) => {
@@ -179,6 +328,65 @@ test("startPatch downloads changed files, writes settings, and clears needsPatch
   assert.equal(state.needsPatch, false);
   assert.equal(state.lastPatchedVersion, "42");
   assert.match(savedSettings, /lastPatchedVersion: 42/);
+});
+
+test("startPatch rejects downloaded files that fail hash verification", async (t) => {
+  const { backend, projectRoot, events } = await createBackendHarness(t);
+  const gameDirectory = await createTempDir("eqemu-game-");
+  const expectedContent = "expected content";
+  const servedContent = "wrong content";
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  const { server, baseUrl } = await startFixtureServer({
+    "/rof/filelist_rof.yml": (_req, res) => {
+      res.writeHead(200, { "content-type": "text/yaml" });
+      res.end(
+        [
+          "version: 77",
+          `downloadprefix: ${baseUrl}/files/`,
+          "downloads:",
+          "  - name: target.txt",
+          `    md5: ${md5(expectedContent)}`,
+          `    size: ${Buffer.byteLength(servedContent)}`,
+          ""
+        ].join("\n")
+      );
+    },
+    "/files/target.txt": (_req, res) => {
+      res.writeHead(200, { "content-type": "application/octet-stream" });
+      res.end(servedContent);
+    }
+  });
+
+  t.after(() => server.close());
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    `serverName: Test Realm\nfilelistUrl: ${baseUrl}/\ndefaultAutoPatch: false\ndefaultAutoPlay: false\nsupportedClients:\n  - Rain_Of_Fear\n`,
+    "utf8"
+  );
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+
+  await backend.initialize();
+  backend.detectClientVersion = async () => ({
+    found: true,
+    hash: "KNOWN",
+    version: "Rain_Of_Fear"
+  });
+
+  await backend.setGameDirectory(gameDirectory);
+  const state = await backend.startPatch();
+
+  assert.equal(state.statusBadge, "Patch Error");
+  assert.equal(state.patchActionLabel, "Deploy Patch");
+  assert.equal(state.needsPatch, true);
+  assert.equal(state.lastPatchedVersion, "");
+  assert.equal(await fsp.access(path.join(gameDirectory, "target.txt")).then(() => true).catch(() => false), false);
+  assert.ok(events.some((event) => event.type === "log" && /Downloaded file failed verification: target\.txt/.test(event.payload.text)));
 });
 
 test("refreshState treats legacy string patch versions as up to date", async (t) => {

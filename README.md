@@ -27,8 +27,6 @@ The preserved server-side contract is:
 * `delete.txt`-driven delete entries from `filelistbuilder` are still honored
 * client patch state is still persisted in `eqemupatcher.yml`
 
-The legacy C# project under [EQEmu Patcher](/Users/robg/Documents/GitHub/eqemupatcher/EQEmu%20Patcher) is kept as historical/reference code only. It is not the primary app for this fork.
-
 ## Configuration
 
 Runtime defaults for the Electron launcher live in [launcher-config.yml](/Users/robg/Documents/GitHub/eqemupatcher/launcher-config.yml).
@@ -36,7 +34,7 @@ Runtime defaults for the Electron launcher live in [launcher-config.yml](/Users/
 Current fields:
 
 ```yaml
-serverName: Rebuild EQ
+serverName: Clumsy's World
 filelistUrl: https://patch.clumsysworld.com/
 defaultAutoPatch: false
 defaultAutoPlay: false
@@ -102,7 +100,7 @@ Notes:
 * `npm run dist:win` targets Electron Builder's `portable` output
 * building the Windows portable executable is best done on Windows
 * packaged output is written under `dist/electron/`
-* the package includes the launcher config and legacy media assets used by the Electron app
+* the package includes the launcher config and built-in hero art used by the Electron app
 
 ## Player Usage
 
@@ -164,3 +162,5 @@ Servers can still provide a custom splash image by placing `eqemupatcher.png` in
 ## Validation In This Fork
 
 The Electron backend is covered by automated tests in [test/electron-backend.test.js](/Users/robg/Documents/GitHub/eqemupatcher/test/electron-backend.test.js), including compatibility coverage for legacy `filelistbuilder` manifest output.
+
+

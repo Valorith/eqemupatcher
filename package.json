@@ -6,8 +6,8 @@
   "description": "Cross-platform Electron launcher for EQEmu patching",
   "main": "src/electron/main.js",
   "scripts": {
-    "start": "bash ./scripts/run-electron.sh src/electron/main.js",
-    "dev": "bash ./scripts/run-electron.sh src/electron/main.js",
+    "start": "node ./scripts/run-electron.js src/electron/main.js",
+    "dev": "node ./scripts/run-electron.js src/electron/main.js",
     "check": "node --check src/electron/main.js && node --check src/electron/preload.js && node --check src/electron/backend/launcher-backend.js && node --check src/electron/renderer/app.js",
     "test": "node --test test/electron-backend.test.js",
     "dist": "electron-builder",
@@ -29,9 +29,13 @@
     },
     "files": [
       "src/electron/**/*",
-      "launcher-config.yml",
-      "EQEmu Patcher/media/**/*",
       "package.json"
+    ],
+    "extraFiles": [
+      {
+        "from": "launcher-config.yml",
+        "to": "launcher-config.yml"
+      }
     ],
     "extraMetadata": {
       "main": "src/electron/main.js"

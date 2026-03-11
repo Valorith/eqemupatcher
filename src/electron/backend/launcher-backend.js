@@ -7,11 +7,17 @@ const { pathToFileURL } = require("url");
 const SimpleYaml = require("./simple-yaml");
 
 const DEFAULTS = {
-  serverName: "Rebuild EQ",
+  serverName: "Clumsy's World",
   filelistUrl: "https://patch.clumsysworld.com/",
   defaultAutoPatch: false,
   defaultAutoPlay: false,
   supportedClients: ["Rain_Of_Fear", "Rain_Of_Fear_2"]
+};
+
+const LEGACY_SERVER_NAMES = new Set(["Rebuild EQ"]);
+const GENERIC_HOST_SEGMENTS = new Set(["app", "cdn", "download", "downloads", "files", "patch", "static", "updates", "www"]);
+const SERVER_NAME_ALIASES = {
+  clumsysworld: "Clumsy's World"
 };
 
 const CLIENTS = {
@@ -67,16 +73,90 @@ function normalizeVersion(value) {
   return String(value);
 }
 
+function buildUrl(baseUrl, relativePath) {
+  const normalizedBaseUrl = String(baseUrl || "").endsWith("/") ? String(baseUrl || "") : `${String(baseUrl || "")}/`;
+  return new URL(relativePath, normalizedBaseUrl).toString();
+}
+
+function normalizeServerName(value) {
+  if (value == null) {
+    return "";
+  }
+
+  return String(value).trim();
+}
+
+function looksLikeLegacyServerName(value) {
+  const normalized = normalizeServerName(value);
+  return normalized === "" || LEGACY_SERVER_NAMES.has(normalized);
+}
+
+function humanizeServerToken(token) {
+  const normalizedToken = String(token || "").trim().toLowerCase();
+  if (!normalizedToken) {
+    return "";
+  }
+
+  if (SERVER_NAME_ALIASES[normalizedToken]) {
+    return SERVER_NAME_ALIASES[normalizedToken];
+  }
+
+  const separated = normalizedToken
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z])([A-Z0-9])/g, "$1 $2")
+    .replace(/([0-9])([a-zA-Z])/g, "$1 $2")
+    .replace(/([a-zA-Z])([0-9])/g, "$1 $2")
+    .trim();
+
+  return separated
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+function deriveServerNameFromUrl(urlValue) {
+  if (!urlValue) {
+    return "";
+  }
+
+  try {
+    const hostname = new URL(String(urlValue)).hostname.toLowerCase();
+    const labels = hostname.split(".").filter(Boolean);
+    if (labels.length === 0) {
+      return "";
+    }
+
+    let hostLabels = labels.slice(0, -1);
+    if (
+      labels.length >= 3 &&
+      labels.at(-1).length === 2 &&
+      ["co", "com", "net", "org"].includes(labels.at(-2))
+    ) {
+      hostLabels = labels.slice(0, -2);
+    }
+
+    const candidateLabel = [...hostLabels].reverse().find((label) => !GENERIC_HOST_SEGMENTS.has(label)) || hostLabels.at(-1) || labels[0];
+    return humanizeServerToken(candidateLabel);
+  } catch (_error) {
+    return "";
+  }
+}
+
 class LauncherBackend {
-  constructor({ appUserDataPath, projectRoot, eventSink, fetchImpl, spawnImpl, platform }) {
+  constructor({ appUserDataPath, projectRoot, launchDirectory, runtimeDirectory, eventSink, fetchImpl, spawnImpl, platform }) {
     this.appUserDataPath = appUserDataPath;
     this.projectRoot = projectRoot;
+    this.launchDirectory = launchDirectory || "";
+    this.runtimeDirectory = runtimeDirectory || "";
     this.eventSink = eventSink;
     this.fetchImpl = fetchImpl || fetch;
     this.spawnImpl = spawnImpl || spawn;
     this.platform = platform || process.platform;
     this.appStatePath = path.join(this.appUserDataPath, "launcher-state.yml");
     this.configPath = path.join(this.projectRoot, "launcher-config.yml");
+    this.launchConfigPath = this.launchDirectory ? path.join(this.launchDirectory, "launcher-config.yml") : "";
+    this.runtimeConfigPath = this.runtimeDirectory ? path.join(this.runtimeDirectory, "launcher-config.yml") : "";
     this.config = { ...DEFAULTS };
     this.gameSettings = null;
     this.appState = { gameDirectory: "" };
@@ -159,7 +239,7 @@ class LauncherBackend {
     }
 
     const imageName = (CLIENTS[version] || CLIENTS.Unknown).image;
-    const imagePath = path.join(this.projectRoot, "EQEmu Patcher", "media", imageName);
+    const imagePath = path.join(this.projectRoot, "src", "electron", "assets", "hero", imageName);
     return pathToFileURL(imagePath).toString();
   }
 
@@ -169,23 +249,69 @@ class LauncherBackend {
     this.state.lastError = error;
   }
 
+  resolveServerName(options = {}) {
+    const { manifest = null } = options;
+    const explicitServerNames = [
+      manifest?.serverName,
+      this.gameSettings?.serverName,
+      this.config.serverName
+    ];
+
+    for (const candidate of explicitServerNames) {
+      const normalizedCandidate = normalizeServerName(candidate);
+      if (normalizedCandidate && !looksLikeLegacyServerName(normalizedCandidate)) {
+        return normalizedCandidate;
+      }
+    }
+
+    const derivedServerName = (
+      deriveServerNameFromUrl(manifest?.downloadprefix) ||
+      deriveServerNameFromUrl(this.gameSettings?.filelistUrl) ||
+      deriveServerNameFromUrl(this.config.filelistUrl)
+    );
+
+    if (derivedServerName) {
+      return derivedServerName;
+    }
+
+    return normalizeServerName(this.config.serverName) || DEFAULTS.serverName;
+  }
+
   async initialize() {
     await this.loadConfig();
     await this.loadAppState();
+    await this.useLaunchDirectory();
     await this.loadGameSettings();
     return this.refreshState({ performAutoActions: true });
   }
 
+  async useLaunchDirectory() {
+    if (!this.launchDirectory) {
+      return;
+    }
+
+    this.state.gameDirectory = this.launchDirectory;
+    this.appState.gameDirectory = this.launchDirectory;
+    await this.saveAppState();
+  }
+
   async loadConfig() {
     this.config = { ...DEFAULTS };
-    if (!(await exists(this.configPath))) {
-      this.state.serverName = this.config.serverName;
+    let resolvedConfigPath = this.configPath;
+    if (this.launchConfigPath && (await exists(this.launchConfigPath))) {
+      resolvedConfigPath = this.launchConfigPath;
+    } else if (this.runtimeConfigPath && (await exists(this.runtimeConfigPath))) {
+      resolvedConfigPath = this.runtimeConfigPath;
+    }
+
+    if (!(await exists(resolvedConfigPath))) {
+      this.state.serverName = this.resolveServerName();
       this.state.filelistUrl = this.config.filelistUrl;
       return;
     }
 
     try {
-      const parsed = await this.loadYaml(this.configPath);
+      const parsed = await this.loadYaml(resolvedConfigPath);
       this.config = {
         ...DEFAULTS,
         ...(parsed || {})
@@ -198,7 +324,7 @@ class LauncherBackend {
       this.config.supportedClients = [...DEFAULTS.supportedClients];
     }
 
-    this.state.serverName = this.config.serverName;
+    this.state.serverName = this.resolveServerName();
     this.state.filelistUrl = this.config.filelistUrl;
   }
 
@@ -337,13 +463,13 @@ class LauncherBackend {
       this.state.clientLabel = CLIENTS.Unknown.label;
       this.state.clientHash = "";
       this.state.patchActionLabel = "Deploy Patch";
-      this.setStatus("Select Folder", "Choose the EverQuest directory that contains eqgame.exe.");
+      this.setStatus("Run In Folder", "Run this launcher from the EverQuest directory that contains eqgame.exe.");
       this.state.heroImageUrl = this.getHeroImageUrl("Unknown");
       this.emitState();
       return this.getState();
     }
 
-    this.state.serverName = this.config.serverName;
+    this.state.serverName = this.resolveServerName();
     this.state.filelistUrl = this.config.filelistUrl;
 
     const detectResult = await this.detectClientVersion();
@@ -383,6 +509,7 @@ class LauncherBackend {
 
     try {
       const manifest = await this.fetchManifest();
+      this.state.serverName = this.resolveServerName({ manifest });
       this.state.manifestVersion = normalizeVersion(manifest.version);
       this.state.lastPatchedVersion = normalizeVersion(this.gameSettings.lastPatchedVersion);
       this.state.needsPatch = this.state.manifestVersion !== this.state.lastPatchedVersion;
@@ -428,7 +555,7 @@ class LauncherBackend {
 
   async fetchManifest() {
     const client = CLIENTS[this.state.clientVersion];
-    const manifestUrl = `${this.config.filelistUrl}${client.suffix}/filelist_${client.suffix}.yml`;
+    const manifestUrl = buildUrl(this.config.filelistUrl, `${client.suffix}/filelist_${client.suffix}.yml`);
     const manifestPath = this.getManifestPath();
     this.state.manifestUrl = manifestUrl;
     this.emitLog(`Fetching manifest from ${manifestUrl}`);
@@ -458,7 +585,7 @@ class LauncherBackend {
     }
 
     if (!this.state.gameDirectory) {
-      this.setStatus("Select Folder", "Choose a valid EverQuest directory before patching.");
+      this.setStatus("Run In Folder", "Run this launcher from a valid EverQuest directory before patching.");
       this.emitState();
       return this.getState();
     }
@@ -536,7 +663,8 @@ class LauncherBackend {
       for (const entry of filesToDownload) {
         this.throwIfCanceled();
         const targetPath = this.resolveGamePath(entry.name);
-        const downloadUrl = `${manifest.downloadprefix}${entry.name.replace(/\\/g, "/")}`;
+        const expectedHash = String(entry.md5 || "").toUpperCase();
+        const downloadUrl = buildUrl(manifest.downloadprefix, entry.name.replace(/\\/g, "/"));
         this.state.progressLabel = `Downloading ${entry.name}`;
         this.emitProgress();
         this.emitLog(`${entry.name}...`);
@@ -545,6 +673,11 @@ class LauncherBackend {
           this.state.progressValue = Math.min(downloadedBytes, this.state.progressMax);
           this.emitProgress();
         });
+
+        if (expectedHash && (await this.getFileHash(targetPath)) !== expectedHash) {
+          await fsp.unlink(targetPath).catch(() => {});
+          throw new Error(`Downloaded file failed verification: ${entry.name}`);
+        }
       }
 
       this.state.progressValue = this.state.progressMax;
@@ -606,7 +739,7 @@ class LauncherBackend {
     const { autoTriggered = false } = options;
 
     if (!this.state.gameDirectory) {
-      this.setStatus("Select Folder", "Choose the EverQuest directory before launching.");
+      this.setStatus("Run In Folder", "Run this launcher from the EverQuest directory before launching.");
       this.emitState();
       return this.getState();
     }
@@ -786,3 +919,4 @@ class LauncherBackend {
 module.exports = {
   LauncherBackend
 };
+
