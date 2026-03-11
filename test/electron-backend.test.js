@@ -206,6 +206,27 @@ test("refreshState recognizes a configured supported client and manifest status"
   assert.equal(state.statusBadge, "Update Ready");
 });
 
+test("detectClientVersion matches the Rain_Of_Fear_2_4GB hash", async (t) => {
+  const { backend } = await createBackendHarness(t);
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+  backend.state.gameDirectory = gameDirectory;
+  backend.getFileHash = async () => "389709EC0E456C3DAE881A61218AAB3F";
+
+  const result = await backend.detectClientVersion();
+
+  assert.deepEqual(result, {
+    found: true,
+    hash: "389709EC0E456C3DAE881A61218AAB3F",
+    version: "Rain_Of_Fear_2_4GB"
+  });
+});
+
 test("manifest and download URLs work without trailing slashes", async (t) => {
   const { backend, projectRoot } = await createBackendHarness(t);
   const gameDirectory = await createTempDir("eqemu-game-");

@@ -1,7 +1,8 @@
-serverName: Clumsy's World
+serverName: Clumsy's World: Resurgence
 filelistUrl: https://patch.clumsysworld.com/
 defaultAutoPatch: false
 defaultAutoPlay: false
 supportedClients:
   - Rain_Of_Fear
   - Rain_Of_Fear_2
+  - Rain_Of_Fear_2_4GB

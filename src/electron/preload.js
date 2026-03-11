@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld("launcher", {
   minimizeWindow: () => ipcRenderer.invoke("launcher:minimizeWindow"),
   closeWindow: () => ipcRenderer.invoke("launcher:closeWindow"),
   openExternal: (url) => ipcRenderer.invoke("launcher:openExternal", url),
+  openConfigFile: () => ipcRenderer.invoke("launcher:openConfigFile"),
+  openGameDirectory: () => ipcRenderer.invoke("launcher:openGameDirectory"),
   onEvent: (callback) => {
     const listener = (_event, payload) => callback(payload);
     ipcRenderer.on("launcher:event", listener);

@@ -41,6 +41,7 @@ defaultAutoPlay: false
 supportedClients:
   - Rain_Of_Fear
   - Rain_Of_Fear_2
+  - Rain_Of_Fear_2_4GB
 ```
 
 Update this file before packaging if you are shipping a launcher for a different server.

@@ -11,7 +11,7 @@ const DEFAULTS = {
   filelistUrl: "https://patch.clumsysworld.com/",
   defaultAutoPatch: false,
   defaultAutoPlay: false,
-  supportedClients: ["Rain_Of_Fear", "Rain_Of_Fear_2"]
+  supportedClients: ["Rain_Of_Fear", "Rain_Of_Fear_2", "Rain_Of_Fear_2_4GB"]
 };
 
 const LEGACY_SERVER_NAMES = new Set(["Rebuild EQ"]);
@@ -25,6 +25,7 @@ const CLIENTS = {
   Titanium: { label: "Titanium", suffix: "tit", image: "titanium.png" },
   Rain_Of_Fear: { label: "Rain of Fear", suffix: "rof", image: "rof.png" },
   Rain_Of_Fear_2: { label: "Rain of Fear 2", suffix: "rof", image: "rof.png" },
+  Rain_Of_Fear_2_4GB: { label: "Rain of Fear 2 (4GB)", suffix: "rof", image: "rof.png" },
   Seeds_Of_Destruction: { label: "Seeds of Destruction", suffix: "sod", image: "rof.png" },
   Underfoot: { label: "Underfoot", suffix: "und", image: "underfoot.png" },
   Secrets_Of_Feydwer: { label: "Secrets of Feydwer", suffix: "sof", image: "sof.png" },
@@ -39,6 +40,7 @@ const HASH_TO_VERSION = {
   "BB42BC3870F59B6424A56FED3289C6D4": "Titanium",
   "368BB9F425C8A55030A63E606D184445": "Rain_Of_Fear",
   "240C80800112ADA825C146D7349CE85B": "Rain_Of_Fear_2",
+  "389709EC0E456C3DAE881A61218AAB3F": "Rain_Of_Fear_2_4GB",
   "A057A23F030BAA1C4910323B131407105ACAD14D": "Rain_Of_Fear_2",
   "6BFAE252C1A64FE8A3E176CAEE7AAE60": "Broken_Mirror",
   "AD970AD6DB97E5BB21141C205CAD6E68": "Broken_Mirror"
@@ -162,6 +164,7 @@ class LauncherBackend {
     this.appState = { gameDirectory: "" };
     this.cancelController = null;
     this.cancelRequested = false;
+    this.resolvedConfigPath = this.configPath;
 
     this.state = {
       platform: this.platform,
@@ -295,14 +298,22 @@ class LauncherBackend {
     await this.saveAppState();
   }
 
+  async resolveConfigPath() {
+    if (this.launchConfigPath && (await exists(this.launchConfigPath))) {
+      return this.launchConfigPath;
+    }
+
+    if (this.runtimeConfigPath && (await exists(this.runtimeConfigPath))) {
+      return this.runtimeConfigPath;
+    }
+
+    return this.configPath;
+  }
+
   async loadConfig() {
     this.config = { ...DEFAULTS };
-    let resolvedConfigPath = this.configPath;
-    if (this.launchConfigPath && (await exists(this.launchConfigPath))) {
-      resolvedConfigPath = this.launchConfigPath;
-    } else if (this.runtimeConfigPath && (await exists(this.runtimeConfigPath))) {
-      resolvedConfigPath = this.runtimeConfigPath;
-    }
+    const resolvedConfigPath = await this.resolveConfigPath();
+    this.resolvedConfigPath = resolvedConfigPath;
 
     if (!(await exists(resolvedConfigPath))) {
       this.state.serverName = this.resolveServerName();
@@ -326,6 +337,12 @@ class LauncherBackend {
 
     this.state.serverName = this.resolveServerName();
     this.state.filelistUrl = this.config.filelistUrl;
+  }
+
+  async getResolvedConfigPath() {
+    const resolvedConfigPath = await this.resolveConfigPath();
+    this.resolvedConfigPath = resolvedConfigPath;
+    return resolvedConfigPath;
   }
 
   async loadAppState() {
@@ -919,4 +936,3 @@ class LauncherBackend {
 module.exports = {
   LauncherBackend
 };
-

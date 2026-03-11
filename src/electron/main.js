@@ -5,6 +5,14 @@ const { LauncherBackend } = require("./backend/launcher-backend");
 let mainWindow = null;
 let backend = null;
 
+function resolveWindowIconPath() {
+  if (process.platform === "win32") {
+    return path.join(__dirname, "assets", "icons", "icon.ico");
+  }
+
+  return path.join(__dirname, "assets", "icons", "icon.png");
+}
+
 function resolveLaunchDirectory() {
   if (process.env.PORTABLE_EXECUTABLE_DIR) {
     return process.env.PORTABLE_EXECUTABLE_DIR;
@@ -14,6 +22,7 @@ function resolveLaunchDirectory() {
 }
 
 function createWindow() {
+  const icon = resolveWindowIconPath();
   mainWindow = new BrowserWindow({
     width: 1460,
     height: 940,
@@ -21,6 +30,7 @@ function createWindow() {
     minHeight: 820,
     backgroundColor: "#071019",
     title: "EQEmu Launcher",
+    icon,
     show: false,
     frame: false,
     autoHideMenuBar: true,
@@ -36,6 +46,10 @@ function createWindow() {
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
   });
+
+  if (process.platform === "win32") {
+    mainWindow.setIcon(icon);
+  }
 
   mainWindow.setMenuBarVisibility(false);
 
@@ -65,6 +79,10 @@ async function createBackend() {
 }
 
 app.whenReady().then(async () => {
+  if (process.platform === "win32") {
+    app.setAppUserModelId("com.eqemu.launcher");
+  }
+
   await createBackend();
   createWindow();
 
@@ -104,6 +122,32 @@ ipcMain.handle("launcher:openExternal", async (_event, url) => {
 
   await shell.openExternal(url);
   return true;
+});
+ipcMain.handle("launcher:openConfigFile", async () => {
+  const configPath = await backend.getResolvedConfigPath();
+  const result = await shell.openPath(configPath);
+  return {
+    ok: result === "",
+    path: configPath,
+    error: result || ""
+  };
+});
+ipcMain.handle("launcher:openGameDirectory", async () => {
+  const gameDirectory = backend?.state?.gameDirectory || "";
+  if (!gameDirectory) {
+    return {
+      ok: false,
+      path: "",
+      error: "No game directory is currently selected."
+    };
+  }
+
+  const result = await shell.openPath(gameDirectory);
+  return {
+    ok: result === "",
+    path: gameDirectory,
+    error: result || ""
+  };
 });
 
 app.on("window-all-closed", () => {

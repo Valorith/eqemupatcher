@@ -15,6 +15,7 @@ const elements = {
   patchButton: document.getElementById("patchButton"),
   launchButton: document.getElementById("launchButton"),
   refreshButton: document.getElementById("refreshButton"),
+  settingsButton: document.getElementById("settingsButton"),
   minimizeButton: document.getElementById("minimizeButton"),
   closeButton: document.getElementById("closeButton"),
   autoPatchToggle: document.getElementById("autoPatchToggle"),
@@ -25,8 +26,41 @@ const elements = {
   progressValue: document.getElementById("progressValue"),
   progressBar: document.getElementById("progressBar"),
   logList: document.getElementById("logList"),
-  logPlaceholder: document.getElementById("logPlaceholder")
+  logPlaceholder: document.getElementById("logPlaceholder"),
+  settingsModal: document.getElementById("settingsModal"),
+  settingsBackdrop: document.getElementById("settingsBackdrop"),
+  settingsCloseButton: document.getElementById("settingsCloseButton"),
+  openConfigButton: document.getElementById("openConfigButton"),
+  openGameDirectoryButton: document.getElementById("openGameDirectoryButton")
 };
+
+function openSettingsModal() {
+  elements.settingsModal.classList.remove("hidden");
+  elements.settingsModal.setAttribute("aria-hidden", "false");
+}
+
+function closeSettingsModal() {
+  elements.settingsModal.classList.add("hidden");
+  elements.settingsModal.setAttribute("aria-hidden", "true");
+}
+
+async function runUtilityAction(action, successMessage, failureFallback) {
+  const result = await action();
+  if (result?.ok) {
+    pushLog({
+      text: `${successMessage} ${result.path}`,
+      tone: "info",
+      timestamp: new Date().toISOString()
+    });
+    return;
+  }
+
+  pushLog({
+    text: result?.error || failureFallback,
+    tone: "error",
+    timestamp: new Date().toISOString()
+  });
+}
 
 function derivePresentation(nextState) {
   const presentation = {
@@ -102,10 +136,18 @@ function derivePresentation(nextState) {
 }
 
 function setBusy(button, busyText, busy) {
+  if (button.classList.contains("icon-button")) {
+    button.disabled = busy;
+    button.setAttribute("aria-busy", busy ? "true" : "false");
+    button.classList.toggle("is-busy", busy);
+    return;
+  }
+
   if (!button.dataset.originalText) {
     button.dataset.originalText = button.textContent;
   }
 
+  button.disabled = busy;
   button.textContent = busy ? busyText : button.dataset.originalText;
 }
 
@@ -175,6 +217,7 @@ function renderState(nextState) {
   elements.autoPlayToggle.checked = nextState.autoPlay;
 
   elements.platformNote.textContent = presentation.platformNote;
+  elements.openGameDirectoryButton.disabled = !nextState.gameDirectory;
 
   if (nextState.reportUrl) {
     elements.reportLink.classList.remove("hidden");
@@ -228,6 +271,18 @@ function wireEvents() {
     }
   });
 
+  elements.settingsButton.addEventListener("click", () => {
+    openSettingsModal();
+  });
+
+  elements.settingsCloseButton.addEventListener("click", () => {
+    closeSettingsModal();
+  });
+
+  elements.settingsBackdrop.addEventListener("click", () => {
+    closeSettingsModal();
+  });
+
   elements.patchButton.addEventListener("click", async () => {
     if (state.current?.isPatching) {
       await window.launcher.cancelPatch();
@@ -260,6 +315,28 @@ function wireEvents() {
     event.preventDefault();
     if (state.current?.reportUrl) {
       await window.launcher.openExternal(state.current.reportUrl);
+    }
+  });
+
+  elements.openConfigButton.addEventListener("click", async () => {
+    await runUtilityAction(
+      () => window.launcher.openConfigFile(),
+      "Opened launcher config:",
+      "Unable to open the launcher config file."
+    );
+  });
+
+  elements.openGameDirectoryButton.addEventListener("click", async () => {
+    await runUtilityAction(
+      () => window.launcher.openGameDirectory(),
+      "Opened game directory:",
+      "Unable to open the selected game directory."
+    );
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !elements.settingsModal.classList.contains("hidden")) {
+      closeSettingsModal();
     }
   });
 }
