@@ -4,6 +4,7 @@ const { LauncherBackend } = require("./backend/launcher-backend");
 
 let mainWindow = null;
 let backend = null;
+const windowsIconPath = path.join(__dirname, "assets", "icons", "icon-app.ico");
 
 function resolveLaunchDirectory() {
   if (process.env.PORTABLE_EXECUTABLE_DIR) {
@@ -21,6 +22,7 @@ function createWindow() {
     minHeight: 820,
     backgroundColor: "#071019",
     title: "EQEmu Launcher",
+    icon: process.platform === "win32" ? windowsIconPath : undefined,
     show: false,
     frame: false,
     autoHideMenuBar: true,
@@ -65,6 +67,10 @@ async function createBackend() {
 }
 
 app.whenReady().then(async () => {
+  if (process.platform === "win32") {
+    app.setAppUserModelId("com.eqemu.launcher");
+  }
+
   await createBackend();
   createWindow();
 
@@ -76,6 +82,7 @@ app.whenReady().then(async () => {
 });
 
 ipcMain.handle("launcher:initialize", async () => backend.initialize());
+ipcMain.handle("launcher:getVersion", async () => app.getVersion());
 ipcMain.handle("launcher:refreshState", async () => backend.refreshState());
 ipcMain.handle("launcher:startPatch", async () => backend.startPatch());
 ipcMain.handle("launcher:cancelPatch", async () => backend.cancelPatch());

@@ -143,6 +143,10 @@ function deriveServerNameFromUrl(urlValue) {
   }
 }
 
+function isLaunchPermissionError(error) {
+  return error && ["EACCES", "EPERM"].includes(error.code);
+}
+
 class LauncherBackend {
   constructor({ appUserDataPath, projectRoot, launchDirectory, runtimeDirectory, eventSink, fetchImpl, spawnImpl, platform }) {
     this.appUserDataPath = appUserDataPath;
@@ -475,12 +479,12 @@ class LauncherBackend {
     const detectResult = await this.detectClientVersion();
     this.state.clientVersion = detectResult.version;
     this.state.clientLabel = (CLIENTS[detectResult.version] || CLIENTS.Unknown).label;
-    this.state.clientHash = detectResult.hash;
-    this.state.clientSupported = this.config.supportedClients.includes(detectResult.version);
-    this.state.heroImageUrl = this.getHeroImageUrl(detectResult.version);
-    this.state.canLaunch = detectResult.found && this.state.launchSupported;
+      this.state.clientHash = detectResult.hash;
+      this.state.clientSupported = this.config.supportedClients.includes(detectResult.version);
+      this.state.heroImageUrl = this.getHeroImageUrl(detectResult.version);
+      this.state.canLaunch = false;
 
-    await this.saveGameSettings();
+      await this.saveGameSettings();
 
     if (!detectResult.found) {
       this.state.patchActionLabel = "Deploy Patch";
@@ -514,7 +518,9 @@ class LauncherBackend {
       this.state.lastPatchedVersion = normalizeVersion(this.gameSettings.lastPatchedVersion);
       this.state.needsPatch = this.state.manifestVersion !== this.state.lastPatchedVersion;
       this.state.canPatch = true;
+      this.state.canLaunch = !this.state.needsPatch && detectResult.found && this.state.launchSupported;
       this.state.patchActionLabel = this.state.needsPatch ? "Deploy Patch" : "Verify Integrity";
+      this.state.launchActionLabel = this.state.needsPatch ? "Start Patch" : "Launch Game";
       this.state.progressLabel = this.state.needsPatch ? "Update available" : "Files are in sync";
 
       if (this.state.needsPatch) {
@@ -607,10 +613,12 @@ class LauncherBackend {
     this.cancelRequested = false;
     this.cancelController = new AbortController();
     this.state.isPatching = true;
+    this.state.canLaunch = false;
     this.state.patchActionLabel = "Cancel Patch";
+    this.state.launchActionLabel = "Start Patch";
     this.state.progressValue = 0;
-    this.state.progressMax = 1;
-    this.state.progressLabel = "Scanning local files";
+    this.state.progressMax = Math.max(downloads.length, 1);
+    this.state.progressLabel = downloads.length ? `Scanning 0 / ${downloads.length} files` : "Scanning local files";
     this.setStatus("Patching", autoTriggered ? "Auto patch is running." : "Scanning local files against the manifest.");
     this.emitState();
     this.emitProgress();
@@ -619,11 +627,17 @@ class LauncherBackend {
     try {
       const filesToDownload = [];
       let totalBytes = 0;
+      let scannedFiles = 0;
 
       for (const entry of downloads) {
         this.throwIfCanceled();
         const targetPath = this.resolveGamePath(entry.name);
         const shouldDownload = !(await exists(targetPath)) || (await this.getFileHash(targetPath)) !== String(entry.md5 || "").toUpperCase();
+        scannedFiles += 1;
+        this.state.progressValue = scannedFiles;
+        this.state.progressMax = Math.max(downloads.length, 1);
+        this.state.progressLabel = `Scanning ${scannedFiles} / ${downloads.length} files`;
+        this.emitProgress();
         if (shouldDownload) {
           filesToDownload.push(entry);
           totalBytes += Math.max(1, Number(entry.size) || 0);
@@ -646,7 +660,9 @@ class LauncherBackend {
         this.state.lastPatchedVersion = normalizeVersion(manifest.version);
         await this.saveGameSettings();
         this.state.needsPatch = false;
+        this.state.canLaunch = this.state.launchSupported && this.state.clientSupported && this.state.clientVersion !== "Unknown";
         this.state.patchActionLabel = "Verify Integrity";
+        this.state.launchActionLabel = "Launch Game";
         this.setStatus("Ready", `Patch ${manifest.version || "current"} is already installed.`);
         this.emitLog(`Up to date with patch ${manifest.version || "current"}.`);
         this.finishPatch();
@@ -684,19 +700,25 @@ class LauncherBackend {
       this.state.progressLabel = "Patch complete";
       this.state.lastPatchedVersion = normalizeVersion(manifest.version);
       this.state.needsPatch = false;
+      this.state.canLaunch = this.state.launchSupported && this.state.clientSupported && this.state.clientVersion !== "Unknown";
       await this.saveGameSettings();
+      this.state.launchActionLabel = "Launch Game";
       this.setStatus("Ready", "Patch complete. Launch is now available.");
       this.emitLog("Complete! Press Launch to begin.");
       this.finishPatch();
     } catch (error) {
       if (error.message === "PATCH_CANCELED") {
         this.state.needsPatch = true;
+        this.state.canLaunch = false;
         this.state.patchActionLabel = "Deploy Patch";
+        this.state.launchActionLabel = "Start Patch";
         this.setStatus("Patch Canceled", "Patch deployment was canceled before completion.");
         this.emitLog("Patching cancelled.", "warning");
       } else {
         this.state.needsPatch = true;
+        this.state.canLaunch = false;
         this.state.patchActionLabel = "Deploy Patch";
+        this.state.launchActionLabel = "Start Patch";
         this.setStatus("Patch Error", error.message, error.message);
         this.emitLog(`Patch failed: ${error.message}`, "error");
       }
@@ -713,6 +735,7 @@ class LauncherBackend {
   finishPatch() {
     this.state.isPatching = false;
     this.state.patchActionLabel = this.state.needsPatch ? "Deploy Patch" : "Verify Integrity";
+    this.state.launchActionLabel = this.state.needsPatch ? "Start Patch" : "Launch Game";
     this.cancelController = null;
     this.cancelRequested = false;
     this.emitState();
@@ -867,12 +890,38 @@ class LauncherBackend {
   }
 
   async spawnEverQuest(eqGamePath) {
+    const launchOptions = {
+      cwd: this.state.gameDirectory,
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true
+    };
+
+    try {
+      await this.spawnDetached(eqGamePath, ["patchme"], launchOptions);
+    } catch (error) {
+      if (this.platform !== "win32" || !isLaunchPermissionError(error)) {
+        throw error;
+      }
+
+      this.emitLog(`Direct launch was denied (${error.code}). Retrying through cmd.exe...`, "warning");
+      await this.spawnDetached(
+        process.env.comspec || "cmd.exe",
+        ["/d", "/s", "/c", "start", '""', "/d", this.state.gameDirectory, eqGamePath, "patchme"],
+        launchOptions
+      );
+    }
+  }
+
+  async spawnDetached(command, args, options) {
     await new Promise((resolve, reject) => {
-      const child = this.spawnImpl(eqGamePath, ["patchme"], {
-        cwd: this.state.gameDirectory,
-        detached: true,
-        stdio: "ignore"
-      });
+      let child;
+      try {
+        child = this.spawnImpl(command, args, options);
+      } catch (error) {
+        reject(error);
+        return;
+      }
 
       let settled = false;
       const finish = (callback, value) => {
