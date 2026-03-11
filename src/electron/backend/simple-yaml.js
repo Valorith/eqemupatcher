@@ -57,6 +57,23 @@ function parse(text) {
     const indent = rawLine.match(/^ */)[0].length;
     const line = rawLine.trim();
 
+    // Legacy filelistbuilder output keeps array items flush-left after
+    // `downloads:` / `deletes:` instead of indenting them under the key.
+    if (currentArrayKey && indent === 0 && line.startsWith("- ")) {
+      const itemText = line.slice(2).trim();
+      if (itemText.includes(":")) {
+        const [key, value] = splitKeyValue(itemText);
+        currentArrayType = "object";
+        currentArrayObject = { [key]: parseScalar(value) };
+        root[currentArrayKey].push(currentArrayObject);
+      } else {
+        currentArrayType = "scalar";
+        currentArrayObject = null;
+        root[currentArrayKey].push(parseScalar(itemText));
+      }
+      continue;
+    }
+
     if (indent === 0) {
       currentArrayObject = null;
 

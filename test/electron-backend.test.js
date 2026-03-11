@@ -703,3 +703,68 @@ test("remains compatible with legacy filelistbuilder manifest output", async (t)
   assert.equal(state.lastPatchedVersion, "20260310deadbeef");
   assert.equal(state.needsPatch, false);
 });
+
+test("repairs missing files from flush-left legacy manifest entries", async (t) => {
+  const { backend, projectRoot } = await createBackendHarness(t);
+  const gameDirectory = await createTempDir("eqemu-game-");
+  const payload = "restored from legacy manifest";
+  const payloadHash = md5(payload).toLowerCase();
+  let fileRequests = 0;
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  const { server, baseUrl } = await startFixtureServer({
+    "/rof/filelist_rof.yml": (_req, res) => {
+      res.writeHead(200, { "content-type": "text/yaml" });
+      res.end(
+        [
+          "version: 20260310legacyshape",
+          "deletes:",
+          "- name: old-file.txt",
+          `downloadprefix: ${baseUrl}/rof/`,
+          "downloads:",
+          "- name: barter_assets.txt",
+          `  md5: ${payloadHash}`,
+          "  date: 20260310",
+          `  size: ${Buffer.byteLength(payload)}`,
+          ""
+        ].join("\n")
+      );
+    },
+    "/rof/barter_assets.txt": (_req, res) => {
+      fileRequests += 1;
+      res.writeHead(200, { "content-type": "application/octet-stream" });
+      res.end(payload);
+    }
+  });
+
+  t.after(() => server.close());
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    `serverName: Test Realm\nfilelistUrl: ${baseUrl}/\ndefaultAutoPatch: false\ndefaultAutoPlay: false\nsupportedClients:\n  - Rain_Of_Fear_2\n`,
+    "utf8"
+  );
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+
+  await backend.initialize();
+  backend.detectClientVersion = async () => ({
+    found: true,
+    hash: "KNOWN",
+    version: "Rain_Of_Fear_2"
+  });
+
+  const refreshed = await backend.setGameDirectory(gameDirectory);
+  assert.equal(refreshed.manifestVersion, "20260310legacyshape");
+  assert.equal(refreshed.needsPatch, true);
+
+  const state = await backend.startPatch();
+
+  assert.equal(fileRequests, 1);
+  assert.equal(await fsp.readFile(path.join(gameDirectory, "barter_assets.txt"), "utf8"), payload);
+  assert.equal(state.lastPatchedVersion, "20260310legacyshape");
+  assert.equal(state.needsPatch, false);
+});
