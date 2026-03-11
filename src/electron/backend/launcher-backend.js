@@ -143,6 +143,10 @@ function deriveServerNameFromUrl(urlValue) {
   }
 }
 
+function isLaunchPermissionError(error) {
+  return error && ["EACCES", "EPERM"].includes(error.code);
+}
+
 class LauncherBackend {
   constructor({ appUserDataPath, projectRoot, launchDirectory, runtimeDirectory, eventSink, fetchImpl, spawnImpl, platform }) {
     this.appUserDataPath = appUserDataPath;
@@ -613,8 +617,8 @@ class LauncherBackend {
     this.state.patchActionLabel = "Cancel Patch";
     this.state.launchActionLabel = "Start Patch";
     this.state.progressValue = 0;
-    this.state.progressMax = 1;
-    this.state.progressLabel = "Scanning local files";
+    this.state.progressMax = Math.max(downloads.length, 1);
+    this.state.progressLabel = downloads.length ? `Scanning 0 / ${downloads.length} files` : "Scanning local files";
     this.setStatus("Patching", autoTriggered ? "Auto patch is running." : "Scanning local files against the manifest.");
     this.emitState();
     this.emitProgress();
@@ -623,11 +627,17 @@ class LauncherBackend {
     try {
       const filesToDownload = [];
       let totalBytes = 0;
+      let scannedFiles = 0;
 
       for (const entry of downloads) {
         this.throwIfCanceled();
         const targetPath = this.resolveGamePath(entry.name);
         const shouldDownload = !(await exists(targetPath)) || (await this.getFileHash(targetPath)) !== String(entry.md5 || "").toUpperCase();
+        scannedFiles += 1;
+        this.state.progressValue = scannedFiles;
+        this.state.progressMax = Math.max(downloads.length, 1);
+        this.state.progressLabel = `Scanning ${scannedFiles} / ${downloads.length} files`;
+        this.emitProgress();
         if (shouldDownload) {
           filesToDownload.push(entry);
           totalBytes += Math.max(1, Number(entry.size) || 0);
@@ -880,12 +890,38 @@ class LauncherBackend {
   }
 
   async spawnEverQuest(eqGamePath) {
+    const launchOptions = {
+      cwd: this.state.gameDirectory,
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true
+    };
+
+    try {
+      await this.spawnDetached(eqGamePath, ["patchme"], launchOptions);
+    } catch (error) {
+      if (this.platform !== "win32" || !isLaunchPermissionError(error)) {
+        throw error;
+      }
+
+      this.emitLog(`Direct launch was denied (${error.code}). Retrying through cmd.exe...`, "warning");
+      await this.spawnDetached(
+        process.env.comspec || "cmd.exe",
+        ["/d", "/s", "/c", "start", '""', "/d", this.state.gameDirectory, eqGamePath, "patchme"],
+        launchOptions
+      );
+    }
+  }
+
+  async spawnDetached(command, args, options) {
     await new Promise((resolve, reject) => {
-      const child = this.spawnImpl(eqGamePath, ["patchme"], {
-        cwd: this.state.gameDirectory,
-        detached: true,
-        stdio: "ignore"
-      });
+      let child;
+      try {
+        child = this.spawnImpl(command, args, options);
+      } catch (error) {
+        reject(error);
+        return;
+      }
 
       let settled = false;
       const finish = (callback, value) => {

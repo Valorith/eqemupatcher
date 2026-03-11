@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
+const { EventEmitter } = require("node:events");
 const fs = require("node:fs");
 const fsp = require("node:fs/promises");
 const http = require("node:http");
@@ -639,6 +640,53 @@ test("patch completion does not auto-launch even when autoPlay is enabled", asyn
   assert.equal(state.needsPatch, false);
   assert.equal(state.statusBadge, "Ready");
   assert.equal(spawnCalls, 0);
+});
+
+test("launchGame falls back to cmd.exe when direct spawn is denied on Windows", async (t) => {
+  const spawnCalls = [];
+  const { backend } = await createBackendHarness(t, {
+    platform: "win32",
+    spawnImpl: (command, args, options) => {
+      spawnCalls.push({ command, args, options });
+      const child = new EventEmitter();
+      child.unref = () => {};
+
+      process.nextTick(() => {
+        if (spawnCalls.length === 1) {
+          const error = new Error("access denied");
+          error.code = "EACCES";
+          child.emit("error", error);
+          return;
+        }
+
+        child.emit("spawn");
+      });
+
+      return child;
+    }
+  });
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+  backend.state.gameDirectory = gameDirectory;
+  backend.state.clientVersion = "Rain_Of_Fear_2";
+  backend.state.clientLabel = "Rain of Fear 2";
+  backend.state.clientSupported = true;
+
+  const state = await backend.launchGame();
+
+  assert.equal(state.statusBadge, "Launching");
+  assert.equal(spawnCalls.length, 2);
+  assert.equal(spawnCalls[0].command, path.join(gameDirectory, "eqgame.exe"));
+  assert.equal(spawnCalls[1].command.toLowerCase().endsWith("cmd.exe"), true);
+  assert.deepEqual(spawnCalls[1].args.slice(0, 6), ["/d", "/s", "/c", "start", '""', "/d"]);
+  assert.equal(spawnCalls[1].args[6], gameDirectory);
+  assert.equal(spawnCalls[1].args[7], path.join(gameDirectory, "eqgame.exe"));
+  assert.equal(spawnCalls[1].args[8], "patchme");
 });
 
 test("remains compatible with legacy filelistbuilder manifest output", async (t) => {

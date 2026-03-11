@@ -19,6 +19,7 @@ const elements = {
   serverValue: document.getElementById("serverValue"),
   clientValue: document.getElementById("clientValue"),
   patchStateValue: document.getElementById("patchStateValue"),
+  actionsRow: document.getElementById("actionsRow"),
   patchButton: document.getElementById("patchButton"),
   actionStatus: document.getElementById("actionStatus"),
   launchButton: document.getElementById("launchButton"),
@@ -237,6 +238,9 @@ function renderState(nextState) {
   elements.patchButton.textContent = presentation.patchLabel;
   elements.patchButton.dataset.action = presentation.patchAction;
   elements.patchButton.disabled = presentation.patchAction === "cancel" ? false : !nextState.canPatch;
+  const showStandalonePatchAction = presentation.actionButtonAction === "patch" && !presentation.showActionStatus;
+  elements.patchButton.classList.toggle("hidden", showStandalonePatchAction);
+  elements.actionsRow.classList.toggle("single-action", showStandalonePatchAction);
 
   elements.actionStatus.textContent = presentation.actionStatusText;
   elements.actionStatus.classList.toggle("hidden", !presentation.showActionStatus);
@@ -246,6 +250,7 @@ function renderState(nextState) {
   elements.launchButton.textContent = presentation.actionButtonLabel;
   elements.launchButton.classList.toggle("launch-button", presentation.actionButtonTone === "launch");
   elements.launchButton.classList.toggle("start-patch-button", presentation.actionButtonTone === "patch");
+  elements.launchButton.classList.toggle("attention-pulse", showStandalonePatchAction);
   elements.launchButton.disabled =
     nextState.isPatching ||
     (presentation.actionButtonAction === "launch" && !nextState.canLaunch) ||
@@ -321,18 +326,19 @@ function wireEvents() {
   });
 
   elements.patchButton.addEventListener("click", async () => {
-    if (elements.patchButton.dataset.action === "cancel") {
+    const action = elements.patchButton.dataset.action;
+
+    if (action === "cancel") {
       await window.launcher.cancelPatch();
       return;
     }
 
-    if (!state.current?.canPatch) {
+    if (action !== "verify" || !state.current?.canPatch) {
       return;
     }
 
     showConsole();
-    const nextState = await window.launcher.refreshState();
-    renderState(nextState);
+    await window.launcher.startPatch();
   });
 
   elements.launchButton.addEventListener("click", async () => {

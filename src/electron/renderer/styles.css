@@ -47,6 +47,7 @@ body {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 24%),
     rgba(2, 7, 12, 0.32);
+  -webkit-app-region: drag;
 }
 
 .app-footer {
@@ -55,6 +56,7 @@ body {
   display: flex;
   justify-content: flex-end;
   padding-top: 12px;
+  -webkit-app-region: no-drag;
 }
 
 .version-label {
@@ -101,7 +103,6 @@ body {
   gap: 24px;
   margin-bottom: 20px;
   padding: 4px 0 8px;
-  -webkit-app-region: drag;
   user-select: none;
 }
 
@@ -287,6 +288,7 @@ body {
   gap: 24px;
   flex: 1;
   min-height: 0;
+  -webkit-app-region: no-drag;
 }
 
 .panel {
@@ -298,6 +300,7 @@ body {
     linear-gradient(180deg, var(--panel-strong), var(--panel));
   box-shadow: var(--shadow);
   overflow: hidden;
+  -webkit-app-region: no-drag;
 }
 
 .panel::before {
@@ -551,6 +554,10 @@ body {
   filter: brightness(1.08) saturate(1.04);
 }
 
+.start-patch-button.attention-pulse:not(:disabled) {
+  animation: start-patch-pulse 1800ms ease-in-out infinite;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -593,6 +600,11 @@ body {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.actions-row.single-action {
+  grid-template-columns: minmax(0, 360px);
+  justify-content: center;
 }
 
 .action-slot {
@@ -742,6 +754,24 @@ body {
 @keyframes action-status-spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes start-patch-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    box-shadow:
+      0 12px 30px rgba(48, 108, 255, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  }
+
+  50% {
+    transform: scale(1.015);
+    box-shadow:
+      0 16px 36px rgba(73, 141, 255, 0.4),
+      0 0 0 8px rgba(92, 178, 255, 0.08),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
   }
 }
 
