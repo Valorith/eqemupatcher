@@ -22,7 +22,7 @@
   "build": {
     "appId": "com.eqemu.launcher",
     "productName": "EQEmu Launcher",
-    "icon": "src/electron/assets/icons/icon.png",
+    "icon": "src/electron/assets/icons/icon-app.png",
     "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "dist/electron"
@@ -50,7 +50,7 @@
       ]
     },
     "linux": {
-      "icon": "src/electron/assets/icons/icon.png",
+      "icon": "src/electron/assets/icons/icon-app.png",
       "category": "Game",
       "target": [
         "AppImage",
@@ -58,7 +58,7 @@
       ]
     },
     "win": {
-      "icon": "src/electron/assets/icons/icon.ico",
+      "icon": "src/electron/assets/icons/icon-app.ico",
       "target": [
         {
           "target": "portable",

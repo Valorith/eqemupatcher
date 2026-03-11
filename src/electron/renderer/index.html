@@ -12,9 +12,18 @@
       <div class="ambient ambient-right"></div>
 
       <header class="topbar">
-        <div>
+        <div class="topbar-copy">
           <p class="eyebrow">An EverQuest Emulated Server</p>
           <h1 id="titleValue" class="title">Resolving</h1>
+          <a
+            id="websiteLink"
+            class="website-link"
+            href="https://www.clumsysworld.com"
+            target="_blank"
+            rel="noreferrer"
+          >
+            www.clumsysworld.com
+          </a>
         </div>
         <div class="topbar-side">
           <div class="window-controls" aria-label="Window controls">
@@ -55,63 +64,89 @@
 
         <section class="panel command-card">
           <div class="panel-heading command-heading">
-            <p class="eyebrow">Session State</p>
+            <div>
+              <div class="tab-strip" role="tablist" aria-label="Launcher panels">
+                <button id="patchTabButton" class="tab-button is-active" type="button" role="tab" aria-selected="true" aria-controls="patchTabPanel">Patch</button>
+                <button id="notesTabButton" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="notesTabPanel">Notes</button>
+              </div>
+            </div>
             <div class="toolbar-actions">
-              <button id="refreshButton" class="icon-button" type="button" aria-label="Refresh launcher state">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
-                  <path d="M12 5a7 7 0 0 1 6.04 3.46V6.5a1 1 0 1 1 2 0V12a1 1 0 0 1-1 1h-5.5a1 1 0 1 1 0-2h3.23A5 5 0 1 0 17 14.5a1 1 0 1 1 2 .13A7 7 0 1 1 12 5Z" />
+              <button id="refreshButton" class="ghost-button refresh-button" type="button" aria-label="Refresh patch state" title="Refresh patch state">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                  <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+                  <path d="M20 4v6h-6" />
                 </svg>
               </button>
-              <button id="settingsButton" class="icon-button" type="button" aria-label="Open settings">
-                <svg viewBox="0 0 24 24" aria-hidden="true">
+              <button id="settingsButton" class="ghost-button icon-button" type="button" aria-label="Open settings" title="Open settings">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
                   <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.58.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.48a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.31.6.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54c.04.24.25.42.49.42h3.8c.24 0 .45-.18.49-.42l.36-2.54c.58-.23 1.12-.54 1.63-.94l2.39.96c.22.09.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z" />
                 </svg>
               </button>
             </div>
           </div>
-          <div class="summary-grid">
-            <div class="summary-item">
-              <span class="summary-label">Server</span>
-              <strong id="serverValue">Resolving</strong>
+          <section id="patchTabPanel" class="tab-panel" role="tabpanel" aria-labelledby="patchTabButton">
+            <p class="eyebrow">Session State</p>
+            <div class="summary-grid">
+              <div class="summary-item">
+                <span class="summary-label">Server</span>
+                <strong id="serverValue">Resolving</strong>
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Client</span>
+                <strong id="clientValue">Unknown</strong>
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Patch State</span>
+                <strong id="patchStateValue">Idle</strong>
+              </div>
             </div>
-            <div class="summary-item">
-              <span class="summary-label">Client</span>
-              <strong id="clientValue">Unknown</strong>
+            <div class="status-panel session-status">
+              <div class="session-status-copy">
+                <span class="status-caption">Current State</span>
+                <p id="statusDetail" class="status-detail">Checking the current patch state.</p>
+              </div>
+              <div class="status-chip" id="statusChip">Standby</div>
             </div>
-            <div class="summary-item">
-              <span class="summary-label">Patch State</span>
-              <strong id="patchStateValue">Idle</strong>
+            <div class="actions-cluster">
+              <div class="panel-heading compact-heading">
+                <p class="eyebrow">Patcher Controls</p>
+              </div>
+              <div id="actionsRow" class="actions-row">
+                <button id="patchButton" class="primary-button" disabled>Verify Integrity</button>
+                <div class="action-slot">
+                  <div id="actionStatus" class="action-status">Checking for patch</div>
+                  <button id="launchButton" class="secondary-button launch-button hidden">Launch Game</button>
+                </div>
+              </div>
+              <div class="toggle-row">
+                <label class="toggle">
+                  <input id="autoPatchToggle" type="checkbox" />
+                  <span class="toggle-track"></span>
+                  <span class="toggle-label">Auto Patch</span>
+                </label>
+                <label class="toggle">
+                  <input id="autoPlayToggle" type="checkbox" />
+                  <span class="toggle-track"></span>
+                  <span class="toggle-label">Auto Play</span>
+                </label>
+              </div>
+              <a id="reportLink" class="report-link hidden" href="#">Report unknown client hash</a>
             </div>
-          </div>
-          <div class="status-panel session-status">
-            <span class="status-caption">Current State</span>
-            <div class="status-chip" id="statusChip">Standby</div>
-          </div>
-          <div class="actions-cluster">
-            <div class="panel-heading compact-heading">
-              <p class="eyebrow">Patcher Controls</p>
+          </section>
+          <section id="notesTabPanel" class="tab-panel hidden" role="tabpanel" aria-labelledby="notesTabButton">
+            <div class="notes-panel">
+              <p class="eyebrow">Patch Notes</p>
+              <div class="notes-card">
+                <h2 class="section-title">Coming Soon</h2>
+                <p class="notes-copy">This tab will eventually load searchable, scrollable patch notes.</p>
+              </div>
             </div>
-            <div class="actions-row">
-              <button id="patchButton" class="primary-button">Deploy Patch</button>
-              <button id="launchButton" class="secondary-button launch-button">Launch Game</button>
-            </div>
-            <div class="toggle-row">
-              <label class="toggle">
-                <input id="autoPatchToggle" type="checkbox" />
-                <span class="toggle-track"></span>
-                <span class="toggle-label">Auto Patch</span>
-              </label>
-              <label class="toggle">
-                <input id="autoPlayToggle" type="checkbox" />
-                <span class="toggle-track"></span>
-                <span class="toggle-label">Auto Play</span>
-              </label>
-            </div>
-            <div class="platform-note" id="platformNote"></div>
-            <a id="reportLink" class="report-link hidden" href="#">Report unknown client hash</a>
-          </div>
+          </section>
         </section>
       </main>
+      <footer class="app-footer">
+        <span id="versionLabel" class="version-label">Patcher v0.0.0</span>
+      </footer>
     </div>
 
     <div id="settingsModal" class="modal-shell hidden" aria-hidden="true">

@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("launcher", {
   initialize: () => ipcRenderer.invoke("launcher:initialize"),
+  getVersion: () => ipcRenderer.invoke("launcher:getVersion"),
   refreshState: () => ipcRenderer.invoke("launcher:refreshState"),
   startPatch: () => ipcRenderer.invoke("launcher:startPatch"),
   cancelPatch: () => ipcRenderer.invoke("launcher:cancelPatch"),

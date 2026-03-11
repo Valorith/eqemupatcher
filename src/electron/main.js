@@ -4,14 +4,8 @@ const { LauncherBackend } = require("./backend/launcher-backend");
 
 let mainWindow = null;
 let backend = null;
-
-function resolveWindowIconPath() {
-  if (process.platform === "win32") {
-    return path.join(__dirname, "assets", "icons", "icon.ico");
-  }
-
-  return path.join(__dirname, "assets", "icons", "icon.png");
-}
+const windowsIconPath = path.join(__dirname, "assets", "icons", "icon-app.ico");
+const defaultIconPath = path.join(__dirname, "assets", "icons", "icon-app.png");
 
 function resolveLaunchDirectory() {
   if (process.env.PORTABLE_EXECUTABLE_DIR) {
@@ -22,7 +16,6 @@ function resolveLaunchDirectory() {
 }
 
 function createWindow() {
-  const icon = resolveWindowIconPath();
   mainWindow = new BrowserWindow({
     width: 1460,
     height: 940,
@@ -30,7 +23,7 @@ function createWindow() {
     minHeight: 820,
     backgroundColor: "#071019",
     title: "EQEmu Launcher",
-    icon,
+    icon: process.platform === "win32" ? windowsIconPath : defaultIconPath,
     show: false,
     frame: false,
     autoHideMenuBar: true,
@@ -48,7 +41,7 @@ function createWindow() {
   });
 
   if (process.platform === "win32") {
-    mainWindow.setIcon(icon);
+    mainWindow.setIcon(windowsIconPath);
   }
 
   mainWindow.setMenuBarVisibility(false);
@@ -94,6 +87,7 @@ app.whenReady().then(async () => {
 });
 
 ipcMain.handle("launcher:initialize", async () => backend.initialize());
+ipcMain.handle("launcher:getVersion", async () => app.getVersion());
 ipcMain.handle("launcher:refreshState", async () => backend.refreshState());
 ipcMain.handle("launcher:startPatch", async () => backend.startPatch());
 ipcMain.handle("launcher:cancelPatch", async () => backend.cancelPatch());
