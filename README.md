@@ -1,7 +1,7 @@
 # EQEmu Launcher
 <img width="1455" height="937" alt="image" src="https://github.com/user-attachments/assets/ec7f7b17-9a75-4dcc-aea7-97eaae9d22de" />
 
-Electron-based EQEmu patcher and launcher with backward compatibility for servers already using the original EQEmu patcher manifest format.
+Electron-based EQEmu patcher and launcher with backward compatibility for servers already using the original EQEmu patcher manifest format. This app is built upon the work of https://github.com/xackery in the original EQEmu Patcher.
 
 ## What This Fork Is
 
