@@ -76,6 +76,7 @@ app.whenReady().then(async () => {
 });
 
 ipcMain.handle("launcher:initialize", async () => backend.initialize());
+ipcMain.handle("launcher:getVersion", async () => app.getVersion());
 ipcMain.handle("launcher:refreshState", async () => backend.refreshState());
 ipcMain.handle("launcher:startPatch", async () => backend.startPatch());
 ipcMain.handle("launcher:cancelPatch", async () => backend.cancelPatch());

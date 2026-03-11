@@ -1,51 +1,92 @@
 const state = {
   current: null,
   logs: [],
-  consoleVisible: false
+  consoleVisible: false,
+  activeTab: "patch"
 };
 
 const elements = {
   leftStage: document.getElementById("leftStage"),
   statusChip: document.getElementById("statusChip"),
+  statusDetail: document.getElementById("statusDetail"),
   heroImage: document.getElementById("heroImage"),
   titleValue: document.getElementById("titleValue"),
+  websiteLink: document.getElementById("websiteLink"),
+  patchTabButton: document.getElementById("patchTabButton"),
+  notesTabButton: document.getElementById("notesTabButton"),
+  patchTabPanel: document.getElementById("patchTabPanel"),
+  notesTabPanel: document.getElementById("notesTabPanel"),
   serverValue: document.getElementById("serverValue"),
   clientValue: document.getElementById("clientValue"),
   patchStateValue: document.getElementById("patchStateValue"),
   patchButton: document.getElementById("patchButton"),
+  actionStatus: document.getElementById("actionStatus"),
   launchButton: document.getElementById("launchButton"),
   refreshButton: document.getElementById("refreshButton"),
   minimizeButton: document.getElementById("minimizeButton"),
   closeButton: document.getElementById("closeButton"),
   autoPatchToggle: document.getElementById("autoPatchToggle"),
   autoPlayToggle: document.getElementById("autoPlayToggle"),
-  platformNote: document.getElementById("platformNote"),
   reportLink: document.getElementById("reportLink"),
   progressLabel: document.getElementById("progressLabel"),
   progressValue: document.getElementById("progressValue"),
   progressBar: document.getElementById("progressBar"),
   logList: document.getElementById("logList"),
-  logPlaceholder: document.getElementById("logPlaceholder")
+  logPlaceholder: document.getElementById("logPlaceholder"),
+  versionLabel: document.getElementById("versionLabel")
 };
+
+function setActiveTab(tabName) {
+  state.activeTab = tabName;
+  const patchIsActive = tabName === "patch";
+  const notesIsActive = tabName === "notes";
+
+  elements.patchTabButton.classList.toggle("is-active", patchIsActive);
+  elements.patchTabButton.setAttribute("aria-selected", String(patchIsActive));
+  elements.patchTabPanel.classList.toggle("hidden", !patchIsActive);
+
+  elements.notesTabButton.classList.toggle("is-active", notesIsActive);
+  elements.notesTabButton.setAttribute("aria-selected", String(notesIsActive));
+  elements.notesTabPanel.classList.toggle("hidden", !notesIsActive);
+}
+
+function renderVersion(version) {
+  elements.versionLabel.textContent = `Patcher v${version || "0.0.0"}`;
+}
+
+function isCheckingPatch(nextState) {
+  return Boolean(
+    nextState.gameDirectory &&
+      !nextState.isPatching &&
+      !nextState.reportUrl &&
+      nextState.clientVersion !== "Unknown" &&
+      nextState.clientSupported &&
+      !nextState.manifestVersion &&
+      nextState.statusBadge !== "Manifest Error"
+  );
+}
 
 function derivePresentation(nextState) {
   const presentation = {
     chipText: nextState.statusBadge,
     chipTone: "neutral",
+    statusDetail: nextState.statusDetail || "",
     patchStateText: nextState.needsPatch ? "Update Ready" : nextState.manifestVersion ? "Ready" : "Idle",
-    patchLabel: nextState.patchActionLabel,
-    launchLabel: nextState.launchActionLabel,
-    platformNote: nextState.launchSupported
-      ? "Patch files and launch from this machine."
-      : "Patch validation works here. Game launch remains Windows-only."
+    patchLabel: "Verify Integrity",
+    patchAction: "verify",
+    actionButtonLabel: "Launch Game",
+    actionButtonAction: "launch",
+    actionButtonTone: "launch",
+    showActionStatus: false,
+    actionStatusText: "Checking for patch"
   };
 
   if (!nextState.gameDirectory) {
     presentation.chipText = "Run In Folder";
     presentation.chipTone = "attention";
     presentation.patchStateText = "Waiting for eqgame.exe";
-    presentation.patchLabel = "Patch Locked";
-    presentation.launchLabel = "Launch Locked";
+    presentation.actionButtonLabel = "Launch Locked";
+    presentation.actionButtonAction = "locked";
     return presentation;
   }
 
@@ -54,6 +95,18 @@ function derivePresentation(nextState) {
     presentation.chipTone = "active";
     presentation.patchStateText = "Patching";
     presentation.patchLabel = "Cancel Patch";
+    presentation.patchAction = "cancel";
+    presentation.showActionStatus = true;
+    presentation.actionStatusText = "Applying patch";
+    return presentation;
+  }
+
+  if (isCheckingPatch(nextState)) {
+    presentation.chipText = "Checking";
+    presentation.chipTone = "active";
+    presentation.patchStateText = "Checking";
+    presentation.showActionStatus = true;
+    presentation.actionStatusText = "Checking for patch";
     return presentation;
   }
 
@@ -62,7 +115,9 @@ function derivePresentation(nextState) {
     presentation.chipTone = "warning";
     presentation.patchStateText = "Unknown client";
     presentation.patchLabel = "Patch Unavailable";
-    presentation.launchLabel = "Launch Locked";
+    presentation.patchAction = "locked";
+    presentation.actionButtonLabel = "Launch Locked";
+    presentation.actionButtonAction = "locked";
     return presentation;
   }
 
@@ -71,6 +126,9 @@ function derivePresentation(nextState) {
     presentation.chipTone = "warning";
     presentation.patchStateText = "Unsupported";
     presentation.patchLabel = "Patch Unavailable";
+    presentation.patchAction = "locked";
+    presentation.actionButtonLabel = "Launch Locked";
+    presentation.actionButtonAction = "locked";
     return presentation;
   }
 
@@ -78,7 +136,9 @@ function derivePresentation(nextState) {
     presentation.chipText = "Manifest Error";
     presentation.chipTone = "warning";
     presentation.patchStateText = "Manifest offline";
-    presentation.patchLabel = "Manifest Error";
+    presentation.patchLabel = "Verify Integrity";
+    presentation.actionButtonLabel = "Launch Locked";
+    presentation.actionButtonAction = "locked";
     return presentation;
   }
 
@@ -86,7 +146,9 @@ function derivePresentation(nextState) {
     presentation.chipText = "Update Ready";
     presentation.chipTone = "active";
     presentation.patchStateText = "Update Ready";
-    presentation.patchLabel = "Deploy Patch";
+    presentation.actionButtonLabel = "Start Patch";
+    presentation.actionButtonAction = "patch";
+    presentation.actionButtonTone = "patch";
     return presentation;
   }
 
@@ -102,6 +164,13 @@ function derivePresentation(nextState) {
 }
 
 function setBusy(button, busyText, busy) {
+  if (button.classList.contains("refresh-button")) {
+    button.disabled = busy;
+    button.classList.toggle("is-busy", busy);
+    button.setAttribute("aria-busy", String(busy));
+    return;
+  }
+
   if (!button.dataset.originalText) {
     button.dataset.originalText = button.textContent;
   }
@@ -156,6 +225,7 @@ function renderState(nextState) {
 
   elements.statusChip.textContent = presentation.chipText;
   elements.statusChip.dataset.tone = presentation.chipTone;
+  elements.statusDetail.textContent = presentation.statusDetail;
   elements.heroImage.src = nextState.heroImageUrl;
   elements.titleValue.textContent = resolvedTitle;
   elements.serverValue.textContent = nextState.serverName;
@@ -165,16 +235,25 @@ function renderState(nextState) {
 
   elements.patchButton.dataset.originalText = presentation.patchLabel;
   elements.patchButton.textContent = presentation.patchLabel;
-  elements.patchButton.disabled = nextState.isPatching ? false : !nextState.canPatch;
+  elements.patchButton.dataset.action = presentation.patchAction;
+  elements.patchButton.disabled = presentation.patchAction === "cancel" ? false : !nextState.canPatch;
 
-  elements.launchButton.dataset.originalText = presentation.launchLabel;
-  elements.launchButton.textContent = presentation.launchLabel;
-  elements.launchButton.disabled = nextState.isPatching || !nextState.canLaunch;
+  elements.actionStatus.textContent = presentation.actionStatusText;
+  elements.actionStatus.classList.toggle("hidden", !presentation.showActionStatus);
+  elements.launchButton.classList.toggle("hidden", presentation.showActionStatus);
+  elements.launchButton.dataset.originalText = presentation.actionButtonLabel;
+  elements.launchButton.dataset.action = presentation.actionButtonAction;
+  elements.launchButton.textContent = presentation.actionButtonLabel;
+  elements.launchButton.classList.toggle("launch-button", presentation.actionButtonTone === "launch");
+  elements.launchButton.classList.toggle("start-patch-button", presentation.actionButtonTone === "patch");
+  elements.launchButton.disabled =
+    nextState.isPatching ||
+    (presentation.actionButtonAction === "launch" && !nextState.canLaunch) ||
+    (presentation.actionButtonAction === "patch" && !nextState.canPatch) ||
+    !["launch", "patch"].includes(presentation.actionButtonAction);
 
   elements.autoPatchToggle.checked = nextState.autoPatch;
   elements.autoPlayToggle.checked = nextState.autoPlay;
-
-  elements.platformNote.textContent = presentation.platformNote;
 
   if (nextState.reportUrl) {
     elements.reportLink.classList.remove("hidden");
@@ -218,6 +297,11 @@ function wireEvents() {
     await window.launcher.closeWindow();
   });
 
+  elements.websiteLink.addEventListener("click", async (event) => {
+    event.preventDefault();
+    await window.launcher.openExternal(elements.websiteLink.href);
+  });
+
   elements.refreshButton.addEventListener("click", async () => {
     setBusy(elements.refreshButton, "Syncing...", true);
     try {
@@ -228,8 +312,16 @@ function wireEvents() {
     }
   });
 
+  elements.patchTabButton.addEventListener("click", () => {
+    setActiveTab("patch");
+  });
+
+  elements.notesTabButton.addEventListener("click", () => {
+    setActiveTab("notes");
+  });
+
   elements.patchButton.addEventListener("click", async () => {
-    if (state.current?.isPatching) {
+    if (elements.patchButton.dataset.action === "cancel") {
       await window.launcher.cancelPatch();
       return;
     }
@@ -239,11 +331,22 @@ function wireEvents() {
     }
 
     showConsole();
-    await window.launcher.startPatch();
+    const nextState = await window.launcher.refreshState();
+    renderState(nextState);
   });
 
   elements.launchButton.addEventListener("click", async () => {
-    await window.launcher.launchGame();
+    const action = elements.launchButton.dataset.action;
+    if (action === "patch") {
+      showConsole();
+      await window.launcher.startPatch();
+      return;
+    }
+
+    if (action === "launch") {
+      await window.launcher.minimizeWindow();
+      await window.launcher.launchGame();
+    }
   });
 
   elements.autoPatchToggle.addEventListener("change", async () => {
@@ -285,7 +388,9 @@ function subscribe() {
 async function bootstrap() {
   wireEvents();
   subscribe();
-  const nextState = await window.launcher.initialize();
+  setActiveTab("patch");
+  const [version, nextState] = await Promise.all([window.launcher.getVersion(), window.launcher.initialize()]);
+  renderVersion(version);
   renderState(nextState);
 }
 

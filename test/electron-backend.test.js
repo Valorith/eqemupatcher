@@ -202,6 +202,7 @@ test("refreshState recognizes a configured supported client and manifest status"
   assert.equal(state.clientLabel, "Rain of Fear");
   assert.equal(state.manifestVersion, "7");
   assert.equal(state.needsPatch, true);
+  assert.equal(state.canLaunch, false);
   assert.equal(state.patchActionLabel, "Deploy Patch");
   assert.equal(state.statusBadge, "Update Ready");
 });
@@ -431,6 +432,7 @@ test("refreshState treats legacy string patch versions as up to date", async (t)
   assert.equal(state.manifestVersion, "42");
   assert.equal(state.lastPatchedVersion, "42");
   assert.equal(state.needsPatch, false);
+  assert.equal(state.canLaunch, true);
   assert.equal(state.statusBadge, "Ready");
 });
 

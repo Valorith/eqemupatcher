@@ -475,12 +475,12 @@ class LauncherBackend {
     const detectResult = await this.detectClientVersion();
     this.state.clientVersion = detectResult.version;
     this.state.clientLabel = (CLIENTS[detectResult.version] || CLIENTS.Unknown).label;
-    this.state.clientHash = detectResult.hash;
-    this.state.clientSupported = this.config.supportedClients.includes(detectResult.version);
-    this.state.heroImageUrl = this.getHeroImageUrl(detectResult.version);
-    this.state.canLaunch = detectResult.found && this.state.launchSupported;
+      this.state.clientHash = detectResult.hash;
+      this.state.clientSupported = this.config.supportedClients.includes(detectResult.version);
+      this.state.heroImageUrl = this.getHeroImageUrl(detectResult.version);
+      this.state.canLaunch = false;
 
-    await this.saveGameSettings();
+      await this.saveGameSettings();
 
     if (!detectResult.found) {
       this.state.patchActionLabel = "Deploy Patch";
@@ -514,7 +514,9 @@ class LauncherBackend {
       this.state.lastPatchedVersion = normalizeVersion(this.gameSettings.lastPatchedVersion);
       this.state.needsPatch = this.state.manifestVersion !== this.state.lastPatchedVersion;
       this.state.canPatch = true;
+      this.state.canLaunch = !this.state.needsPatch && detectResult.found && this.state.launchSupported;
       this.state.patchActionLabel = this.state.needsPatch ? "Deploy Patch" : "Verify Integrity";
+      this.state.launchActionLabel = this.state.needsPatch ? "Start Patch" : "Launch Game";
       this.state.progressLabel = this.state.needsPatch ? "Update available" : "Files are in sync";
 
       if (this.state.needsPatch) {
@@ -607,7 +609,9 @@ class LauncherBackend {
     this.cancelRequested = false;
     this.cancelController = new AbortController();
     this.state.isPatching = true;
+    this.state.canLaunch = false;
     this.state.patchActionLabel = "Cancel Patch";
+    this.state.launchActionLabel = "Start Patch";
     this.state.progressValue = 0;
     this.state.progressMax = 1;
     this.state.progressLabel = "Scanning local files";
@@ -646,7 +650,9 @@ class LauncherBackend {
         this.state.lastPatchedVersion = normalizeVersion(manifest.version);
         await this.saveGameSettings();
         this.state.needsPatch = false;
+        this.state.canLaunch = this.state.launchSupported && this.state.clientSupported && this.state.clientVersion !== "Unknown";
         this.state.patchActionLabel = "Verify Integrity";
+        this.state.launchActionLabel = "Launch Game";
         this.setStatus("Ready", `Patch ${manifest.version || "current"} is already installed.`);
         this.emitLog(`Up to date with patch ${manifest.version || "current"}.`);
         this.finishPatch();
@@ -684,19 +690,25 @@ class LauncherBackend {
       this.state.progressLabel = "Patch complete";
       this.state.lastPatchedVersion = normalizeVersion(manifest.version);
       this.state.needsPatch = false;
+      this.state.canLaunch = this.state.launchSupported && this.state.clientSupported && this.state.clientVersion !== "Unknown";
       await this.saveGameSettings();
+      this.state.launchActionLabel = "Launch Game";
       this.setStatus("Ready", "Patch complete. Launch is now available.");
       this.emitLog("Complete! Press Launch to begin.");
       this.finishPatch();
     } catch (error) {
       if (error.message === "PATCH_CANCELED") {
         this.state.needsPatch = true;
+        this.state.canLaunch = false;
         this.state.patchActionLabel = "Deploy Patch";
+        this.state.launchActionLabel = "Start Patch";
         this.setStatus("Patch Canceled", "Patch deployment was canceled before completion.");
         this.emitLog("Patching cancelled.", "warning");
       } else {
         this.state.needsPatch = true;
+        this.state.canLaunch = false;
         this.state.patchActionLabel = "Deploy Patch";
+        this.state.launchActionLabel = "Start Patch";
         this.setStatus("Patch Error", error.message, error.message);
         this.emitLog(`Patch failed: ${error.message}`, "error");
       }
@@ -713,6 +725,7 @@ class LauncherBackend {
   finishPatch() {
     this.state.isPatching = false;
     this.state.patchActionLabel = this.state.needsPatch ? "Deploy Patch" : "Verify Integrity";
+    this.state.launchActionLabel = this.state.needsPatch ? "Start Patch" : "Launch Game";
     this.cancelController = null;
     this.cancelRequested = false;
     this.emitState();
