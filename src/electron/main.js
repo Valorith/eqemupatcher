@@ -1,9 +1,17 @@
 const path = require("path");
-const { BrowserWindow, app, dialog, ipcMain, shell } = require("electron");
+const { BrowserWindow, app, ipcMain, shell } = require("electron");
 const { LauncherBackend } = require("./backend/launcher-backend");
 
 let mainWindow = null;
 let backend = null;
+
+function resolveLaunchDirectory() {
+  if (process.env.PORTABLE_EXECUTABLE_DIR) {
+    return process.env.PORTABLE_EXECUTABLE_DIR;
+  }
+
+  return app.isPackaged ? path.dirname(app.getPath("exe")) : process.cwd();
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -14,7 +22,9 @@ function createWindow() {
     backgroundColor: "#071019",
     title: "EQEmu Launcher",
     show: false,
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "default",
+    frame: false,
+    autoHideMenuBar: true,
+    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -26,6 +36,8 @@ function createWindow() {
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
   });
+
+  mainWindow.setMenuBarVisibility(false);
 
   mainWindow.on("closed", () => {
     mainWindow = null;
@@ -46,6 +58,8 @@ async function createBackend() {
   backend = new LauncherBackend({
     appUserDataPath: app.getPath("userData"),
     projectRoot: path.resolve(__dirname, "..", ".."),
+    launchDirectory: resolveLaunchDirectory(),
+    runtimeDirectory: path.dirname(app.getPath("exe")),
     eventSink: emitToRenderer
   });
 }
@@ -67,6 +81,22 @@ ipcMain.handle("launcher:startPatch", async () => backend.startPatch());
 ipcMain.handle("launcher:cancelPatch", async () => backend.cancelPatch());
 ipcMain.handle("launcher:launchGame", async () => backend.launchGame());
 ipcMain.handle("launcher:updateSettings", async (_event, patch) => backend.updateSettings(patch));
+ipcMain.handle("launcher:minimizeWindow", async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+
+  mainWindow.minimize();
+  return true;
+});
+ipcMain.handle("launcher:closeWindow", async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+
+  mainWindow.close();
+  return true;
+});
 ipcMain.handle("launcher:openExternal", async (_event, url) => {
   if (!url) {
     return false;
@@ -74,19 +104,6 @@ ipcMain.handle("launcher:openExternal", async (_event, url) => {
 
   await shell.openExternal(url);
   return true;
-});
-
-ipcMain.handle("launcher:chooseGameDirectory", async () => {
-  const result = await dialog.showOpenDialog(mainWindow, {
-    title: "Select EverQuest Directory",
-    properties: ["openDirectory", "createDirectory"]
-  });
-
-  if (result.canceled || result.filePaths.length === 0) {
-    return backend.getState();
-  }
-
-  return backend.setGameDirectory(result.filePaths[0]);
 });
 
 app.on("window-all-closed", () => {
