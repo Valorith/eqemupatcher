@@ -2,7 +2,8 @@ const state = {
   current: null,
   logs: [],
   consoleVisible: false,
-  activeTab: "patch"
+  activeTab: "patch",
+  lastUnsupportedClientKey: ""
 };
 
 const elements = {
@@ -40,6 +41,11 @@ const elements = {
   settingsCloseButton: document.getElementById("settingsCloseButton"),
   openConfigButton: document.getElementById("openConfigButton"),
   openGameDirectoryButton: document.getElementById("openGameDirectoryButton"),
+  unsupportedClientModal: document.getElementById("unsupportedClientModal"),
+  unsupportedClientBackdrop: document.getElementById("unsupportedClientBackdrop"),
+  unsupportedClientCloseButton: document.getElementById("unsupportedClientCloseButton"),
+  unsupportedClientDismissButton: document.getElementById("unsupportedClientDismissButton"),
+  unsupportedClientMessage: document.getElementById("unsupportedClientMessage"),
   versionLabel: document.getElementById("versionLabel")
 };
 
@@ -51,6 +57,22 @@ function openSettingsModal() {
 function closeSettingsModal() {
   elements.settingsModal.classList.add("hidden");
   elements.settingsModal.setAttribute("aria-hidden", "true");
+}
+
+function openUnsupportedClientModal(nextState) {
+  if (nextState.clientVersion === "Unknown") {
+    elements.unsupportedClientMessage.textContent = `This EverQuest executable is not recognized by ${nextState.serverName}. Launch is disabled until you switch to a supported client build.`;
+  } else {
+    elements.unsupportedClientMessage.textContent = `${nextState.clientLabel} is not listed as a supported client for ${nextState.serverName}. Launch is disabled until you switch to a supported client build.`;
+  }
+
+  elements.unsupportedClientModal.classList.remove("hidden");
+  elements.unsupportedClientModal.setAttribute("aria-hidden", "false");
+}
+
+function closeUnsupportedClientModal() {
+  elements.unsupportedClientModal.classList.add("hidden");
+  elements.unsupportedClientModal.setAttribute("aria-hidden", "true");
 }
 
 async function runUtilityAction(action, successMessage, failureFallback) {
@@ -106,12 +128,15 @@ function derivePresentation(nextState) {
     chipText: nextState.statusBadge,
     chipTone: "neutral",
     statusDetail: nextState.statusDetail || "",
+    statusDetailTone: "default",
     patchStateText: nextState.needsPatch ? "Update Ready" : nextState.manifestVersion ? "Ready" : "Idle",
     patchLabel: "Verify Integrity",
     patchAction: "verify",
     actionButtonLabel: "Launch Game",
     actionButtonAction: "launch",
     actionButtonTone: "launch",
+    blockedClient: false,
+    unsupportedClient: false,
     showActionStatus: false,
     actionStatusText: "Checking for patch"
   };
@@ -119,6 +144,7 @@ function derivePresentation(nextState) {
   if (!nextState.gameDirectory) {
     presentation.chipText = "Run In Folder";
     presentation.chipTone = "attention";
+    presentation.statusDetailTone = "danger";
     presentation.patchStateText = "Waiting for eqgame.exe";
     presentation.actionButtonLabel = "Launch Locked";
     presentation.actionButtonAction = "locked";
@@ -148,11 +174,14 @@ function derivePresentation(nextState) {
   if (nextState.reportUrl) {
     presentation.chipText = "Unknown Client";
     presentation.chipTone = "warning";
+    presentation.statusDetailTone = "danger";
     presentation.patchStateText = "Unknown client";
     presentation.patchLabel = "Patch Unavailable";
     presentation.patchAction = "locked";
     presentation.actionButtonLabel = "Launch Locked";
     presentation.actionButtonAction = "locked";
+    presentation.actionButtonTone = "unsupported";
+    presentation.blockedClient = true;
     return presentation;
   }
 
@@ -164,6 +193,9 @@ function derivePresentation(nextState) {
     presentation.patchAction = "locked";
     presentation.actionButtonLabel = "Launch Locked";
     presentation.actionButtonAction = "locked";
+    presentation.actionButtonTone = "unsupported";
+    presentation.blockedClient = true;
+    presentation.unsupportedClient = true;
     return presentation;
   }
 
@@ -262,6 +294,7 @@ function renderState(nextState) {
   elements.statusChip.textContent = presentation.chipText;
   elements.statusChip.dataset.tone = presentation.chipTone;
   elements.statusDetail.textContent = presentation.statusDetail;
+  elements.statusDetail.dataset.tone = presentation.statusDetailTone;
   elements.heroImage.src = nextState.heroImageUrl;
   elements.titleValue.textContent = resolvedTitle;
   elements.serverValue.textContent = nextState.serverName;
@@ -285,6 +318,7 @@ function renderState(nextState) {
   elements.launchButton.textContent = presentation.actionButtonLabel;
   elements.launchButton.classList.toggle("launch-button", presentation.actionButtonTone === "launch");
   elements.launchButton.classList.toggle("start-patch-button", presentation.actionButtonTone === "patch");
+  elements.launchButton.classList.toggle("unsupported-launch-button", presentation.actionButtonTone === "unsupported");
   elements.launchButton.classList.toggle("attention-pulse", showStandalonePatchAction);
   elements.launchButton.disabled =
     nextState.isPatching ||
@@ -302,6 +336,15 @@ function renderState(nextState) {
   } else {
     elements.reportLink.classList.add("hidden");
     elements.reportLink.href = "#";
+  }
+
+  const blockedClientKey = presentation.blockedClient ? `${nextState.clientVersion}:${nextState.clientHash}` : "";
+  if (presentation.blockedClient && blockedClientKey !== state.lastUnsupportedClientKey) {
+    openUnsupportedClientModal(nextState);
+    state.lastUnsupportedClientKey = blockedClientKey;
+  } else if (!presentation.blockedClient) {
+    state.lastUnsupportedClientKey = "";
+    closeUnsupportedClientModal();
   }
 
   renderProgress({
@@ -363,6 +406,18 @@ function wireEvents() {
 
   elements.settingsBackdrop.addEventListener("click", () => {
     closeSettingsModal();
+  });
+
+  elements.unsupportedClientCloseButton.addEventListener("click", () => {
+    closeUnsupportedClientModal();
+  });
+
+  elements.unsupportedClientDismissButton.addEventListener("click", () => {
+    closeUnsupportedClientModal();
+  });
+
+  elements.unsupportedClientBackdrop.addEventListener("click", () => {
+    closeUnsupportedClientModal();
   });
 
   elements.patchTabButton.addEventListener("click", () => {
@@ -437,7 +492,16 @@ function wireEvents() {
   });
 
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !elements.settingsModal.classList.contains("hidden")) {
+    if (event.key !== "Escape") {
+      return;
+    }
+
+    if (!elements.unsupportedClientModal.classList.contains("hidden")) {
+      closeUnsupportedClientModal();
+      return;
+    }
+
+    if (!elements.settingsModal.classList.contains("hidden")) {
       closeSettingsModal();
     }
   });

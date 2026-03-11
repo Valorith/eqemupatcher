@@ -154,6 +154,10 @@ body {
   line-height: 1.4;
 }
 
+.status-detail[data-tone="danger"] {
+  color: #ff8ea8;
+}
+
 .window-controls {
   display: flex;
   gap: 8px;
@@ -200,13 +204,21 @@ body {
   font-weight: 700;
 }
 
+.eyebrow-danger {
+  color: #ff8ba5;
+}
+
 .title {
   margin: 0;
-  font-family: "Avenir Next Condensed", "Gill Sans", sans-serif;
+  font-family: "Palatino Linotype", "Book Antiqua", "Baskerville", "Times New Roman", serif;
   font-size: clamp(2.1rem, 3.4vw, 3.8rem);
-  line-height: 0.95;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.08),
+    0 10px 24px rgba(0, 0, 0, 0.32);
 }
 
 .website-link {
@@ -581,6 +593,19 @@ body {
   animation: start-patch-pulse 1800ms ease-in-out infinite;
 }
 
+.unsupported-launch-button {
+  color: #ffeef3;
+  background: linear-gradient(135deg, #8f223f 0%, #6b152c 52%, #4a0d1e 100%);
+  border: 1px solid rgba(255, 145, 171, 0.34);
+  box-shadow:
+    0 14px 34px rgba(74, 13, 30, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.unsupported-launch-button:disabled {
+  opacity: 0.82;
+}
+
 .summary-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -777,6 +802,13 @@ body {
   box-shadow: 0 28px 80px rgba(0, 0, 0, 0.46);
 }
 
+.modal-panel-danger {
+  border-color: rgba(255, 132, 160, 0.3);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 22%),
+    linear-gradient(180deg, rgba(48, 14, 23, 0.98), rgba(20, 7, 11, 0.97));
+}
+
 .modal-header {
   display: flex;
   align-items: flex-start;
@@ -805,6 +837,12 @@ body {
   justify-content: flex-start;
   min-height: 56px;
   padding: 0 18px;
+}
+
+.danger-button {
+  color: #fff1f5;
+  background: linear-gradient(135deg, #b02f54 0%, #851f3d 58%, #601328 100%);
+  border: 1px solid rgba(255, 156, 182, 0.34);
 }
 
 .notes-panel {

@@ -11,7 +11,7 @@ const DEFAULTS = {
   filelistUrl: "https://patch.clumsysworld.com/",
   defaultAutoPatch: false,
   defaultAutoPlay: false,
-  supportedClients: ["Rain_Of_Fear", "Rain_Of_Fear_2", "Rain_Of_Fear_2_4GB"]
+  supportedClients: ["Rain_Of_Fear_2", "Rain_Of_Fear_2_4GB"]
 };
 
 const LEGACY_SERVER_NAMES = new Set(["Rebuild EQ"]);
@@ -609,6 +609,27 @@ class LauncherBackend {
 
     if (!this.state.gameDirectory) {
       this.setStatus("Run In Folder", "Run this launcher from a valid EverQuest directory before patching.");
+      this.emitState();
+      return this.getState();
+    }
+
+    if (this.state.clientVersion === "Unknown") {
+      this.state.canPatch = false;
+      this.state.canLaunch = false;
+      this.state.patchActionLabel = "Unsupported Client";
+      this.state.reportUrl = `https://github.com/Xackery/eqemupatcher/issues/new?title=A+New+EQClient+Found&body=Hi+I+Found+A+New+Client!+Hash:+${this.state.clientHash}`;
+      this.setStatus("Client Unknown", "This EverQuest executable does not match a known client hash.");
+      this.emitLog("Patch blocked: the selected EverQuest client is unknown.", "warning");
+      this.emitState();
+      return this.getState();
+    }
+
+    if (!this.state.clientSupported) {
+      this.state.canPatch = false;
+      this.state.canLaunch = false;
+      this.state.patchActionLabel = "Unsupported Build";
+      this.setStatus("Unsupported", `${this.state.serverName} does not publish patches for ${this.state.clientLabel}.`);
+      this.emitLog(`Patch blocked: ${this.state.clientLabel} is not supported by ${this.state.serverName}.`, "warning");
       this.emitState();
       return this.getState();
     }

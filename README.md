@@ -41,7 +41,6 @@ filelistUrl: https://patch.clumsysworld.com/
 defaultAutoPatch: false
 defaultAutoPlay: false
 supportedClients:
-  - Rain_Of_Fear
   - Rain_Of_Fear_2
   - Rain_Of_Fear_2_4GB
 ```
@@ -165,5 +164,4 @@ Servers can still provide a custom splash image by placing `eqemupatcher.png` in
 ## Validation In This Fork
 
 The Electron backend is covered by automated tests in [test/electron-backend.test.js](/Users/robg/Documents/GitHub/eqemupatcher/test/electron-backend.test.js), including compatibility coverage for legacy `filelistbuilder` manifest output.
-
 

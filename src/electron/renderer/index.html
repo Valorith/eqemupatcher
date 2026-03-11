@@ -169,6 +169,27 @@
       </section>
     </div>
 
+    <div id="unsupportedClientModal" class="modal-shell hidden" aria-hidden="true">
+      <div id="unsupportedClientBackdrop" class="modal-backdrop"></div>
+      <section class="modal-panel modal-panel-danger" role="dialog" aria-modal="true" aria-labelledby="unsupportedClientTitle">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow eyebrow-danger">Client Warning</p>
+            <h2 id="unsupportedClientTitle" class="section-title">Client Blocked</h2>
+          </div>
+          <button id="unsupportedClientCloseButton" class="icon-button modal-close-button" type="button" aria-label="Close unsupported client warning">
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+        <p id="unsupportedClientMessage" class="modal-copy">
+          This EverQuest client is not supported by the current patch configuration.
+        </p>
+        <div class="utility-list">
+          <button id="unsupportedClientDismissButton" class="secondary-button utility-button danger-button" type="button">Understood</button>
+        </div>
+      </section>
+    </div>
+
     <script src="./app.js"></script>
   </body>
 </html>

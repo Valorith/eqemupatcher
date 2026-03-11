@@ -562,6 +562,55 @@ test("startPatch reports manifest bootstrap failures without rejecting", async (
   assert.ok(events.some((event) => event.type === "log" && /Patch preparation failed:/.test(event.payload.text)));
 });
 
+test("startPatch blocks unknown clients before manifest verification", async (t) => {
+  const { backend } = await createBackendHarness(t);
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  backend.state.gameDirectory = gameDirectory;
+  backend.state.clientVersion = "Unknown";
+  backend.state.clientHash = "ABC123";
+  backend.state.clientSupported = false;
+  backend.fetchManifest = async () => {
+    throw new Error("fetchManifest should not be called");
+  };
+
+  const state = await backend.startPatch();
+
+  assert.equal(state.statusBadge, "Client Unknown");
+  assert.equal(state.patchActionLabel, "Unsupported Client");
+  assert.equal(state.canPatch, false);
+  assert.equal(state.canLaunch, false);
+});
+
+test("startPatch blocks unsupported clients before manifest verification", async (t) => {
+  const { backend } = await createBackendHarness(t);
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  backend.state.gameDirectory = gameDirectory;
+  backend.state.serverName = "Test Realm";
+  backend.state.clientVersion = "Rain_Of_Fear";
+  backend.state.clientLabel = "Rain of Fear";
+  backend.state.clientSupported = false;
+  backend.fetchManifest = async () => {
+    throw new Error("fetchManifest should not be called");
+  };
+
+  const state = await backend.startPatch();
+
+  assert.equal(state.statusBadge, "Unsupported");
+  assert.equal(state.patchActionLabel, "Unsupported Build");
+  assert.equal(state.canPatch, false);
+  assert.equal(state.canLaunch, false);
+});
+
 test("custom eqemupatcher.png overrides the default hero image", async (t) => {
   const { backend, projectRoot } = await createBackendHarness(t);
   const gameDirectory = await createTempDir("eqemu-game-");
