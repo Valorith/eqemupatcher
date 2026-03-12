@@ -67,7 +67,7 @@
             <div>
               <div class="tab-strip" role="tablist" aria-label="Launcher panels">
                 <button id="patchTabButton" class="tab-button is-active" type="button" role="tab" aria-selected="true" aria-controls="patchTabPanel">Patch</button>
-                <button id="notesTabButton" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="notesTabPanel">Notes</button>
+                <button id="notesTabButton" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="notesTabPanel">Patch Notes</button>
               </div>
             </div>
             <div class="toolbar-actions">
@@ -136,9 +136,16 @@
           <section id="notesTabPanel" class="tab-panel hidden" role="tabpanel" aria-labelledby="notesTabButton">
             <div class="notes-panel">
               <p class="eyebrow">Patch Notes</p>
-              <div class="notes-card">
-                <h2 class="section-title">Coming Soon</h2>
-                <p class="notes-copy">This tab will eventually load searchable, scrollable patch notes.</p>
+              <div class="notes-tools">
+                <input id="notesSearchInput" class="notes-search-input" type="search" placeholder="Search patch notes..." aria-label="Search patch notes">
+                <div class="notes-search-nav" role="group" aria-label="Search match navigation">
+                  <button id="notesPrevMatchButton" class="notes-nav-button" type="button" aria-label="Previous search match" title="Previous match">↑</button>
+                  <button id="notesNextMatchButton" class="notes-nav-button" type="button" aria-label="Next search match" title="Next match">↓</button>
+                </div>
+                <span id="notesMeta" class="notes-meta">Loading...</span>
+              </div>
+              <div id="notesCard" class="notes-card" tabindex="0">
+                <div id="notesContent" class="notes-markdown"></div>
               </div>
             </div>
           </section>

@@ -9,6 +9,7 @@ const SimpleYaml = require("./simple-yaml");
 const DEFAULTS = {
   serverName: "Clumsy's World",
   filelistUrl: "https://patch.clumsysworld.com/",
+  patchNotesUrl: "",
   defaultAutoPatch: false,
   defaultAutoPlay: false,
   supportedClients: ["Rain_Of_Fear_2", "Rain_Of_Fear_2_4GB"]
@@ -145,6 +146,120 @@ function deriveServerNameFromUrl(urlValue) {
   }
 }
 
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+
+function sanitizeMarkdownHref(href) {
+  const normalized = String(href || "").trim().replace(/&amp;/g, "&");
+  if (!normalized) {
+    return "#";
+  }
+
+  if (/^(https?:\/\/)/i.test(normalized)) {
+    return normalized;
+  }
+
+  if (/^(#|\/|\.\/|\.\.\/)/.test(normalized)) {
+    return normalized;
+  }
+
+  return "#";
+}
+
+function renderInlineMarkdown(value) {
+  let rendered = escapeHtml(value);
+  rendered = rendered.replace(/`([^`]+)`/g, "<code>$1</code>");
+  rendered = rendered.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
+  rendered = rendered.replace(/\*([^*]+)\*/g, "<em>$1</em>");
+  rendered = rendered.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, href) => `<a href="${escapeHtml(sanitizeMarkdownHref(href))}">${label}</a>`);
+  return rendered;
+}
+
+function markdownToHtml(markdown) {
+  const lines = String(markdown || "").split("\n").map((line) => line.replace(/\r$/, ""));
+  const html = [];
+  let inCode = false;
+  let inList = false;
+
+  const closeList = () => {
+    if (inList) {
+      html.push("</ul>");
+      inList = false;
+    }
+  };
+
+  for (const line of lines) {
+    if (line.startsWith("```")) {
+      closeList();
+      if (inCode) {
+        html.push("</code></pre>");
+        inCode = false;
+      } else {
+        html.push("<pre><code>");
+        inCode = true;
+      }
+      continue;
+    }
+
+    if (inCode) {
+      html.push(`${escapeHtml(line)}\n`);
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,6})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      const level = heading[1].length;
+      html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    const listItem = line.match(/^[-*]\s+(.+)$/);
+    if (listItem) {
+      if (!inList) {
+        html.push("<ul>");
+        inList = true;
+      }
+      html.push(`<li>${renderInlineMarkdown(listItem[1])}</li>`);
+      continue;
+    }
+
+    if (/^>\s+/.test(line)) {
+      closeList();
+      html.push(`<blockquote>${renderInlineMarkdown(line.replace(/^>\s+/, ""))}</blockquote>`);
+      continue;
+    }
+
+    if (/^---+$/.test(line.trim())) {
+      closeList();
+      html.push("<hr>");
+      continue;
+    }
+
+    if (!line.trim()) {
+      closeList();
+      continue;
+    }
+
+    closeList();
+    html.push(`<p>${renderInlineMarkdown(line)}</p>`);
+  }
+
+  closeList();
+  if (inCode) {
+    html.push("</code></pre>");
+  }
+
+  return html.join("\n");
+}
 function isLaunchPermissionError(error) {
   return error && ["EACCES", "EPERM"].includes(error.code);
 }
@@ -169,11 +284,17 @@ class LauncherBackend {
     this.cancelController = null;
     this.cancelRequested = false;
     this.resolvedConfigPath = this.configPath;
+    this.patchNotesCache = {
+      url: "",
+      content: "",
+      fetchedAt: ""
+    };
 
     this.state = {
       platform: this.platform,
       serverName: this.config.serverName,
       filelistUrl: this.config.filelistUrl,
+      patchNotesUrl: this.config.patchNotesUrl,
       gameDirectory: "",
       eqGamePath: "",
       clientVersion: "Unknown",
@@ -322,6 +443,7 @@ class LauncherBackend {
     if (!(await exists(resolvedConfigPath))) {
       this.state.serverName = this.resolveServerName();
       this.state.filelistUrl = this.config.filelistUrl;
+      this.state.patchNotesUrl = this.config.patchNotesUrl;
       return;
     }
 
@@ -341,6 +463,65 @@ class LauncherBackend {
 
     this.state.serverName = this.resolveServerName();
     this.state.filelistUrl = this.config.filelistUrl;
+    this.state.patchNotesUrl = this.config.patchNotesUrl;
+  }
+
+
+  async getPatchNotes(options = {}) {
+    const { forceRefresh = false } = options;
+
+    try {
+      const notes = await this.fetchPatchNotes({ forceRefresh });
+      const html = notes.content ? markdownToHtml(notes.content) : "";
+      return {
+        ...notes,
+        html,
+        error: ""
+      };
+    } catch (error) {
+      return {
+        url: String(this.config.patchNotesUrl || "").trim(),
+        content: "",
+        html: "",
+        fetchedAt: "",
+        error: error.message || "Unable to load patch notes."
+      };
+    }
+  }
+
+  async fetchPatchNotes(options = {}) {
+    const { forceRefresh = false } = options;
+    const patchNotesUrl = String(this.config.patchNotesUrl || "").trim();
+
+    if (!patchNotesUrl) {
+      this.patchNotesCache = {
+        url: "",
+        content: "",
+        fetchedAt: ""
+      };
+      return {
+        url: "",
+        content: "",
+        fetchedAt: ""
+      };
+    }
+
+    if (!forceRefresh && this.patchNotesCache.url === patchNotesUrl && this.patchNotesCache.content) {
+      return cloneState(this.patchNotesCache);
+    }
+
+    const response = await this.fetchImpl(patchNotesUrl);
+    if (!response.ok) {
+      throw new Error(`Patch notes request failed with ${response.status}`);
+    }
+
+    const content = await response.text();
+    this.patchNotesCache = {
+      url: patchNotesUrl,
+      content,
+      fetchedAt: new Date().toISOString()
+    };
+    return cloneState(this.patchNotesCache);
   }
 
   async getResolvedConfigPath() {

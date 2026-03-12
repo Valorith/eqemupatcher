@@ -112,7 +112,7 @@ test("launch directory config overrides the bundled default server config", asyn
   );
   await fsp.writeFile(
     path.join(launchDirectory, "launcher-config.yml"),
-    "serverName: Install Realm\nfilelistUrl: https://install.invalid/\nsupportedClients:\n  - Rain_Of_Fear\n",
+    "serverName: Install Realm\nfilelistUrl: https://install.invalid/\npatchNotesUrl: https://install.invalid/notes.md\nsupportedClients:\n  - Rain_Of_Fear\n",
     "utf8"
   );
 
@@ -120,6 +120,7 @@ test("launch directory config overrides the bundled default server config", asyn
 
   assert.equal(state.serverName, "Install Realm");
   assert.equal(state.filelistUrl, "https://install.invalid/");
+  assert.equal(state.patchNotesUrl, "https://install.invalid/notes.md");
 });
 
 test("runtime directory config is used when launch directory has no config", async (t) => {
@@ -165,7 +166,7 @@ test("legacy placeholder server names are replaced with a label derived from the
 });
 
 test("refreshState recognizes a configured supported client and manifest status", async (t) => {
-  const { backend, projectRoot } = await createBackendHarness(t);
+  const { backend, projectRoot } = await createBackendHarness(t, { platform: "win32" });
   const gameDirectory = await createTempDir("eqemu-game-");
 
   t.after(async () => {
@@ -413,7 +414,7 @@ test("startPatch rejects downloaded files that fail hash verification", async (t
 });
 
 test("refreshState treats legacy string patch versions as up to date", async (t) => {
-  const { backend, projectRoot } = await createBackendHarness(t);
+  const { backend, projectRoot } = await createBackendHarness(t, { platform: "win32" });
   const gameDirectory = await createTempDir("eqemu-game-");
 
   t.after(async () => {
@@ -887,4 +888,37 @@ test("repairs missing files from flush-left legacy manifest entries", async (t) 
   assert.equal(await fsp.readFile(path.join(gameDirectory, "barter_assets.txt"), "utf8"), payload);
   assert.equal(state.lastPatchedVersion, "20260310legacyshape");
   assert.equal(state.needsPatch, false);
+});
+
+
+test("getPatchNotes loads markdown from configured patch notes URL", async (t) => {
+  const { backend, projectRoot } = await createBackendHarness(t);
+
+  const { server, baseUrl } = await startFixtureServer({
+    "/notes.md": (_req, res) => {
+      res.writeHead(200, { "content-type": "text/markdown" });
+      res.end("# Updates\n\n- Fixed launcher refresh\n- Added notes search\n- [Safe](https://example.invalid/patches)\n- [Blocked](javascript:alert(1))\n");
+    }
+  });
+
+  t.after(() => server.close());
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    `serverName: Test Realm
+filelistUrl: ${baseUrl}/
+patchNotesUrl: ${baseUrl}/notes.md
+`,
+    "utf8"
+  );
+
+  await backend.initialize();
+  const notes = await backend.getPatchNotes({ forceRefresh: true });
+
+  assert.equal(notes.url, `${baseUrl}/notes.md`);
+  assert.match(notes.content, /Fixed launcher refresh/);
+  assert.match(notes.html, /<h1>Updates<\/h1>/);
+  assert.match(notes.html, /href="https:\/\/example\.invalid\/patches"/);
+  assert.match(notes.html, /href="#"/);
+  assert.equal(notes.error, "");
 });

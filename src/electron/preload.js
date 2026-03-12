@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld("launcher", {
   initialize: () => ipcRenderer.invoke("launcher:initialize"),
   getVersion: () => ipcRenderer.invoke("launcher:getVersion"),
   refreshState: () => ipcRenderer.invoke("launcher:refreshState"),
+  getPatchNotes: (options) => ipcRenderer.invoke("launcher:getPatchNotes", options),
   startPatch: () => ipcRenderer.invoke("launcher:startPatch"),
   cancelPatch: () => ipcRenderer.invoke("launcher:cancelPatch"),
   launchGame: () => ipcRenderer.invoke("launcher:launchGame"),

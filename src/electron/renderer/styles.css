@@ -867,6 +867,100 @@ body {
   line-height: 1.6;
 }
 
+.notes-tools {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.notes-search-input {
+  flex: 1;
+  min-height: 42px;
+  border-radius: 12px;
+  border: 1px solid rgba(117, 146, 191, 0.4);
+  background: rgba(7, 13, 20, 0.9);
+  color: var(--text-primary);
+  padding: 0 12px;
+}
+
+.notes-meta {
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.notes-search-nav {
+  display: inline-flex;
+  gap: 8px;
+}
+
+.notes-nav-button {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid rgba(117, 146, 191, 0.35);
+  background: linear-gradient(180deg, rgba(18, 32, 50, 0.95), rgba(10, 20, 33, 0.95));
+  color: #dce8f8;
+  cursor: pointer;
+  font-size: 0.95rem;
+  line-height: 1;
+  transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+
+.notes-nav-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: rgba(152, 183, 234, 0.65);
+  background: linear-gradient(180deg, rgba(28, 50, 77, 0.95), rgba(13, 27, 43, 0.95));
+}
+
+.notes-nav-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.notes-markdown {
+  line-height: 1.55;
+  color: #dce8f8;
+}
+
+.notes-markdown h1,
+.notes-markdown h2,
+.notes-markdown h3,
+.notes-markdown h4 {
+  margin: 1rem 0 0.5rem;
+}
+
+.notes-markdown pre,
+.notes-markdown code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.notes-markdown pre {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(117, 146, 191, 0.2);
+  border-radius: 8px;
+  padding: 10px;
+  overflow: auto;
+}
+
+.notes-markdown a {
+  color: var(--gold);
+}
+
+.notes-markdown mark,
+.notes-markdown mark.notes-match {
+  background: rgba(255, 226, 143, 0.35);
+  color: #fff4d4;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+.notes-markdown mark.notes-match.is-current {
+  background: rgba(123, 189, 255, 0.62);
+  color: #f4fbff;
+  box-shadow: 0 0 0 1px rgba(163, 213, 255, 0.82);
+}
+
 @keyframes action-status-spin {
   to {
     transform: rotate(360deg);
