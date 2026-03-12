@@ -107,7 +107,26 @@ function updatePatchNotesMeta(text) {
   elements.notesMeta.textContent = text;
 }
 
+
+function hasConfiguredPatchNotesSource() {
+  return Boolean(String(state.current?.patchNotesUrl || "").trim());
+}
+
+function setPatchNotesSearchEnabled(enabled) {
+  elements.notesSearchInput.disabled = !enabled;
+  if (!enabled) {
+    elements.notesPrevMatchButton.disabled = true;
+    elements.notesNextMatchButton.disabled = true;
+  }
+}
+
 function updateMatchNavigation() {
+  if (!hasConfiguredPatchNotesSource()) {
+    setPatchNotesSearchEnabled(false);
+    return;
+  }
+
+  setPatchNotesSearchEnabled(true);
   const hasMatches = state.patchNotes.matchCount > 0;
   const hasActive = state.patchNotes.activeMatchIndex >= 0;
 
@@ -233,6 +252,9 @@ function renderPatchNotes() {
     elements.notesContent.innerHTML = '<p class="notes-copy">Patch Notes source not configured.</p>';
     state.patchNotes.matchCount = 0;
     state.patchNotes.activeMatchIndex = -1;
+    if (!hasConfiguredPatchNotesSource()) {
+      elements.notesSearchInput.value = "";
+    }
     updatePatchNotesMeta("No source configured");
     updateMatchNavigation();
     return;
@@ -442,6 +464,7 @@ function renderLogs() {
 }
 function renderState(nextState) {
   state.current = nextState;
+  setPatchNotesSearchEnabled(hasConfiguredPatchNotesSource());
   const presentation = derivePresentation(nextState);
   const resolvedTitle = nextState.serverName || "Launcher";
   if (nextState.isPatching) {
