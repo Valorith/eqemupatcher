@@ -10,7 +10,9 @@ const state = {
     html: "",
     error: "",
     loading: false,
-    fetchedAt: ""
+    fetchedAt: "",
+    matchCount: 0,
+    activeMatchIndex: -1
   }
 };
 const elements = {
@@ -25,6 +27,8 @@ const elements = {
   patchTabPanel: document.getElementById("patchTabPanel"),
   notesTabPanel: document.getElementById("notesTabPanel"),
   notesSearchInput: document.getElementById("notesSearchInput"),
+  notesPrevMatchButton: document.getElementById("notesPrevMatchButton"),
+  notesNextMatchButton: document.getElementById("notesNextMatchButton"),
   notesMeta: document.getElementById("notesMeta"),
   notesContent: document.getElementById("notesContent"),
   serverValue: document.getElementById("serverValue"),
@@ -96,43 +100,153 @@ async function runUtilityAction(action, successMessage, failureFallback) {
   });
 }
 function escapeRegex(text) {
-  return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\$&");
 }
-function highlightMatches(html, query) {
-  const trimmed = String(query || "").trim();
-  if (!trimmed) {
-    return html;
-  }
-  const regex = new RegExp(`(${escapeRegex(trimmed)})`, "gi");
-  return html.replace(regex, "<mark>$1</mark>");
-}
+
 function updatePatchNotesMeta(text) {
   elements.notesMeta.textContent = text;
 }
 
+function updateMatchNavigation() {
+  const hasMatches = state.patchNotes.matchCount > 0;
+  const hasActive = state.patchNotes.activeMatchIndex >= 0;
+
+  elements.notesPrevMatchButton.disabled = !hasMatches || !hasActive || state.patchNotes.activeMatchIndex === 0;
+  elements.notesNextMatchButton.disabled =
+    !hasMatches || !hasActive || state.patchNotes.activeMatchIndex >= state.patchNotes.matchCount - 1;
+}
+
+function setActiveSearchMatch(nextIndex, options = {}) {
+  const { scrollIntoView = true } = options;
+  const matches = Array.from(elements.notesContent.querySelectorAll("mark.notes-match"));
+
+  if (!matches.length) {
+    state.patchNotes.activeMatchIndex = -1;
+    updateMatchNavigation();
+    return;
+  }
+
+  const safeIndex = Math.max(0, Math.min(nextIndex, matches.length - 1));
+  state.patchNotes.activeMatchIndex = safeIndex;
+
+  for (const [index, match] of matches.entries()) {
+    match.classList.toggle("is-current", index === safeIndex);
+  }
+
+  if (scrollIntoView) {
+    matches[safeIndex].scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+  }
+
+  updateMatchNavigation();
+}
+
+function highlightMatchesInPatchNotes(query) {
+  const trimmed = String(query || "").trim();
+  if (!trimmed) {
+    state.patchNotes.matchCount = 0;
+    state.patchNotes.activeMatchIndex = -1;
+    updateMatchNavigation();
+    return;
+  }
+
+  const regex = new RegExp(escapeRegex(trimmed), "gi");
+  const walker = document.createTreeWalker(elements.notesContent, NodeFilter.SHOW_TEXT);
+  const textNodes = [];
+  let node;
+
+  while ((node = walker.nextNode())) {
+    if (!node.nodeValue || !node.nodeValue.trim()) {
+      continue;
+    }
+    textNodes.push(node);
+  }
+
+  let totalMatches = 0;
+
+  for (const textNode of textNodes) {
+    const text = textNode.nodeValue;
+    regex.lastIndex = 0;
+    if (!regex.test(text)) {
+      continue;
+    }
+
+    regex.lastIndex = 0;
+    const fragment = document.createDocumentFragment();
+    let cursor = 0;
+    let match;
+
+    while ((match = regex.exec(text))) {
+      const startIndex = match.index;
+      const endIndex = startIndex + match[0].length;
+
+      if (startIndex > cursor) {
+        fragment.appendChild(document.createTextNode(text.slice(cursor, startIndex)));
+      }
+
+      const mark = document.createElement("mark");
+      mark.className = "notes-match";
+      mark.textContent = text.slice(startIndex, endIndex);
+      fragment.appendChild(mark);
+      totalMatches += 1;
+      cursor = endIndex;
+    }
+
+    if (cursor < text.length) {
+      fragment.appendChild(document.createTextNode(text.slice(cursor)));
+    }
+
+    textNode.replaceWith(fragment);
+  }
+
+  state.patchNotes.matchCount = totalMatches;
+  if (!totalMatches) {
+    state.patchNotes.activeMatchIndex = -1;
+    updateMatchNavigation();
+    return;
+  }
+
+  setActiveSearchMatch(0, { scrollIntoView: false });
+}
+
 function renderPatchNotes() {
   const query = elements.notesSearchInput.value.trim();
+
   if (state.patchNotes.loading) {
     elements.notesContent.innerHTML = '<p class="notes-copy">Loading patch notes...</p>';
+    state.patchNotes.matchCount = 0;
+    state.patchNotes.activeMatchIndex = -1;
     updatePatchNotesMeta("Loading...");
+    updateMatchNavigation();
     return;
   }
 
   if (state.patchNotes.error) {
     elements.notesContent.innerHTML = `<p class="notes-copy">${state.patchNotes.error}</p>`;
+    state.patchNotes.matchCount = 0;
+    state.patchNotes.activeMatchIndex = -1;
     updatePatchNotesMeta("Unable to load");
+    updateMatchNavigation();
     return;
   }
 
   if (!state.patchNotes.html) {
     elements.notesContent.innerHTML = '<p class="notes-copy">Patch Notes source not configured.</p>';
+    state.patchNotes.matchCount = 0;
+    state.patchNotes.activeMatchIndex = -1;
     updatePatchNotesMeta("No source configured");
+    updateMatchNavigation();
     return;
   }
 
-  elements.notesContent.innerHTML = highlightMatches(state.patchNotes.html, query);
+  elements.notesContent.innerHTML = state.patchNotes.html;
+  highlightMatchesInPatchNotes(query);
+
   const lineCount = state.patchNotes.content ? state.patchNotes.content.split("\n").length : 0;
-  const meta = query ? `Filtered by "${query}" · ${lineCount} lines` : `${lineCount} lines`;
+  const hasQuery = Boolean(query);
+  const matchLabel = hasQuery ? ` · ${state.patchNotes.activeMatchIndex + 1}/${state.patchNotes.matchCount} matches` : "";
+  const meta = hasQuery
+    ? `Filtered by "${query}" · ${lineCount} lines${matchLabel}`
+    : `${lineCount} lines`;
   updatePatchNotesMeta(meta);
 }
 
@@ -151,6 +265,8 @@ async function loadPatchNotes(forceRefresh = false) {
   state.patchNotes.html = notes.html || "";
   state.patchNotes.error = notes.error || "";
   state.patchNotes.fetchedAt = notes.fetchedAt || "";
+  state.patchNotes.matchCount = 0;
+  state.patchNotes.activeMatchIndex = -1;
   renderPatchNotes();
 }
 
@@ -455,6 +571,24 @@ function wireEvents() {
     notesSearchDebounce = setTimeout(() => {
       renderPatchNotes();
     }, 120);
+  });
+
+  elements.notesSearchInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      if (event.shiftKey) {
+        setActiveSearchMatch(state.patchNotes.activeMatchIndex - 1);
+      } else {
+        setActiveSearchMatch(state.patchNotes.activeMatchIndex + 1);
+      }
+    }
+  });
+
+  elements.notesPrevMatchButton.addEventListener("click", () => {
+    setActiveSearchMatch(state.patchNotes.activeMatchIndex - 1);
+  });
+
+  elements.notesNextMatchButton.addEventListener("click", () => {
+    setActiveSearchMatch(state.patchNotes.activeMatchIndex + 1);
   });
   elements.patchButton.addEventListener("click", async () => {
     const action = elements.patchButton.dataset.action;
