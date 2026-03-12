@@ -897,7 +897,7 @@ test("getPatchNotes loads markdown from configured patch notes URL", async (t) =
   const { server, baseUrl } = await startFixtureServer({
     "/notes.md": (_req, res) => {
       res.writeHead(200, { "content-type": "text/markdown" });
-      res.end("# Updates\n\n- Fixed launcher refresh\n- Added notes search\n");
+      res.end("# Updates\n\n- Fixed launcher refresh\n- Added notes search\n- [Safe](https://example.invalid/patches)\n- [Blocked](javascript:alert(1))\n");
     }
   });
 
@@ -918,5 +918,7 @@ patchNotesUrl: ${baseUrl}/notes.md
   assert.equal(notes.url, `${baseUrl}/notes.md`);
   assert.match(notes.content, /Fixed launcher refresh/);
   assert.match(notes.html, /<h1>Updates<\/h1>/);
+  assert.match(notes.html, /href="https:\/\/example\.invalid\/patches"/);
+  assert.match(notes.html, /href="#"/);
   assert.equal(notes.error, "");
 });

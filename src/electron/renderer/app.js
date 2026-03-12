@@ -100,7 +100,7 @@ async function runUtilityAction(action, successMessage, failureFallback) {
   });
 }
 function escapeRegex(text) {
-  return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\$&");
+  return String(text || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function updatePatchNotesMeta(text) {

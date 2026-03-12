@@ -156,12 +156,30 @@ function escapeHtml(value) {
     .replace(/'/g, "&#39;");
 }
 
+
+function sanitizeMarkdownHref(href) {
+  const normalized = String(href || "").trim().replace(/&amp;/g, "&");
+  if (!normalized) {
+    return "#";
+  }
+
+  if (/^(https?:\/\/)/i.test(normalized)) {
+    return normalized;
+  }
+
+  if (/^(#|\/|\.\/|\.\.\/)/.test(normalized)) {
+    return normalized;
+  }
+
+  return "#";
+}
+
 function renderInlineMarkdown(value) {
   let rendered = escapeHtml(value);
   rendered = rendered.replace(/`([^`]+)`/g, "<code>$1</code>");
   rendered = rendered.replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>");
   rendered = rendered.replace(/\*([^*]+)\*/g, "<em>$1</em>");
-  rendered = rendered.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>');
+  rendered = rendered.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_match, label, href) => `<a href="${escapeHtml(sanitizeMarkdownHref(href))}">${label}</a>`);
   return rendered;
 }
 
