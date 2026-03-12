@@ -22,6 +22,8 @@ const elements = {
   heroImage: document.getElementById("heroImage"),
   titleValue: document.getElementById("titleValue"),
   websiteLink: document.getElementById("websiteLink"),
+  toolsButton: document.getElementById("toolsButton"),
+  toolsMenu: document.getElementById("toolsMenu"),
   patchTabButton: document.getElementById("patchTabButton"),
   notesTabButton: document.getElementById("notesTabButton"),
   patchTabPanel: document.getElementById("patchTabPanel"),
@@ -62,6 +64,21 @@ const elements = {
   unsupportedClientMessage: document.getElementById("unsupportedClientMessage"),
   versionLabel: document.getElementById("versionLabel")
 };
+function openToolsMenu() {
+  elements.toolsMenu.classList.remove("hidden");
+  elements.toolsButton.setAttribute("aria-expanded", "true");
+}
+function closeToolsMenu() {
+  elements.toolsMenu.classList.add("hidden");
+  elements.toolsButton.setAttribute("aria-expanded", "false");
+}
+function toggleToolsMenu() {
+  if (elements.toolsMenu.classList.contains("hidden")) {
+    openToolsMenu();
+    return;
+  }
+  closeToolsMenu();
+}
 function openSettingsModal() {
   elements.settingsModal.classList.remove("hidden");
   elements.settingsModal.setAttribute("aria-hidden", "false");
@@ -556,6 +573,19 @@ function wireEvents() {
     event.preventDefault();
     await window.launcher.openExternal(elements.websiteLink.href);
   });
+  elements.toolsButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleToolsMenu();
+  });
+  elements.toolsMenu.addEventListener("click", async (event) => {
+    const link = event.target.closest("a.tools-menu-link");
+    if (!link) {
+      return;
+    }
+    event.preventDefault();
+    closeToolsMenu();
+    await window.launcher.openExternal(link.href);
+  });
   elements.refreshButton.addEventListener("click", async () => {
     setBusy(elements.refreshButton, "Syncing...", true);
     try {
@@ -673,6 +703,10 @@ function wireEvents() {
     if (event.key !== "Escape") {
       return;
     }
+    if (!elements.toolsMenu.classList.contains("hidden")) {
+      closeToolsMenu();
+      return;
+    }
     if (!elements.unsupportedClientModal.classList.contains("hidden")) {
       closeUnsupportedClientModal();
       return;
@@ -680,6 +714,12 @@ function wireEvents() {
     if (!elements.settingsModal.classList.contains("hidden")) {
       closeSettingsModal();
     }
+  });
+  document.addEventListener("click", (event) => {
+    if (event.target.closest(".tools-menu")) {
+      return;
+    }
+    closeToolsMenu();
   });
 }
 function subscribe() {

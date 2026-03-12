@@ -276,6 +276,7 @@ class LauncherBackend {
     this.platform = platform || process.platform;
     this.appStatePath = path.join(this.appUserDataPath, "launcher-state.yml");
     this.configPath = path.join(this.projectRoot, "launcher-config.yml");
+    this.gameConfigPath = "";
     this.launchConfigPath = this.launchDirectory ? path.join(this.launchDirectory, "launcher-config.yml") : "";
     this.runtimeConfigPath = this.runtimeDirectory ? path.join(this.runtimeDirectory, "launcher-config.yml") : "";
     this.config = { ...DEFAULTS };
@@ -409,6 +410,8 @@ class LauncherBackend {
     await this.loadConfig();
     await this.loadAppState();
     await this.useLaunchDirectory();
+    await this.ensureGameDirectoryConfig();
+    await this.loadConfig();
     await this.loadGameSettings();
     return this.refreshState({ performAutoActions: true });
   }
@@ -424,6 +427,12 @@ class LauncherBackend {
   }
 
   async resolveConfigPath() {
+    this.gameConfigPath = this.state.gameDirectory ? path.join(this.state.gameDirectory, "launcher-config.yml") : "";
+
+    if (this.gameConfigPath && (await exists(this.gameConfigPath))) {
+      return this.gameConfigPath;
+    }
+
     if (this.launchConfigPath && (await exists(this.launchConfigPath))) {
       return this.launchConfigPath;
     }
@@ -433,6 +442,42 @@ class LauncherBackend {
     }
 
     return this.configPath;
+  }
+
+  async ensureGameDirectoryConfig() {
+    if (!this.state.gameDirectory) {
+      return;
+    }
+
+    const gameConfigPath = path.join(this.state.gameDirectory, "launcher-config.yml");
+    this.gameConfigPath = gameConfigPath;
+
+    if (await exists(gameConfigPath)) {
+      return;
+    }
+
+    const sourceCandidates = [
+      this.resolvedConfigPath,
+      this.launchConfigPath,
+      this.runtimeConfigPath,
+      this.configPath
+    ].filter(Boolean);
+
+    for (const sourcePath of sourceCandidates) {
+      if (path.resolve(sourcePath) === path.resolve(gameConfigPath)) {
+        continue;
+      }
+
+      if (!(await exists(sourcePath))) {
+        continue;
+      }
+
+      await fsp.mkdir(path.dirname(gameConfigPath), { recursive: true });
+      await fsp.copyFile(sourcePath, gameConfigPath);
+      return;
+    }
+
+    await this.saveYaml(gameConfigPath, this.config);
   }
 
   async loadConfig() {
@@ -626,6 +671,8 @@ class LauncherBackend {
     this.state.gameDirectory = gameDirectory;
     this.appState.gameDirectory = gameDirectory;
     await this.saveAppState();
+    await this.ensureGameDirectoryConfig();
+    await this.loadConfig();
     await this.loadGameSettings();
     return this.refreshState({ performAutoActions: true });
   }

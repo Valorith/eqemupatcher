@@ -148,6 +148,33 @@ test("runtime directory config is used when launch directory has no config", asy
 
   assert.equal(state.serverName, "Portable Realm");
   assert.equal(state.filelistUrl, "https://portable.invalid/");
+  assert.equal(await fsp.readFile(path.join(launchDirectory, "launcher-config.yml"), "utf8"), await fsp.readFile(path.join(runtimeDirectory, "launcher-config.yml"), "utf8"));
+});
+
+test("setGameDirectory seeds launcher-config.yml into the selected game directory and uses it", async (t) => {
+  const { backend, projectRoot } = await createBackendHarness(t);
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Bundled Default\nfilelistUrl: https://default.invalid/\npatchNotesUrl: https://default.invalid/notes.md\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+
+  await backend.initialize();
+  const state = await backend.setGameDirectory(gameDirectory);
+  const seededConfig = await fsp.readFile(path.join(gameDirectory, "launcher-config.yml"), "utf8");
+
+  assert.equal(state.serverName, "Bundled Default");
+  assert.equal(state.filelistUrl, "https://default.invalid/");
+  assert.equal(state.patchNotesUrl, "https://default.invalid/notes.md");
+  assert.match(seededConfig, /serverName: Bundled Default/);
+  assert.match(seededConfig, /filelistUrl: https:\/\/default\.invalid\//);
 });
 
 test("legacy placeholder server names are replaced with a label derived from the patch host", async (t) => {
