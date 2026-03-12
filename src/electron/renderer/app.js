@@ -125,7 +125,7 @@ function renderPatchNotes() {
   }
 
   if (!state.patchNotes.html) {
-    elements.notesContent.innerHTML = '<p class="notes-copy">No patch notes URL configured.</p>';
+    elements.notesContent.innerHTML = '<p class="notes-copy">Patch Notes source not configured.</p>';
     updatePatchNotesMeta("No source configured");
     return;
   }
