@@ -240,7 +240,11 @@ function renderPatchNotes() {
   }
 
   if (state.patchNotes.error) {
-    elements.notesContent.innerHTML = `<p class="notes-copy">${state.patchNotes.error}</p>`;
+    elements.notesContent.innerHTML = "";
+    const errorParagraph = document.createElement("p");
+    errorParagraph.className = "notes-copy";
+    errorParagraph.textContent = state.patchNotes.error;
+    elements.notesContent.appendChild(errorParagraph);
     state.patchNotes.matchCount = 0;
     state.patchNotes.activeMatchIndex = -1;
     updatePatchNotesMeta("Unable to load");
