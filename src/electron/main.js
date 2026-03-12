@@ -89,6 +89,7 @@ app.whenReady().then(async () => {
 ipcMain.handle("launcher:initialize", async () => backend.initialize());
 ipcMain.handle("launcher:getVersion", async () => app.getVersion());
 ipcMain.handle("launcher:refreshState", async () => backend.refreshState());
+ipcMain.handle("launcher:getPatchNotes", async (_event, options) => backend.getPatchNotes(options || {}));
 ipcMain.handle("launcher:startPatch", async () => backend.startPatch());
 ipcMain.handle("launcher:cancelPatch", async () => backend.cancelPatch());
 ipcMain.handle("launcher:launchGame", async () => backend.launchGame());

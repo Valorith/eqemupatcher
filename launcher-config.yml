@@ -1,5 +1,6 @@
 serverName: Clumsy's World: Resurgence
 filelistUrl: https://patch.clumsysworld.com/
+patchNotesUrl: https://patch.clumsysworld.com/patch-notes.md
 defaultAutoPatch: false
 defaultAutoPlay: false
 supportedClients:
