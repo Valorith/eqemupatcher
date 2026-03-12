@@ -69,6 +69,8 @@ npm test
 npm run dist:dir
 npm run dist:win
 npm run dist:win:installer
+npm run start:filelistbuilder
+npm run dist:filelistbuilder:win
 ```
 
 Notes:
@@ -104,6 +106,20 @@ Notes:
 * packaged output is written under `dist/electron/`
 * the package includes the launcher config and built-in hero art used by the Electron app
 
+Build the portable Windows file list builder:
+
+```bash
+npm install
+npm test
+npm run dist:filelistbuilder:win
+```
+
+Notes:
+
+* the builder packages as its own portable executable under `dist/filelistbuilder-electron/`
+* the builder reuses the Electron design language from the launcher, but writes the legacy `filelistbuilder` outputs
+* generated artifacts remain `filelist_<client>.yml` and `patch.zip`
+
 ## Player Usage
 
 Distribute the packaged Electron launcher to players after you have configured `launcher-config.yml` and built the app.
@@ -122,6 +138,8 @@ If the EverQuest directory is inside `Program Files`, patching or launch behavio
 ## Server Setup
 
 This repository still includes the original Go `filelistbuilder` source under [filelistbuilder](/Users/robg/Documents/GitHub/eqemupatcher/filelistbuilder).
+
+This fork now also includes an Electron-based File List Builder app that preserves the legacy output contract while providing a GUI for editing `filelistbuilder.yml`, `ignore.txt`, and `delete.txt`.
 
 Build it with Go:
 
@@ -164,4 +182,3 @@ Servers can still provide a custom splash image by placing `eqemupatcher.png` in
 ## Validation In This Fork
 
 The Electron backend is covered by automated tests in [test/electron-backend.test.js](/Users/robg/Documents/GitHub/eqemupatcher/test/electron-backend.test.js), including compatibility coverage for legacy `filelistbuilder` manifest output.
-

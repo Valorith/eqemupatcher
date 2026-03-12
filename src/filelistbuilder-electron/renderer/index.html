@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>EQEmu File List Builder</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="shell">
+      <div class="ambient ambient-left"></div>
+      <div class="ambient ambient-right"></div>
+
+      <header class="topbar">
+        <div class="topbar-copy">
+          <p class="eyebrow">Legacy-Compatible Utility</p>
+          <h1 id="titleValue" class="title">File List Builder</h1>
+          <p class="builder-subtitle">Generate legacy-compatible `filelistbuilder` outputs with one guided workflow.</p>
+        </div>
+        <div class="topbar-side">
+          <div class="window-controls" aria-label="Window controls">
+            <button id="minimizeButton" class="window-control" type="button" aria-label="Minimize window">-</button>
+            <button id="closeButton" class="window-control window-control-close" type="button" aria-label="Close window">×</button>
+          </div>
+        </div>
+      </header>
+
+      <main class="builder-main">
+        <section class="panel builder-panel">
+          <div class="builder-panel-header">
+            <div class="builder-header-copy">
+              <p class="eyebrow">Guided Flow</p>
+              <h2 class="section-title">Build Patch Outputs</h2>
+              <p class="builder-copy">
+                Move from top to bottom: choose the workspace, confirm the patch profile, optionally edit legacy lists,
+                then generate the files.
+              </p>
+            </div>
+            <button id="refreshButton" class="ghost-button refresh-button" type="button" aria-label="Reload folder state" title="Reload folder state">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+                <path d="M20 4v6h-6" />
+              </svg>
+            </button>
+          </div>
+
+          <div class="status-panel session-status builder-status-banner">
+            <div class="session-status-copy">
+              <span class="status-caption">Current State</span>
+              <p id="statusDetail" class="status-detail">Choose the patch build directory that contains the files you want to publish.</p>
+            </div>
+            <div class="status-chip" id="statusChip">Select Folder</div>
+          </div>
+
+          <section class="form-section flow-section">
+            <div class="flow-heading">
+              <span class="flow-step">01</span>
+              <div>
+                <p class="eyebrow">Workspace</p>
+                <h3 class="flow-title">Choose the patch build folder</h3>
+              </div>
+            </div>
+            <p class="flow-copy">This should be the folder that contains the files you want packed into the legacy manifest and `patch.zip`.</p>
+            <div class="field-stack">
+              <label class="field-label" for="workingDirectoryInput">Selected Folder</label>
+              <div class="directory-picker">
+                <input id="workingDirectoryInput" class="text-input" type="text" readonly />
+                <div class="directory-picker-actions">
+                  <button id="chooseDirectoryButton" class="secondary-button utility-button" type="button">Choose Folder</button>
+                  <button id="openDirectoryButton" class="ghost-button utility-button" type="button">Open Folder</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section class="form-section flow-section">
+            <div class="flow-heading">
+              <span class="flow-step">02</span>
+              <div>
+                <p class="eyebrow">Patch Profile</p>
+                <h3 class="flow-title">Set the legacy output values</h3>
+              </div>
+            </div>
+            <div class="field-row">
+              <div class="field-stack">
+                <label class="field-label" for="clientInput">client</label>
+                <input id="clientInput" class="text-input" type="text" placeholder="rof" spellcheck="false" />
+              </div>
+              <div class="field-stack">
+                <label class="field-label" for="downloadPrefixInput">downloadprefix</label>
+                <input
+                  id="downloadPrefixInput"
+                  class="text-input"
+                  type="text"
+                  placeholder="https://example.com/patch/rof/"
+                  spellcheck="false"
+                />
+              </div>
+            </div>
+          </section>
+
+          <section class="form-section flow-section">
+            <div class="flow-heading">
+              <span class="flow-step">03</span>
+              <div>
+                <p class="eyebrow">Optional Legacy Lists</p>
+                <h3 class="flow-title">Adjust ignore and delete entries</h3>
+              </div>
+            </div>
+            <p class="flow-copy">Leave these blank if you do not need them. They map directly to `ignore.txt` and `delete.txt`.</p>
+            <div class="field-row field-row-stack">
+              <div class="field-stack">
+                <label class="field-label" for="ignoreInput">ignore.txt</label>
+                <textarea id="ignoreInput" class="text-area" placeholder="Optional files to skip"></textarea>
+              </div>
+              <div class="field-stack">
+                <label class="field-label" for="deleteInput">delete.txt</label>
+                <textarea id="deleteInput" class="text-area" placeholder="Optional files to remove on client patch"></textarea>
+              </div>
+            </div>
+          </section>
+
+          <section class="form-section flow-section">
+            <div class="flow-heading">
+              <span class="flow-step">04</span>
+              <div>
+                <p class="eyebrow">Review</p>
+                <h3 class="flow-title">Confirm what will be generated</h3>
+              </div>
+            </div>
+            <div class="summary-grid builder-review-grid">
+              <div class="summary-item summary-item-wide">
+                <span class="summary-label">Working Folder</span>
+                <strong id="workingDirectoryValue" class="summary-path">Not selected</strong>
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Included Files</span>
+                <strong id="includedFilesValue">0</strong>
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Delete Entries</span>
+                <strong id="deleteEntriesValue">0</strong>
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Archive Size</span>
+                <strong id="archiveSizeValue">0 B</strong>
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Client</span>
+                <strong id="clientValue">Unset</strong>
+              </div>
+              <div class="summary-item">
+                <span class="summary-label">Outputs</span>
+                <strong id="outputValue">Awaiting client</strong>
+              </div>
+            </div>
+            <p id="compatibilityNote" class="builder-note">Legacy filelistbuilder output is preserved.</p>
+            <div class="builder-primary-actions">
+              <button id="generateButton" class="primary-button">Generate Outputs</button>
+              <button id="saveFilesButton" class="secondary-button" type="button">Save Draft Files</button>
+            </div>
+            <div class="utility-list utility-list-inline builder-utility-actions">
+              <button id="openConfigButton" class="ghost-button utility-button" type="button">Open filelistbuilder.yml</button>
+              <button id="openManifestButton" class="ghost-button utility-button" type="button">Open Manifest</button>
+              <button id="openPatchButton" class="ghost-button utility-button" type="button">Open patch.zip</button>
+            </div>
+          </section>
+
+          <section class="form-section flow-section activity-section">
+            <div class="flow-heading">
+              <span class="flow-step">05</span>
+              <div>
+                <p class="eyebrow">Activity</p>
+                <h3 class="flow-title">Build progress and output log</h3>
+              </div>
+            </div>
+            <div class="progress-meta">
+              <span id="progressLabel">Waiting for input</span>
+              <strong id="progressValue">0 / 1</strong>
+            </div>
+            <div class="progress-rail">
+              <div id="progressBar" class="progress-fill"></div>
+            </div>
+            <div class="log-frame builder-log-frame">
+              <p class="log-placeholder" id="logPlaceholder">Build actions, manifest writes, and archive generation will appear here.</p>
+              <div id="logList" class="log-list"></div>
+            </div>
+          </section>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <span id="versionLabel" class="version-label">Builder v0.0.0</span>
+      </footer>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

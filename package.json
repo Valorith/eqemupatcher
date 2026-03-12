@@ -8,12 +8,16 @@
   "scripts": {
     "start": "node ./scripts/run-electron.js src/electron/main.js",
     "dev": "node ./scripts/run-electron.js src/electron/main.js",
-    "check": "node --check src/electron/main.js && node --check src/electron/preload.js && node --check src/electron/backend/launcher-backend.js && node --check src/electron/renderer/app.js",
-    "test": "node --test test/electron-backend.test.js",
+    "start:filelistbuilder": "node ./scripts/run-electron.js src/filelistbuilder-electron/main.js",
+    "dev:filelistbuilder": "node ./scripts/run-electron.js src/filelistbuilder-electron/main.js",
+    "check": "node --check src/electron/main.js && node --check src/electron/preload.js && node --check src/electron/backend/launcher-backend.js && node --check src/electron/renderer/app.js && node --check src/filelistbuilder-electron/main.js && node --check src/filelistbuilder-electron/preload.js && node --check src/filelistbuilder-electron/backend/legacy-filelistbuilder.js && node --check src/filelistbuilder-electron/backend/filelistbuilder-backend.js && node --check src/filelistbuilder-electron/renderer/app.js",
+    "test": "node --test test/electron-backend.test.js test/filelistbuilder-backend.test.js",
     "dist": "electron-builder",
     "dist:dir": "electron-builder --dir",
     "dist:win": "electron-builder --win portable",
-    "dist:win:installer": "electron-builder --win nsis"
+    "dist:win:installer": "electron-builder --win nsis",
+    "dist:filelistbuilder:dir": "electron-builder --dir --config electron-builder.filelistbuilder.yml",
+    "dist:filelistbuilder:win": "electron-builder --win portable --config electron-builder.filelistbuilder.yml"
   },
   "devDependencies": {
     "electron": "^36.3.2",

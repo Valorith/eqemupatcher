@@ -1,0 +1,23 @@
+appId: com.eqemu.filelistbuilder
+productName: EQEmu File List Builder
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+directories:
+  output: dist/filelistbuilder-electron
+files:
+  - src/filelistbuilder-electron/**/*
+  - src/electron/backend/simple-yaml.js
+  - src/electron/renderer/styles.css
+  - src/electron/assets/**/*
+  - package.json
+extraMetadata:
+  main: src/filelistbuilder-electron/main.js
+asar: true
+compression: normal
+win:
+  icon: src/electron/assets/icons/icon-app.ico
+  target:
+    - target: portable
+      arch:
+        - x64
+portable:
+  artifactName: ${productName}-${version}-windows-portable.${ext}
