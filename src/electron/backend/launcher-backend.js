@@ -636,10 +636,6 @@ class LauncherBackend {
       };
     }
 
-    if (!forceRefresh && this.patchNotesCache.url === patchNotesUrl && this.patchNotesCache.content) {
-      return cloneState(this.patchNotesCache);
-    }
-
     const requestHeaders = {};
     if (!forceRefresh && this.patchNotesCache.url === patchNotesUrl && this.patchNotesCache.etag) {
       requestHeaders["If-None-Match"] = this.patchNotesCache.etag;

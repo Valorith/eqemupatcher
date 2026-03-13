@@ -1012,6 +1012,53 @@ patchNotesUrl: ${baseUrl}/notes.md
   assert.equal(second.error, "");
 });
 
+test("getPatchNotes refreshes cached content on a normal load when the server has newer notes", async (t) => {
+  const { backend, projectRoot } = await createBackendHarness(t);
+
+  let requestCount = 0;
+  const { server, baseUrl } = await startFixtureServer({
+    "/notes.md": (req, res) => {
+      requestCount += 1;
+
+      if (requestCount === 1) {
+        res.writeHead(200, {
+          "content-type": "text/markdown",
+          etag: '"notes-v1"'
+        });
+        res.end("# Notes\n\n- First\n");
+        return;
+      }
+
+      assert.equal(req.headers["if-none-match"], '"notes-v1"');
+      res.writeHead(200, {
+        "content-type": "text/markdown",
+        etag: '"notes-v2"'
+      });
+      res.end("# Notes\n\n- Second\n");
+    }
+  });
+
+  t.after(() => server.close());
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    `serverName: Test Realm
+filelistUrl: ${baseUrl}/
+patchNotesUrl: ${baseUrl}/notes.md
+`,
+    "utf8"
+  );
+
+  await backend.initialize();
+  const first = await backend.getPatchNotes({ forceRefresh: true });
+  const second = await backend.getPatchNotes();
+
+  assert.equal(requestCount, 2);
+  assert.match(first.content, /First/);
+  assert.match(second.content, /Second/);
+  assert.equal(second.error, "");
+});
+
 test("getPatchNotes forceRefresh bypasses conditional cache validators", async (t) => {
   const { backend, projectRoot } = await createBackendHarness(t);
 
