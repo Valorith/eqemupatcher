@@ -977,6 +977,83 @@ patchNotesUrl: ${baseUrl}/notes.md
   assert.match(notes.html, /href="https:\/\/www\.clumsysworld\.com\/"/);
 });
 
+
+
+test("getPatchNotes falls back to cached content when refresh fails", async (t) => {
+  const { backend, projectRoot } = await createBackendHarness(t);
+
+  const { server, baseUrl } = await startFixtureServer({
+    "/notes.md": (_req, res) => {
+      res.writeHead(200, {
+        "content-type": "text/markdown",
+        etag: '"notes-v1"'
+      });
+      res.end("# Updates\n\n- One\n- Two\n");
+    }
+  });
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    `serverName: Test Realm
+filelistUrl: ${baseUrl}/
+patchNotesUrl: ${baseUrl}/notes.md
+`,
+    "utf8"
+  );
+
+  await backend.initialize();
+  const first = await backend.getPatchNotes({ forceRefresh: true });
+  await new Promise((resolve) => server.close(resolve));
+  const second = await backend.getPatchNotes({ forceRefresh: true });
+
+  assert.match(first.content, /- One/);
+  assert.equal(second.content, first.content);
+  assert.equal(second.html, first.html);
+  assert.equal(second.error, "");
+});
+
+test("getPatchNotes forceRefresh bypasses conditional cache validators", async (t) => {
+  const { backend, projectRoot } = await createBackendHarness(t);
+
+  let requestCount = 0;
+  const { server, baseUrl } = await startFixtureServer({
+    "/notes.md": (req, res) => {
+      requestCount += 1;
+      const ifNoneMatch = req.headers["if-none-match"];
+      if (requestCount > 1 && ifNoneMatch === '"notes-v1"') {
+        res.writeHead(304);
+        res.end();
+        return;
+      }
+
+      res.writeHead(200, {
+        "content-type": "text/markdown",
+        etag: requestCount === 1 ? '"notes-v1"' : '"notes-v2"'
+      });
+      res.end(requestCount === 1 ? "# Notes\n\n- First\n" : "# Notes\n\n- Second\n");
+    }
+  });
+
+  t.after(() => server.close());
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    `serverName: Test Realm
+filelistUrl: ${baseUrl}/
+patchNotesUrl: ${baseUrl}/notes.md
+`,
+    "utf8"
+  );
+
+  await backend.initialize();
+  const first = await backend.getPatchNotes({ forceRefresh: true });
+  const second = await backend.getPatchNotes({ forceRefresh: true });
+
+  assert.match(first.content, /First/);
+  assert.match(second.content, /Second/);
+  assert.equal(second.error, "");
+});
+
 test("getPatchNotes preserves nested bullet structure", async (t) => {
   const { backend, projectRoot } = await createBackendHarness(t);
 
