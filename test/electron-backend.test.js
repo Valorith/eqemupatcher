@@ -1011,3 +1011,34 @@ patchNotesUrl: ${baseUrl}/notes.md
 
   assert.match(notes.html, /<ul>\s*<li>Main item\s*<ul>\s*<li>Child item\s*<ul>\s*<li>Grandchild item\s*<\/li><\/ul>\s*<\/li><\/ul>\s*<\/li>\s*<li>Next item\s*<\/li><\/ul>/);
 });
+
+test("getPatchNotes parses large markdown payloads", async (t) => {
+  const { backend, projectRoot } = await createBackendHarness(t);
+
+  const largeNotes = Array.from({ length: 30000 }, (_value, index) => `- Update ${index} with **markdown**`).join("\n");
+
+  const { server, baseUrl } = await startFixtureServer({
+    "/notes.md": (_req, res) => {
+      res.writeHead(200, { "content-type": "text/markdown" });
+      res.end(largeNotes);
+    }
+  });
+
+  t.after(() => server.close());
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    `serverName: Test Realm
+filelistUrl: ${baseUrl}/
+patchNotesUrl: ${baseUrl}/notes.md
+`,
+    "utf8"
+  );
+
+  await backend.initialize();
+  const notes = await backend.getPatchNotes({ forceRefresh: true });
+
+  assert.equal(notes.lineCount, 30000);
+  assert.match(notes.html, /<li>Update 29999 with <strong>markdown<\/strong>\s*<\/li>/);
+});
+

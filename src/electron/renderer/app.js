@@ -11,7 +11,9 @@ const state = {
     error: "",
     loading: false,
     fetchedAt: "",
+    lineCount: 0,
     signature: "",
+    appliedQuery: "",
     hasUnread: false,
     matchCount: 0,
     activeMatchIndex: -1
@@ -391,8 +393,9 @@ function renderPatchNotes() {
 
   elements.notesContent.innerHTML = state.patchNotes.html;
   highlightMatchesInPatchNotes(query);
+  state.patchNotes.appliedQuery = query;
 
-  const lineCount = state.patchNotes.content ? state.patchNotes.content.split("\n").length : 0;
+  const lineCount = state.patchNotes.lineCount || 0;
   const hasQuery = Boolean(query);
   const matchLabel = hasQuery ? ` · ${state.patchNotes.activeMatchIndex + 1}/${state.patchNotes.matchCount} matches` : "";
   const meta = hasQuery
@@ -416,7 +419,9 @@ async function loadPatchNotes(forceRefresh = false) {
   state.patchNotes.html = notes.html || "";
   state.patchNotes.error = notes.error || "";
   state.patchNotes.fetchedAt = notes.fetchedAt || "";
+  state.patchNotes.lineCount = Number.isFinite(notes.lineCount) ? notes.lineCount : 0;
   state.patchNotes.signature = getPatchNotesSignature(state.patchNotes.loadedUrl, state.patchNotes.content);
+  state.patchNotes.appliedQuery = "";
   state.patchNotes.matchCount = 0;
   state.patchNotes.activeMatchIndex = -1;
   syncPatchNotesUnreadState();
@@ -738,21 +743,22 @@ function wireEvents() {
   elements.notesTabButton.addEventListener("click", () => {
     setActiveTab("notes");
   });
-  let notesSearchDebounce = null;
-  elements.notesSearchInput.addEventListener("input", () => {
-    clearTimeout(notesSearchDebounce);
-    notesSearchDebounce = setTimeout(() => {
-      renderPatchNotes();
-    }, 120);
-  });
-
   elements.notesSearchInput.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      if (event.shiftKey) {
-        setActiveSearchMatch(state.patchNotes.activeMatchIndex - 1);
-      } else {
-        setActiveSearchMatch(state.patchNotes.activeMatchIndex + 1);
-      }
+    if (event.key !== "Enter") {
+      return;
+    }
+
+    event.preventDefault();
+    const query = elements.notesSearchInput.value.trim();
+    if (query !== state.patchNotes.appliedQuery) {
+      renderPatchNotes();
+      return;
+    }
+
+    if (event.shiftKey) {
+      setActiveSearchMatch(state.patchNotes.activeMatchIndex - 1);
+    } else {
+      setActiveSearchMatch(state.patchNotes.activeMatchIndex + 1);
     }
   });
 

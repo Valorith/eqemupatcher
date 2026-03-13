@@ -3,8 +3,11 @@ const fs = require("fs");
 const fsp = require("fs/promises");
 const path = require("path");
 const { spawn } = require("child_process");
+const { Worker } = require("worker_threads");
 const { pathToFileURL } = require("url");
 const SimpleYaml = require("./simple-yaml");
+
+const LARGE_PATCH_NOTES_WORKER_THRESHOLD_BYTES = 1024 * 1024;
 
 const DEFAULTS = {
   serverName: "Clumsy's World",
@@ -610,6 +613,56 @@ class LauncherBackend {
     await fsp.writeFile(this.patchNotesCachePath, JSON.stringify(this.patchNotesCache, null, 2), "utf8");
   }
 
+  async parseMarkdownToHtml(markdown) {
+    const content = String(markdown || "");
+    if (!content) {
+      return "";
+    }
+
+    if (Buffer.byteLength(content, "utf8") < LARGE_PATCH_NOTES_WORKER_THRESHOLD_BYTES) {
+      return markdownToHtml(content);
+    }
+
+    try {
+      return await new Promise((resolve, reject) => {
+        const worker = new Worker(path.join(__dirname, "markdown-worker.js"));
+
+        const cleanup = () => {
+          worker.removeAllListeners("message");
+          worker.removeAllListeners("error");
+          worker.removeAllListeners("exit");
+        };
+
+        worker.once("message", (result) => {
+          cleanup();
+          worker.terminate().catch(() => {});
+          if (result?.error) {
+            reject(new Error(result.error));
+            return;
+          }
+          resolve(result?.html || "");
+        });
+
+        worker.once("error", (error) => {
+          cleanup();
+          worker.terminate().catch(() => {});
+          reject(error);
+        });
+
+        worker.once("exit", (code) => {
+          if (code !== 0) {
+            cleanup();
+            reject(new Error(`Markdown worker exited with code ${code}`));
+          }
+        });
+
+        worker.postMessage(content);
+      });
+    } catch (_error) {
+      return markdownToHtml(content);
+    }
+  }
+
   async fetchPatchNotes(options = {}) {
     const { forceRefresh = false } = options;
     const patchNotesUrl = String(this.config.patchNotesUrl || "").trim();
@@ -658,7 +711,7 @@ class LauncherBackend {
     }
 
     const content = await response.text();
-    const html = content ? markdownToHtml(content) : "";
+    const html = await this.parseMarkdownToHtml(content);
     this.patchNotesCache = {
       url: patchNotesUrl,
       content,
