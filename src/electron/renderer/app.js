@@ -11,10 +11,13 @@ const state = {
     error: "",
     loading: false,
     fetchedAt: "",
+    signature: "",
+    hasUnread: false,
     matchCount: 0,
     activeMatchIndex: -1
   }
 };
+const PATCH_NOTES_READ_STORAGE_KEY = "eqemu-launcher.patchNotesRead";
 const elements = {
   leftStage: document.getElementById("leftStage"),
   statusChip: document.getElementById("statusChip"),
@@ -32,6 +35,7 @@ const elements = {
   notesPrevMatchButton: document.getElementById("notesPrevMatchButton"),
   notesNextMatchButton: document.getElementById("notesNextMatchButton"),
   notesMeta: document.getElementById("notesMeta"),
+  notesCard: document.getElementById("notesCard"),
   notesContent: document.getElementById("notesContent"),
   serverValue: document.getElementById("serverValue"),
   clientValue: document.getElementById("clientValue"),
@@ -44,6 +48,7 @@ const elements = {
   settingsButton: document.getElementById("settingsButton"),
   minimizeButton: document.getElementById("minimizeButton"),
   closeButton: document.getElementById("closeButton"),
+  discordButton: document.getElementById("discordButton"),
   autoPatchToggle: document.getElementById("autoPatchToggle"),
   autoPlayToggle: document.getElementById("autoPlayToggle"),
   reportLink: document.getElementById("reportLink"),
@@ -64,6 +69,84 @@ const elements = {
   unsupportedClientMessage: document.getElementById("unsupportedClientMessage"),
   versionLabel: document.getElementById("versionLabel")
 };
+function readPatchNotesReadState() {
+  try {
+    const raw = window.localStorage.getItem(PATCH_NOTES_READ_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (_error) {
+    return {};
+  }
+}
+function writePatchNotesReadState(nextState) {
+  try {
+    window.localStorage.setItem(PATCH_NOTES_READ_STORAGE_KEY, JSON.stringify(nextState));
+  } catch (_error) {
+    // Ignore storage failures; unread state will fall back to this session only.
+  }
+}
+function hashText(value) {
+  let hash = 0;
+  const text = String(value || "");
+  for (let index = 0; index < text.length; index += 1) {
+    hash = (hash * 31 + text.charCodeAt(index)) | 0;
+  }
+  return (hash >>> 0).toString(16);
+}
+function getPatchNotesSignature(url, content) {
+  const normalizedUrl = String(url || "").trim();
+  const normalizedContent = String(content || "");
+  if (!normalizedUrl || !normalizedContent) {
+    return "";
+  }
+  return `${normalizedUrl}::${hashText(normalizedContent)}`;
+}
+function normalizePatchNotesLinkHref(href) {
+  const normalized = String(href || "").trim();
+  if (!normalized) {
+    return "";
+  }
+
+  if (/^https?\/\//i.test(normalized)) {
+    return normalized.replace(/^https?(?=\/\/)/i, (scheme) => `${scheme}:`);
+  }
+
+  return normalized;
+}
+function updatePatchNotesAttention() {
+  elements.notesTabButton.classList.toggle("has-unread", state.patchNotes.hasUnread);
+  elements.notesTabButton.setAttribute("aria-label", state.patchNotes.hasUnread ? "Patch Notes (new unread notes)" : "Patch Notes");
+}
+function markCurrentPatchNotesRead() {
+  if (!state.patchNotes.signature || !state.patchNotes.loadedUrl) {
+    state.patchNotes.hasUnread = false;
+    updatePatchNotesAttention();
+    return;
+  }
+
+  const readState = readPatchNotesReadState();
+  readState[state.patchNotes.loadedUrl] = state.patchNotes.signature;
+  writePatchNotesReadState(readState);
+  state.patchNotes.hasUnread = false;
+  updatePatchNotesAttention();
+}
+function syncPatchNotesUnreadState() {
+  if (!state.patchNotes.signature || !state.patchNotes.loadedUrl) {
+    state.patchNotes.hasUnread = false;
+    updatePatchNotesAttention();
+    return;
+  }
+
+  const readState = readPatchNotesReadState();
+  const lastReadSignature = readState[state.patchNotes.loadedUrl] || "";
+  state.patchNotes.hasUnread = lastReadSignature !== state.patchNotes.signature;
+
+  if (state.activeTab === "notes" && state.patchNotes.html) {
+    markCurrentPatchNotesRead();
+    return;
+  }
+
+  updatePatchNotesAttention();
+}
 function openToolsMenu() {
   elements.toolsMenu.classList.remove("hidden");
   elements.toolsButton.setAttribute("aria-expanded", "true");
@@ -152,6 +235,25 @@ function updateMatchNavigation() {
     !hasMatches || !hasActive || state.patchNotes.activeMatchIndex >= state.patchNotes.matchCount - 1;
 }
 
+function scrollMatchIntoView(match, options = {}) {
+  const { behavior = "smooth" } = options;
+  const container = elements.notesCard;
+  if (!container || !match) {
+    return;
+  }
+
+  const containerRect = container.getBoundingClientRect();
+  const matchRect = match.getBoundingClientRect();
+  const currentTop = container.scrollTop;
+  const relativeTop = matchRect.top - containerRect.top + currentTop;
+  const targetTop = Math.max(0, relativeTop - container.clientHeight / 2 + matchRect.height / 2);
+
+  container.scrollTo({
+    top: targetTop,
+    behavior
+  });
+}
+
 function setActiveSearchMatch(nextIndex, options = {}) {
   const { scrollIntoView = true } = options;
   const matches = Array.from(elements.notesContent.querySelectorAll("mark.notes-match"));
@@ -170,7 +272,7 @@ function setActiveSearchMatch(nextIndex, options = {}) {
   }
 
   if (scrollIntoView) {
-    matches[safeIndex].scrollIntoView({ behavior: "smooth", block: "center", inline: "nearest" });
+    scrollMatchIntoView(matches[safeIndex]);
   }
 
   updateMatchNavigation();
@@ -252,6 +354,7 @@ function renderPatchNotes() {
     state.patchNotes.matchCount = 0;
     state.patchNotes.activeMatchIndex = -1;
     updatePatchNotesMeta("Loading...");
+    updatePatchNotesAttention();
     updateMatchNavigation();
     return;
   }
@@ -264,7 +367,9 @@ function renderPatchNotes() {
     elements.notesContent.appendChild(errorParagraph);
     state.patchNotes.matchCount = 0;
     state.patchNotes.activeMatchIndex = -1;
+    state.patchNotes.hasUnread = false;
     updatePatchNotesMeta("Unable to load");
+    updatePatchNotesAttention();
     updateMatchNavigation();
     return;
   }
@@ -273,10 +378,13 @@ function renderPatchNotes() {
     elements.notesContent.innerHTML = '<p class="notes-copy">Patch Notes source not configured.</p>';
     state.patchNotes.matchCount = 0;
     state.patchNotes.activeMatchIndex = -1;
+    state.patchNotes.signature = "";
+    state.patchNotes.hasUnread = false;
     if (!hasConfiguredPatchNotesSource()) {
       elements.notesSearchInput.value = "";
     }
     updatePatchNotesMeta("No source configured");
+    updatePatchNotesAttention();
     updateMatchNavigation();
     return;
   }
@@ -308,8 +416,10 @@ async function loadPatchNotes(forceRefresh = false) {
   state.patchNotes.html = notes.html || "";
   state.patchNotes.error = notes.error || "";
   state.patchNotes.fetchedAt = notes.fetchedAt || "";
+  state.patchNotes.signature = getPatchNotesSignature(state.patchNotes.loadedUrl, state.patchNotes.content);
   state.patchNotes.matchCount = 0;
   state.patchNotes.activeMatchIndex = -1;
+  syncPatchNotesUnreadState();
   renderPatchNotes();
 }
 
@@ -323,6 +433,9 @@ function setActiveTab(tabName) {
   elements.notesTabButton.classList.toggle("is-active", notesIsActive);
   elements.notesTabButton.setAttribute("aria-selected", String(notesIsActive));
   elements.notesTabPanel.classList.toggle("hidden", !notesIsActive);
+  if (notesIsActive && state.patchNotes.html) {
+    markCurrentPatchNotesRead();
+  }
   if (notesIsActive && !state.patchNotes.html && !state.patchNotes.loading) {
     loadPatchNotes(false).catch((error) => {
       state.patchNotes.loading = false;
@@ -569,6 +682,9 @@ function wireEvents() {
   elements.closeButton.addEventListener("click", async () => {
     await window.launcher.closeWindow();
   });
+  elements.discordButton.addEventListener("click", async () => {
+    await window.launcher.openExternal("https://discord.com/invite/3wkzwwc");
+  });
   elements.websiteLink.addEventListener("click", async (event) => {
     event.preventDefault();
     await window.launcher.openExternal(elements.websiteLink.href);
@@ -646,6 +762,20 @@ function wireEvents() {
 
   elements.notesNextMatchButton.addEventListener("click", () => {
     setActiveSearchMatch(state.patchNotes.activeMatchIndex + 1);
+  });
+  elements.notesContent.addEventListener("click", async (event) => {
+    const link = event.target.closest("a");
+    if (!link || !elements.notesContent.contains(link)) {
+      return;
+    }
+
+    const href = normalizePatchNotesLinkHref(link.getAttribute("href"));
+    if (!/^https?:\/\//i.test(href)) {
+      return;
+    }
+
+    event.preventDefault();
+    await window.launcher.openExternal(href);
   });
   elements.patchButton.addEventListener("click", async () => {
     const action = elements.patchButton.dataset.action;
@@ -740,6 +870,7 @@ function subscribe() {
 async function bootstrap() {
   wireEvents();
   subscribe();
+  updatePatchNotesAttention();
   setActiveTab("patch");
   const [version, nextState] = await Promise.all([window.launcher.getVersion(), window.launcher.initialize()]);
   renderVersion(version);

@@ -163,6 +163,10 @@ function sanitizeMarkdownHref(href) {
     return "#";
   }
 
+  if (/^https?\/\//i.test(normalized)) {
+    return normalized.replace(/^https?(?=\/\/)/i, (scheme) => `${scheme}:`);
+  }
+
   if (/^(https?:\/\/)/i.test(normalized)) {
     return normalized;
   }
@@ -183,22 +187,26 @@ function renderInlineMarkdown(value) {
   return rendered;
 }
 
+function getListIndentWidth(value) {
+  return String(value || "").replace(/\t/g, "  ").length;
+}
+
 function markdownToHtml(markdown) {
   const lines = String(markdown || "").split("\n").map((line) => line.replace(/\r$/, ""));
   const html = [];
   let inCode = false;
-  let inList = false;
+  const listStack = [];
 
-  const closeList = () => {
-    if (inList) {
-      html.push("</ul>");
-      inList = false;
+  const closeLists = (targetIndent = -1) => {
+    while (listStack.length && listStack[listStack.length - 1] > targetIndent) {
+      html.push("</li></ul>");
+      listStack.pop();
     }
   };
 
   for (const line of lines) {
     if (line.startsWith("```")) {
-      closeList();
+      closeLists();
       if (inCode) {
         html.push("</code></pre>");
         inCode = false;
@@ -216,44 +224,72 @@ function markdownToHtml(markdown) {
 
     const heading = line.match(/^(#{1,6})\s+(.+)$/);
     if (heading) {
-      closeList();
+      closeLists();
       const level = heading[1].length;
       html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
       continue;
     }
 
-    const listItem = line.match(/^[-*]\s+(.+)$/);
+    const listItem = line.match(/^(\s*)[-*]\s+(.+)$/);
     if (listItem) {
-      if (!inList) {
+      const indent = getListIndentWidth(listItem[1]);
+      const content = renderInlineMarkdown(listItem[2]);
+
+      if (!listStack.length) {
         html.push("<ul>");
-        inList = true;
+        listStack.push(indent);
+        html.push(`<li>${content}`);
+        continue;
       }
-      html.push(`<li>${renderInlineMarkdown(listItem[1])}</li>`);
+
+      const currentIndent = listStack[listStack.length - 1];
+      if (indent > currentIndent) {
+        html.push("<ul>");
+        listStack.push(indent);
+        html.push(`<li>${content}`);
+        continue;
+      }
+
+      if (indent === currentIndent) {
+        html.push("</li>");
+        html.push(`<li>${content}`);
+        continue;
+      }
+
+      closeLists(indent);
+      if (listStack.length && listStack[listStack.length - 1] === indent) {
+        html.push("</li>");
+        html.push(`<li>${content}`);
+      } else {
+        html.push("<ul>");
+        listStack.push(indent);
+        html.push(`<li>${content}`);
+      }
       continue;
     }
 
     if (/^>\s+/.test(line)) {
-      closeList();
+      closeLists();
       html.push(`<blockquote>${renderInlineMarkdown(line.replace(/^>\s+/, ""))}</blockquote>`);
       continue;
     }
 
     if (/^---+$/.test(line.trim())) {
-      closeList();
+      closeLists();
       html.push("<hr>");
       continue;
     }
 
     if (!line.trim()) {
-      closeList();
+      closeLists();
       continue;
     }
 
-    closeList();
+    closeLists();
     html.push(`<p>${renderInlineMarkdown(line)}</p>`);
   }
 
-  closeList();
+  closeLists();
   if (inCode) {
     html.push("</code></pre>");
   }
@@ -275,6 +311,7 @@ class LauncherBackend {
     this.spawnImpl = spawnImpl || spawn;
     this.platform = platform || process.platform;
     this.appStatePath = path.join(this.appUserDataPath, "launcher-state.yml");
+    this.patchNotesCachePath = path.join(this.appUserDataPath, "patch-notes-cache.json");
     this.configPath = path.join(this.projectRoot, "launcher-config.yml");
     this.gameConfigPath = "";
     this.launchConfigPath = this.launchDirectory ? path.join(this.launchDirectory, "launcher-config.yml") : "";
@@ -288,8 +325,13 @@ class LauncherBackend {
     this.patchNotesCache = {
       url: "",
       content: "",
-      fetchedAt: ""
+      html: "",
+      fetchedAt: "",
+      lineCount: 0,
+      etag: "",
+      lastModified: ""
     };
+    this.patchNotesCacheLoaded = false;
 
     this.state = {
       platform: this.platform,
@@ -517,10 +559,8 @@ class LauncherBackend {
 
     try {
       const notes = await this.fetchPatchNotes({ forceRefresh });
-      const html = notes.content ? markdownToHtml(notes.content) : "";
       return {
         ...notes,
-        html,
         error: ""
       };
     } catch (error) {
@@ -529,25 +569,70 @@ class LauncherBackend {
         content: "",
         html: "",
         fetchedAt: "",
+        lineCount: 0,
         error: error.message || "Unable to load patch notes."
       };
     }
   }
 
+  async loadPatchNotesCache() {
+    if (this.patchNotesCacheLoaded) {
+      return;
+    }
+
+    this.patchNotesCacheLoaded = true;
+    if (!(await exists(this.patchNotesCachePath))) {
+      return;
+    }
+
+    try {
+      const raw = await fsp.readFile(this.patchNotesCachePath, "utf8");
+      const parsed = JSON.parse(raw);
+      this.patchNotesCache = {
+        ...this.patchNotesCache,
+        ...(parsed || {})
+      };
+    } catch (_error) {
+      this.patchNotesCache = {
+        url: "",
+        content: "",
+        html: "",
+        fetchedAt: "",
+        lineCount: 0,
+        etag: "",
+        lastModified: ""
+      };
+    }
+  }
+
+  async savePatchNotesCache() {
+    await fsp.mkdir(path.dirname(this.patchNotesCachePath), { recursive: true });
+    await fsp.writeFile(this.patchNotesCachePath, JSON.stringify(this.patchNotesCache, null, 2), "utf8");
+  }
+
   async fetchPatchNotes(options = {}) {
     const { forceRefresh = false } = options;
     const patchNotesUrl = String(this.config.patchNotesUrl || "").trim();
+    await this.loadPatchNotesCache();
 
     if (!patchNotesUrl) {
       this.patchNotesCache = {
         url: "",
         content: "",
-        fetchedAt: ""
+        html: "",
+        fetchedAt: "",
+        lineCount: 0,
+        etag: "",
+        lastModified: ""
       };
       return {
         url: "",
         content: "",
-        fetchedAt: ""
+        html: "",
+        fetchedAt: "",
+        lineCount: 0,
+        etag: "",
+        lastModified: ""
       };
     }
 
@@ -555,17 +640,35 @@ class LauncherBackend {
       return cloneState(this.patchNotesCache);
     }
 
-    const response = await this.fetchImpl(patchNotesUrl);
+    const requestHeaders = {};
+    if (this.patchNotesCache.url === patchNotesUrl && this.patchNotesCache.etag) {
+      requestHeaders["If-None-Match"] = this.patchNotesCache.etag;
+    }
+    if (this.patchNotesCache.url === patchNotesUrl && this.patchNotesCache.lastModified) {
+      requestHeaders["If-Modified-Since"] = this.patchNotesCache.lastModified;
+    }
+
+    const response = await this.fetchImpl(patchNotesUrl, Object.keys(requestHeaders).length ? { headers: requestHeaders } : undefined);
+    if (response.status === 304 && this.patchNotesCache.url === patchNotesUrl && this.patchNotesCache.content) {
+      return cloneState(this.patchNotesCache);
+    }
+
     if (!response.ok) {
       throw new Error(`Patch notes request failed with ${response.status}`);
     }
 
     const content = await response.text();
+    const html = content ? markdownToHtml(content) : "";
     this.patchNotesCache = {
       url: patchNotesUrl,
       content,
-      fetchedAt: new Date().toISOString()
+      html,
+      fetchedAt: new Date().toISOString(),
+      lineCount: content ? content.split("\n").length : 0,
+      etag: response.headers?.get?.("etag") || "",
+      lastModified: response.headers?.get?.("last-modified") || ""
     };
+    await this.savePatchNotesCache();
     return cloneState(this.patchNotesCache);
   }
 

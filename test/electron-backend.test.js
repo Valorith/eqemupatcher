@@ -949,3 +949,65 @@ patchNotesUrl: ${baseUrl}/notes.md
   assert.match(notes.html, /href="#"/);
   assert.equal(notes.error, "");
 });
+
+test("getPatchNotes repairs markdown links missing the scheme colon", async (t) => {
+  const { backend, projectRoot } = await createBackendHarness(t);
+
+  const { server, baseUrl } = await startFixtureServer({
+    "/notes.md": (_req, res) => {
+      res.writeHead(200, { "content-type": "text/markdown" });
+      res.end("[Website](https//www.clumsysworld.com/)\n");
+    }
+  });
+
+  t.after(() => server.close());
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    `serverName: Test Realm
+filelistUrl: ${baseUrl}/
+patchNotesUrl: ${baseUrl}/notes.md
+`,
+    "utf8"
+  );
+
+  await backend.initialize();
+  const notes = await backend.getPatchNotes({ forceRefresh: true });
+
+  assert.match(notes.html, /href="https:\/\/www\.clumsysworld\.com\/"/);
+});
+
+test("getPatchNotes preserves nested bullet structure", async (t) => {
+  const { backend, projectRoot } = await createBackendHarness(t);
+
+  const { server, baseUrl } = await startFixtureServer({
+    "/notes.md": (_req, res) => {
+      res.writeHead(200, { "content-type": "text/markdown" });
+      res.end(
+        [
+          "- Main item",
+          "  - Child item",
+          "    - Grandchild item",
+          "- Next item",
+          ""
+        ].join("\n")
+      );
+    }
+  });
+
+  t.after(() => server.close());
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    `serverName: Test Realm
+filelistUrl: ${baseUrl}/
+patchNotesUrl: ${baseUrl}/notes.md
+`,
+    "utf8"
+  );
+
+  await backend.initialize();
+  const notes = await backend.getPatchNotes({ forceRefresh: true });
+
+  assert.match(notes.html, /<ul>\s*<li>Main item\s*<ul>\s*<li>Child item\s*<ul>\s*<li>Grandchild item\s*<\/li><\/ul>\s*<\/li><\/ul>\s*<\/li>\s*<li>Next item\s*<\/li><\/ul>/);
+});
