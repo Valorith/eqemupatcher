@@ -636,19 +636,23 @@ class LauncherBackend {
       };
     }
 
-    if (!forceRefresh && this.patchNotesCache.url === patchNotesUrl && this.patchNotesCache.content) {
-      return cloneState(this.patchNotesCache);
-    }
-
     const requestHeaders = {};
-    if (this.patchNotesCache.url === patchNotesUrl && this.patchNotesCache.etag) {
+    if (!forceRefresh && this.patchNotesCache.url === patchNotesUrl && this.patchNotesCache.etag) {
       requestHeaders["If-None-Match"] = this.patchNotesCache.etag;
     }
-    if (this.patchNotesCache.url === patchNotesUrl && this.patchNotesCache.lastModified) {
+    if (!forceRefresh && this.patchNotesCache.url === patchNotesUrl && this.patchNotesCache.lastModified) {
       requestHeaders["If-Modified-Since"] = this.patchNotesCache.lastModified;
     }
 
-    const response = await this.fetchImpl(patchNotesUrl, Object.keys(requestHeaders).length ? { headers: requestHeaders } : undefined);
+    let response;
+    try {
+      response = await this.fetchImpl(patchNotesUrl, Object.keys(requestHeaders).length ? { headers: requestHeaders } : undefined);
+    } catch (error) {
+      if (this.patchNotesCache.url === patchNotesUrl && this.patchNotesCache.content) {
+        return cloneState(this.patchNotesCache);
+      }
+      throw error;
+    }
     if (response.status === 304 && this.patchNotesCache.url === patchNotesUrl && this.patchNotesCache.content) {
       return cloneState(this.patchNotesCache);
     }
