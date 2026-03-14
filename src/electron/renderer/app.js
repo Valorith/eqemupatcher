@@ -4,6 +4,8 @@ const state = {
   consoleVisible: false,
   activeTab: "patch",
   lastUnsupportedClientKey: "",
+  launcherUpdatePromptPending: true,
+  launcherUpdatePromptedVersion: "",
   patchNotes: {
     loadedUrl: "",
     content: "",
@@ -67,7 +69,19 @@ const elements = {
   unsupportedClientCloseButton: document.getElementById("unsupportedClientCloseButton"),
   unsupportedClientDismissButton: document.getElementById("unsupportedClientDismissButton"),
   unsupportedClientMessage: document.getElementById("unsupportedClientMessage"),
-  versionLabel: document.getElementById("versionLabel")
+  launcherUpdateModal: document.getElementById("launcherUpdateModal"),
+  launcherUpdateBackdrop: document.getElementById("launcherUpdateBackdrop"),
+  launcherUpdateCloseButton: document.getElementById("launcherUpdateCloseButton"),
+  launcherUpdateSummary: document.getElementById("launcherUpdateSummary"),
+  launcherUpdateCurrentVersion: document.getElementById("launcherUpdateCurrentVersion"),
+  launcherUpdateLatestVersion: document.getElementById("launcherUpdateLatestVersion"),
+  launcherUpdateLaterButton: document.getElementById("launcherUpdateLaterButton"),
+  launcherUpdateNowButton: document.getElementById("launcherUpdateNowButton"),
+  launcherUpdatePanel: document.getElementById("launcherUpdatePanel"),
+  launcherUpdateMeta: document.getElementById("launcherUpdateMeta"),
+  launcherUpdateMessage: document.getElementById("launcherUpdateMessage"),
+  launcherUpdateActionButton: document.getElementById("launcherUpdateActionButton"),
+  launcherUpdateLinkButton: document.getElementById("launcherUpdateLinkButton")
 };
 function readPatchNotesReadState() {
   try {
@@ -182,6 +196,19 @@ function openUnsupportedClientModal(nextState) {
 function closeUnsupportedClientModal() {
   elements.unsupportedClientModal.classList.add("hidden");
   elements.unsupportedClientModal.setAttribute("aria-hidden", "true");
+}
+function openLauncherUpdateModal(updateState) {
+  const currentVersion = `v${updateState.currentVersion || "0.0.0"}`;
+  const latestVersion = `v${updateState.latestVersion || updateState.currentVersion || "0.0.0"}`;
+  elements.launcherUpdateSummary.textContent = `A new patcher update is available. Update from ${currentVersion} to ${latestVersion}.`;
+  elements.launcherUpdateCurrentVersion.textContent = currentVersion;
+  elements.launcherUpdateLatestVersion.textContent = latestVersion;
+  elements.launcherUpdateModal.classList.remove("hidden");
+  elements.launcherUpdateModal.setAttribute("aria-hidden", "false");
+}
+function closeLauncherUpdateModal() {
+  elements.launcherUpdateModal.classList.add("hidden");
+  elements.launcherUpdateModal.setAttribute("aria-hidden", "true");
 }
 async function runUtilityAction(action, successMessage, failureFallback) {
   const result = await action();
@@ -444,8 +471,127 @@ function setActiveTab(tabName) {
     });
   }
 }
-function renderVersion(version) {
-  elements.versionLabel.textContent = `Patcher v${version || "0.0.0"}`;
+function formatByteValue(value) {
+  const numericValue = Math.max(0, Number(value) || 0);
+  if (numericValue >= 1024 * 1024) {
+    return `${(numericValue / (1024 * 1024)).toFixed(1)} MB`;
+  }
+  if (numericValue >= 1024) {
+    return `${Math.round(numericValue / 1024)} KB`;
+  }
+  return `${numericValue} B`;
+}
+
+function getLauncherUpdatePresentation(updateState) {
+  const currentVersion = `v${updateState.currentVersion || "0.0.0"}`;
+  const latestVersion = updateState.latestVersion ? `v${updateState.latestVersion}` : currentVersion;
+
+  switch (updateState.status) {
+    case "checking":
+      return {
+        meta: "Checking for Updates",
+        message: `Checking patcher updates for ${currentVersion}.`
+      };
+    case "available":
+      return {
+        meta: "Update Available",
+        message: `Current ${currentVersion}  Available ${latestVersion}`
+      };
+    case "downloading":
+      return {
+        meta: "Updating Patcher",
+        message: `Downloading ${latestVersion}`
+      };
+    case "ready":
+      return {
+        meta: "Update Ready",
+        message: `${latestVersion} is ready to install.`
+      };
+    case "applying":
+      return {
+        meta: "Applying Update",
+        message: `Restarting into ${latestVersion}.`
+      };
+    case "helper-error":
+    case "error":
+      return {
+        meta: "Update Check Failed",
+        message: updateState.message || "Unable to complete the patcher update check."
+      };
+    case "idle":
+    case "up-to-date":
+    default:
+      return {
+        meta: "Patcher Up to Date",
+        message: `${currentVersion} is installed.`
+      };
+  }
+}
+
+function handleLauncherUpdatePrompt(updateState) {
+  if (!state.launcherUpdatePromptPending || !updateState) {
+    return;
+  }
+
+  if (updateState.status === "available" && updateState.latestVersion && state.launcherUpdatePromptedVersion !== updateState.latestVersion) {
+    state.launcherUpdatePromptedVersion = updateState.latestVersion;
+    state.launcherUpdatePromptPending = false;
+    openLauncherUpdateModal(updateState);
+    return;
+  }
+
+  if (["up-to-date", "ready", "helper-error", "error"].includes(updateState.status)) {
+    state.launcherUpdatePromptPending = false;
+  }
+}
+
+function renderLauncherUpdate(updateState) {
+  if (!updateState || updateState.status === "unsupported-platform") {
+    elements.launcherUpdatePanel.classList.add("hidden");
+    return;
+  }
+
+  elements.launcherUpdatePanel.classList.remove("hidden");
+  const presentation = getLauncherUpdatePresentation(updateState);
+  elements.launcherUpdateMeta.textContent = presentation.meta;
+
+  let message = presentation.message;
+  if (updateState.status === "downloading") {
+    message = `${message} ${formatByteValue(updateState.progressValue)} / ${formatByteValue(updateState.progressMax)}`;
+  }
+  elements.launcherUpdateMessage.textContent = message;
+
+  elements.launcherUpdateActionButton.classList.add("hidden");
+  elements.launcherUpdateActionButton.disabled = false;
+  elements.launcherUpdateActionButton.dataset.action = "";
+  elements.launcherUpdateLinkButton.classList.add("hidden");
+  elements.launcherUpdateLinkButton.disabled = false;
+
+  if (updateState.status === "available") {
+    elements.launcherUpdateActionButton.textContent = "Download Update";
+    elements.launcherUpdateActionButton.dataset.action = "download";
+    elements.launcherUpdateActionButton.classList.remove("hidden");
+    return;
+  }
+
+  if (updateState.status === "ready") {
+    elements.launcherUpdateActionButton.textContent = "Restart To Update";
+    elements.launcherUpdateActionButton.dataset.action = "apply";
+    elements.launcherUpdateActionButton.classList.remove("hidden");
+    return;
+  }
+
+  if (updateState.status === "downloading" || updateState.status === "checking" || updateState.status === "applying") {
+    elements.launcherUpdateActionButton.textContent =
+      updateState.status === "checking" ? "Checking..." : updateState.status === "applying" ? "Restarting..." : "Downloading...";
+    elements.launcherUpdateActionButton.disabled = true;
+    elements.launcherUpdateActionButton.classList.remove("hidden");
+    return;
+  }
+
+  if ((updateState.status === "helper-error" || updateState.status === "error") && updateState.releaseUrl) {
+    elements.launcherUpdateLinkButton.classList.remove("hidden");
+  }
 }
 function isCheckingPatch(nextState) {
   return Boolean(
@@ -599,6 +745,8 @@ function renderLogs() {
 function renderState(nextState) {
   state.current = nextState;
   setPatchNotesSearchEnabled(hasConfiguredPatchNotesSource());
+  renderLauncherUpdate(nextState.launcherUpdate);
+  handleLauncherUpdatePrompt(nextState.launcherUpdate);
   const presentation = derivePresentation(nextState);
   const resolvedTitle = nextState.serverName || "Launcher";
   if (nextState.isPatching) {
@@ -707,7 +855,8 @@ function wireEvents() {
     try {
       const [nextState] = await Promise.all([
         window.launcher.refreshState(),
-        loadPatchNotes(true)
+        loadPatchNotes(true),
+        window.launcher.checkForLauncherUpdate({ force: true })
       ]);
       renderState(nextState);
     } finally {
@@ -731,6 +880,20 @@ function wireEvents() {
   });
   elements.unsupportedClientBackdrop.addEventListener("click", () => {
     closeUnsupportedClientModal();
+  });
+  elements.launcherUpdateCloseButton.addEventListener("click", () => {
+    closeLauncherUpdateModal();
+  });
+  elements.launcherUpdateLaterButton.addEventListener("click", () => {
+    closeLauncherUpdateModal();
+  });
+  elements.launcherUpdateBackdrop.addEventListener("click", () => {
+    closeLauncherUpdateModal();
+  });
+  elements.launcherUpdateNowButton.addEventListener("click", async () => {
+    closeLauncherUpdateModal();
+    const nextState = await window.launcher.startLauncherUpdateDownload();
+    renderState(nextState);
   });
   elements.patchTabButton.addEventListener("click", () => {
     setActiveTab("patch");
@@ -829,6 +992,26 @@ function wireEvents() {
       "Unable to open the selected game directory."
     );
   });
+  elements.launcherUpdateActionButton.addEventListener("click", async () => {
+    const action = elements.launcherUpdateActionButton.dataset.action;
+    if (action === "download") {
+      const nextState = await window.launcher.startLauncherUpdateDownload();
+      renderState(nextState);
+      return;
+    }
+
+    if (action === "apply") {
+      const result = await window.launcher.applyLauncherUpdate();
+      if (result?.state) {
+        renderState(result.state);
+      }
+    }
+  });
+  elements.launcherUpdateLinkButton.addEventListener("click", async () => {
+    if (state.current?.launcherUpdate?.releaseUrl) {
+      await window.launcher.openExternal(state.current.launcherUpdate.releaseUrl);
+    }
+  });
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") {
       return;
@@ -839,6 +1022,10 @@ function wireEvents() {
     }
     if (!elements.unsupportedClientModal.classList.contains("hidden")) {
       closeUnsupportedClientModal();
+      return;
+    }
+    if (!elements.launcherUpdateModal.classList.contains("hidden")) {
+      closeLauncherUpdateModal();
       return;
     }
     if (!elements.settingsModal.classList.contains("hidden")) {
@@ -872,8 +1059,7 @@ async function bootstrap() {
   subscribe();
   updatePatchNotesAttention();
   setActiveTab("patch");
-  const [version, nextState] = await Promise.all([window.launcher.getVersion(), window.launcher.initialize()]);
-  renderVersion(version);
+  const nextState = await window.launcher.initialize();
   renderState(nextState);
 }
 bootstrap().catch((error) => {

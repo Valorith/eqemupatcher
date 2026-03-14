@@ -1,6 +1,7 @@
 serverName: Clumsy's World: Resurgence
 filelistUrl: https://patch.clumsysworld.com/
 patchNotesUrl: https://patch.clumsysworld.com/patch-notes.md
+launcherReleaseApiUrl: https://api.github.com/repos/Valorith/eqemupatcher/releases/latest
 defaultAutoPatch: false
 defaultAutoPlay: false
 supportedClients:

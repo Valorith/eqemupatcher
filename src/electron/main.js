@@ -67,7 +67,12 @@ async function createBackend() {
     projectRoot: path.resolve(__dirname, "..", ".."),
     launchDirectory: resolveLaunchDirectory(),
     runtimeDirectory: path.dirname(app.getPath("exe")),
-    eventSink: emitToRenderer
+    eventSink: emitToRenderer,
+    appVersion: app.getVersion(),
+    executablePath: app.getPath("exe"),
+    processId: process.pid,
+    relaunchArgs: process.argv.slice(1),
+    isPackaged: app.isPackaged
   });
 }
 
@@ -90,6 +95,17 @@ ipcMain.handle("launcher:initialize", async () => backend.initialize());
 ipcMain.handle("launcher:getVersion", async () => app.getVersion());
 ipcMain.handle("launcher:refreshState", async () => backend.refreshState());
 ipcMain.handle("launcher:getPatchNotes", async (_event, options) => backend.getPatchNotes(options || {}));
+ipcMain.handle("launcher:checkForLauncherUpdate", async (_event, options) => backend.checkForLauncherUpdate(options || {}));
+ipcMain.handle("launcher:startLauncherUpdateDownload", async () => backend.startLauncherUpdateDownload());
+ipcMain.handle("launcher:applyLauncherUpdate", async () => {
+  const result = await backend.applyLauncherUpdate();
+  if (result?.ok && result?.shouldQuit) {
+    setImmediate(() => {
+      app.quit();
+    });
+  }
+  return result;
+});
 ipcMain.handle("launcher:startPatch", async () => backend.startPatch());
 ipcMain.handle("launcher:cancelPatch", async () => backend.cancelPatch());
 ipcMain.handle("launcher:launchGame", async () => backend.launchGame());

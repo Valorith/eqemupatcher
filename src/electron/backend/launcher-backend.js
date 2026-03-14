@@ -5,11 +5,13 @@ const path = require("path");
 const { spawn } = require("child_process");
 const { pathToFileURL } = require("url");
 const SimpleYaml = require("./simple-yaml");
+const { DEFAULT_RELEASE_API_URL, LauncherUpdater } = require("./launcher-updater");
 
 const DEFAULTS = {
   serverName: "Clumsy's World",
   filelistUrl: "https://patch.clumsysworld.com/",
   patchNotesUrl: "",
+  launcherReleaseApiUrl: DEFAULT_RELEASE_API_URL,
   defaultAutoPatch: false,
   defaultAutoPlay: false,
   supportedClients: ["Rain_Of_Fear_2", "Rain_Of_Fear_2_4GB"]
@@ -301,7 +303,21 @@ function isLaunchPermissionError(error) {
 }
 
 class LauncherBackend {
-  constructor({ appUserDataPath, projectRoot, launchDirectory, runtimeDirectory, eventSink, fetchImpl, spawnImpl, platform }) {
+  constructor({
+    appUserDataPath,
+    projectRoot,
+    launchDirectory,
+    runtimeDirectory,
+    eventSink,
+    fetchImpl,
+    spawnImpl,
+    platform,
+    appVersion,
+    executablePath,
+    processId,
+    relaunchArgs,
+    isPackaged
+  }) {
     this.appUserDataPath = appUserDataPath;
     this.projectRoot = projectRoot;
     this.launchDirectory = launchDirectory || "";
@@ -310,6 +326,11 @@ class LauncherBackend {
     this.fetchImpl = fetchImpl || fetch;
     this.spawnImpl = spawnImpl || spawn;
     this.platform = platform || process.platform;
+    this.appVersion = normalizeVersion(appVersion) || "0.0.0";
+    this.executablePath = executablePath || "";
+    this.processId = processId || process.pid;
+    this.relaunchArgs = Array.isArray(relaunchArgs) ? [...relaunchArgs] : [];
+    this.isPackaged = Boolean(isPackaged);
     this.appStatePath = path.join(this.appUserDataPath, "launcher-state.yml");
     this.patchNotesCachePath = path.join(this.appUserDataPath, "patch-notes-cache.json");
     this.configPath = path.join(this.projectRoot, "launcher-config.yml");
@@ -338,6 +359,7 @@ class LauncherBackend {
       serverName: this.config.serverName,
       filelistUrl: this.config.filelistUrl,
       patchNotesUrl: this.config.patchNotesUrl,
+      launcherReleaseApiUrl: this.config.launcherReleaseApiUrl,
       gameDirectory: "",
       eqGamePath: "",
       clientVersion: "Unknown",
@@ -363,8 +385,28 @@ class LauncherBackend {
       launchSupported: this.platform === "win32",
       reportUrl: "",
       lastError: "",
-      manifestUrl: ""
+      manifestUrl: "",
+      launcherUpdate: null
     };
+
+    this.launcherUpdater = new LauncherUpdater({
+      appUserDataPath: this.appUserDataPath,
+      projectRoot: this.projectRoot,
+      fetchImpl: this.fetchImpl,
+      spawnImpl: this.spawnImpl,
+      emitLog: this.emitLog.bind(this),
+      onStateChange: (nextUpdaterState) => {
+        this.state.launcherUpdate = nextUpdaterState;
+        this.emitState();
+      },
+      platform: this.platform,
+      appVersion: this.appVersion,
+      executablePath: this.executablePath,
+      processId: this.processId,
+      relaunchArgs: this.relaunchArgs,
+      isPackaged: this.isPackaged
+    });
+    this.state.launcherUpdate = this.launcherUpdater.getState();
   }
 
   emit(type, payload) {
@@ -455,7 +497,14 @@ class LauncherBackend {
     await this.ensureGameDirectoryConfig();
     await this.loadConfig();
     await this.loadGameSettings();
-    return this.refreshState({ performAutoActions: true });
+    await this.launcherUpdater.initialize({
+      releaseApiUrl: this.config.launcherReleaseApiUrl
+    });
+    const state = await this.refreshState({ performAutoActions: true });
+    this.checkForLauncherUpdate().catch((error) => {
+      this.emitLog(`Launcher update check failed: ${error.message}`, "error");
+    });
+    return state;
   }
 
   async useLaunchDirectory() {
@@ -531,6 +580,7 @@ class LauncherBackend {
       this.state.serverName = this.resolveServerName();
       this.state.filelistUrl = this.config.filelistUrl;
       this.state.patchNotesUrl = this.config.patchNotesUrl;
+      this.state.launcherReleaseApiUrl = this.config.launcherReleaseApiUrl;
       return;
     }
 
@@ -551,6 +601,7 @@ class LauncherBackend {
     this.state.serverName = this.resolveServerName();
     this.state.filelistUrl = this.config.filelistUrl;
     this.state.patchNotesUrl = this.config.patchNotesUrl;
+    this.state.launcherReleaseApiUrl = this.config.launcherReleaseApiUrl;
   }
 
 
@@ -573,6 +624,46 @@ class LauncherBackend {
         error: error.message || "Unable to load patch notes."
       };
     }
+  }
+
+  async checkForLauncherUpdate(options = {}) {
+    await this.launcherUpdater.checkForUpdate({
+      force: Boolean(options.force),
+      releaseApiUrl: this.config.launcherReleaseApiUrl
+    });
+    this.state.launcherUpdate = this.launcherUpdater.getState();
+    return this.getState();
+  }
+
+  async startLauncherUpdateDownload() {
+    await this.launcherUpdater.startDownload({
+      releaseApiUrl: this.config.launcherReleaseApiUrl
+    });
+    this.state.launcherUpdate = this.launcherUpdater.getState();
+    return this.getState();
+  }
+
+  async applyLauncherUpdate() {
+    if (this.state.isPatching) {
+      this.state.launcherUpdate = {
+        ...this.state.launcherUpdate,
+        status: "error",
+        message: "Finish or cancel the current patch before restarting to update the launcher."
+      };
+      this.emitState();
+      return {
+        ok: false,
+        shouldQuit: false,
+        state: this.getState()
+      };
+    }
+
+    const result = await this.launcherUpdater.applyUpdate();
+    this.state.launcherUpdate = result.state;
+    return {
+      ...result,
+      state: this.getState()
+    };
   }
 
   async loadPatchNotesCache() {

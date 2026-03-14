@@ -213,7 +213,16 @@
         </section>
       </main>
       <footer class="app-footer">
-        <span id="versionLabel" class="version-label">Patcher v0.0.0</span>
+        <div id="launcherUpdatePanel" class="launcher-update-panel hidden" aria-live="polite">
+          <div class="launcher-update-copy">
+            <span id="launcherUpdateMeta" class="launcher-update-meta">Launcher update</span>
+            <span id="launcherUpdateMessage" class="launcher-update-message">Checking for launcher updates...</span>
+          </div>
+          <div class="launcher-update-actions">
+            <button id="launcherUpdateActionButton" class="secondary-button launcher-update-button hidden" type="button"></button>
+            <button id="launcherUpdateLinkButton" class="ghost-button launcher-update-link hidden" type="button">View Release</button>
+          </div>
+        </div>
       </footer>
     </div>
 
@@ -253,6 +262,38 @@
         </p>
         <div class="utility-list">
           <button id="unsupportedClientDismissButton" class="secondary-button utility-button danger-button" type="button">Understood</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="launcherUpdateModal" class="modal-shell hidden" aria-hidden="true">
+      <div id="launcherUpdateBackdrop" class="modal-backdrop"></div>
+      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="launcherUpdateTitle">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Patcher Update</p>
+            <h2 id="launcherUpdateTitle" class="section-title">Update Available</h2>
+          </div>
+          <button id="launcherUpdateCloseButton" class="icon-button modal-close-button" type="button" aria-label="Close patcher update notice">
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+        <p id="launcherUpdateSummary" class="modal-copy">
+          A new patcher update is available.
+        </p>
+        <div class="summary-grid modal-summary-grid">
+          <div class="summary-item">
+            <span class="summary-label">Current</span>
+            <strong id="launcherUpdateCurrentVersion">v0.0.0</strong>
+          </div>
+          <div class="summary-item">
+            <span class="summary-label">Available</span>
+            <strong id="launcherUpdateLatestVersion">v0.0.0</strong>
+          </div>
+        </div>
+        <div class="utility-list utility-list-inline">
+          <button id="launcherUpdateLaterButton" class="secondary-button utility-button" type="button">Later</button>
+          <button id="launcherUpdateNowButton" class="primary-button utility-button" type="button">Update</button>
         </div>
       </section>
     </div>
