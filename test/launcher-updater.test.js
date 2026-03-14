@@ -53,7 +53,7 @@ async function createUpdaterHarness(t, options = {}) {
   const projectRoot = await createTempDir("eqemu-updater-project-");
   const appUserDataPath = await createTempDir("eqemu-updater-user-");
   const installDirectory = await createTempDir("eqemu-updater-install-");
-  const executablePath = path.join(installDirectory, "EQEmu Launcher.exe");
+  const executablePath = path.join(installDirectory, options.executableName || "EQEmu Launcher.exe");
   const helperSourcePath = path.join(projectRoot, "src", "electron", "assets", "updater", "portable-update-helper.ps1");
   const helperSourceContent = options.helperSourceContent || "Write-Host 'helper'";
   const stateEvents = [];
@@ -165,6 +165,41 @@ test("initialize recovers a staged valid update and exposes ready state immediat
   assert.equal(state.latestVersion, "0.2.2");
 });
 
+test("initialize surfaces a failed prior apply before exposing a staged update as ready", async (t) => {
+  const stagedPayload = Buffer.from("new portable launcher");
+  const { updater, appUserDataPath } = await createUpdaterHarness(t);
+  const stagedDirectory = path.join(appUserDataPath, "launcher-update", "staged", "0.2.2");
+  const stagedPath = path.join(stagedDirectory, "EQEmu Launcher-0.2.2-windows-portable.exe");
+
+  await fsp.mkdir(stagedDirectory, { recursive: true });
+  await fsp.writeFile(stagedPath, stagedPayload);
+  await fsp.writeFile(
+    path.join(appUserDataPath, "launcher-update", "staged-update.json"),
+    JSON.stringify({
+      version: "0.2.2",
+      assetName: path.basename(stagedPath),
+      filePath: stagedPath,
+      sha256: sha256(stagedPayload),
+      size: stagedPayload.length,
+      releaseUrl: "https://github.com/Valorith/eqemupatcher/releases/tag/v0.2.2"
+    }),
+    "utf8"
+  );
+  await fsp.writeFile(
+    path.join(appUserDataPath, "launcher-update", "apply-result.json"),
+    JSON.stringify({
+      status: "error",
+      message: "The portable launcher could not be replaced."
+    }),
+    "utf8"
+  );
+
+  const state = await updater.initialize({ releaseApiUrl: "https://api.github.com/repos/Valorith/eqemupatcher/releases/latest" });
+
+  assert.equal(state.status, "helper-error");
+  assert.match(state.message, /Previous launcher update failed: The portable launcher could not be replaced\./);
+});
+
 test("a failed prior helper result is surfaced on the next update check", async (t) => {
   const digest = `sha256:${sha256("launcher-0.2.2")}`;
   const { updater, appUserDataPath } = await createUpdaterHarness(t, {
@@ -225,6 +260,34 @@ test("parseReleasePayload selects the portable Windows asset", async (t) => {
   assert.equal(release.downloadUrl, "https://example.invalid/windows.exe");
 });
 
+test("parseReleasePayload prefers the current packaged executable name", async (t) => {
+  const { updater } = await createUpdaterHarness(t, {
+    executableName: "CW.Patcher.2.exe"
+  });
+  const digest = `sha256:${sha256("portable")}`;
+  const release = updater.parseReleasePayload({
+    tag_name: "V0.3.1",
+    html_url: "https://example.invalid/release",
+    assets: [
+      {
+        name: "release-notes.txt",
+        browser_download_url: "https://example.invalid/release-notes.txt",
+        size: 8
+      },
+      {
+        name: "CW.Patcher.2.exe",
+        browser_download_url: "https://example.invalid/CW.Patcher.2.exe",
+        size: 16,
+        digest
+      }
+    ]
+  });
+
+  assert.equal(release.latestVersion, "0.3.1");
+  assert.equal(release.assetName, "CW.Patcher.2.exe");
+  assert.equal(release.downloadUrl, "https://example.invalid/CW.Patcher.2.exe");
+});
+
 test("checkForUpdate uses ETag caching after the TTL expires", async (t) => {
   let requestCount = 0;
   const requests = [];
@@ -277,6 +340,39 @@ test("force refresh bypasses conditional release cache validators", async (t) =>
 
   assert.equal("If-None-Match" in requests[1], false);
   assert.equal("if-none-match" in requests[1], false);
+});
+
+test("ignoreTtl revalidates the latest release while preserving conditional cache validators", async (t) => {
+  let requestCount = 0;
+  const requests = [];
+  const digest = `sha256:${sha256("launcher-0.2.2")}`;
+  const { updater } = await createUpdaterHarness(t, {
+    fetchImpl: async (_url, options) => {
+      requestCount += 1;
+      requests.push(options?.headers || {});
+      if (requestCount === 1) {
+        return createJsonResponse(200, latestReleasePayload("v0.2.2", digest), { etag: '"release-v1"' });
+      }
+      return {
+        ok: false,
+        status: 304,
+        headers: createHeaders({ etag: '"release-v1"' }),
+        json: async () => ({})
+      };
+    }
+  });
+
+  await updater.initialize({ releaseApiUrl: "https://api.github.com/repos/Valorith/eqemupatcher/releases/latest" });
+  await updater.checkForUpdate({ force: true, releaseApiUrl: "https://api.github.com/repos/Valorith/eqemupatcher/releases/latest" });
+
+  const state = await updater.checkForUpdate({
+    ignoreTtl: true,
+    releaseApiUrl: "https://api.github.com/repos/Valorith/eqemupatcher/releases/latest"
+  });
+
+  assert.equal(requestCount, 2);
+  assert.equal(requests[1]["If-None-Match"] || requests[1]["if-none-match"], '"release-v1"');
+  assert.equal(state.latestVersion, "0.2.2");
 });
 
 test("checkForUpdate requires a SHA-256 digest on the release asset", async (t) => {
@@ -334,7 +430,7 @@ test("startDownload verifies and stages the launcher, then reuses the staged cop
   assert.deepEqual(await fsp.readFile(stagedMetadata.filePath), payload);
 });
 
-test("applyUpdate spawns the PowerShell helper with the expected arguments", async (t) => {
+test("applyUpdate launches the updater helper through cmd.exe start with the expected arguments", async (t) => {
   const payload = Buffer.from("portable launcher payload");
   const spawnCalls = [];
   const { updater, appUserDataPath, executablePath } = await createUpdaterHarness(t, {
@@ -370,7 +466,10 @@ test("applyUpdate spawns the PowerShell helper with the expected arguments", asy
   assert.equal(result.ok, true);
   assert.equal(result.shouldQuit, true);
   assert.equal(spawnCalls.length, 1);
-  assert.equal(spawnCalls[0].command, "powershell.exe");
+  assert.match(spawnCalls[0].command, /cmd\.exe$/i);
+  assert.equal(spawnCalls[0].args[0], "/d");
+  assert.equal(spawnCalls[0].args[3], "start");
+  assert.ok(spawnCalls[0].args.includes("powershell.exe"));
   assert.ok(spawnCalls[0].args.includes("-ParentPid"));
   assert.ok(spawnCalls[0].args.includes(executablePath));
   assert.ok(spawnCalls[0].args.includes(stagedPath));

@@ -6,6 +6,8 @@ const state = {
   lastUnsupportedClientKey: "",
   launcherUpdatePromptPending: true,
   launcherUpdatePromptedVersion: "",
+  launcherUpdateAutoApplyVersion: "",
+  launcherUpdateAutoApplyInFlight: false,
   patchNotes: {
     loadedUrl: "",
     content: "",
@@ -209,6 +211,14 @@ function openLauncherUpdateModal(updateState) {
 function closeLauncherUpdateModal() {
   elements.launcherUpdateModal.classList.add("hidden");
   elements.launcherUpdateModal.setAttribute("aria-hidden", "true");
+}
+async function startLauncherUpdateDownloadFlow(expectedVersion = "") {
+  state.launcherUpdateAutoApplyVersion = String(expectedVersion || state.current?.launcherUpdate?.latestVersion || "").trim();
+  const nextState = await window.launcher.startLauncherUpdateDownload();
+  if (!["downloading", "ready", "applying"].includes(nextState?.launcherUpdate?.status || nextState?.status || "")) {
+    state.launcherUpdateAutoApplyVersion = "";
+  }
+  renderState(nextState);
 }
 async function runUtilityAction(action, successMessage, failureFallback) {
   const result = await action();
@@ -545,6 +555,41 @@ function handleLauncherUpdatePrompt(updateState) {
   }
 }
 
+async function handleLauncherUpdateAutoApply(updateState) {
+  if (!updateState) {
+    return;
+  }
+
+  if (updateState.status === "applying") {
+    state.launcherUpdateAutoApplyVersion = "";
+    return;
+  }
+
+  if (["up-to-date", "available", "helper-error", "error", "idle", "unsupported-platform"].includes(updateState.status)) {
+    state.launcherUpdateAutoApplyVersion = "";
+  }
+
+  if (
+    updateState.status !== "ready" ||
+    !state.launcherUpdateAutoApplyVersion ||
+    state.launcherUpdateAutoApplyVersion !== updateState.latestVersion ||
+    state.launcherUpdateAutoApplyInFlight
+  ) {
+    return;
+  }
+
+  state.launcherUpdateAutoApplyInFlight = true;
+  try {
+    const result = await window.launcher.applyLauncherUpdate();
+    if (result?.state) {
+      renderState(result.state);
+    }
+  } finally {
+    state.launcherUpdateAutoApplyInFlight = false;
+    state.launcherUpdateAutoApplyVersion = "";
+  }
+}
+
 function renderLauncherUpdate(updateState) {
   if (!updateState || updateState.status === "unsupported-platform") {
     elements.launcherUpdatePanel.classList.add("hidden");
@@ -568,7 +613,7 @@ function renderLauncherUpdate(updateState) {
   elements.launcherUpdateLinkButton.disabled = false;
 
   if (updateState.status === "available") {
-    elements.launcherUpdateActionButton.textContent = "Download Update";
+    elements.launcherUpdateActionButton.textContent = "Update Patcher";
     elements.launcherUpdateActionButton.dataset.action = "download";
     elements.launcherUpdateActionButton.classList.remove("hidden");
     return;
@@ -747,6 +792,13 @@ function renderState(nextState) {
   setPatchNotesSearchEnabled(hasConfiguredPatchNotesSource());
   renderLauncherUpdate(nextState.launcherUpdate);
   handleLauncherUpdatePrompt(nextState.launcherUpdate);
+  handleLauncherUpdateAutoApply(nextState.launcherUpdate).catch((error) => {
+    pushLog({
+      text: `Unable to apply the downloaded patcher update automatically: ${error.message}`,
+      tone: "error",
+      timestamp: new Date().toISOString()
+    });
+  });
   const presentation = derivePresentation(nextState);
   const resolvedTitle = nextState.serverName || "Launcher";
   if (nextState.isPatching) {
@@ -892,8 +944,7 @@ function wireEvents() {
   });
   elements.launcherUpdateNowButton.addEventListener("click", async () => {
     closeLauncherUpdateModal();
-    const nextState = await window.launcher.startLauncherUpdateDownload();
-    renderState(nextState);
+    await startLauncherUpdateDownloadFlow(state.current?.launcherUpdate?.latestVersion);
   });
   elements.patchTabButton.addEventListener("click", () => {
     setActiveTab("patch");
@@ -995,8 +1046,7 @@ function wireEvents() {
   elements.launcherUpdateActionButton.addEventListener("click", async () => {
     const action = elements.launcherUpdateActionButton.dataset.action;
     if (action === "download") {
-      const nextState = await window.launcher.startLauncherUpdateDownload();
-      renderState(nextState);
+      await startLauncherUpdateDownloadFlow(state.current?.launcherUpdate?.latestVersion);
       return;
     }
 

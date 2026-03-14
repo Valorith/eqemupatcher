@@ -15,6 +15,14 @@ function resolveLaunchDirectory() {
   return app.isPackaged ? path.dirname(app.getPath("exe")) : process.cwd();
 }
 
+function resolveLauncherExecutablePath() {
+  if (process.env.PORTABLE_EXECUTABLE_FILE) {
+    return process.env.PORTABLE_EXECUTABLE_FILE;
+  }
+
+  return app.getPath("exe");
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1460,
@@ -62,14 +70,16 @@ function emitToRenderer(event) {
 }
 
 async function createBackend() {
+  const runtimeExecutablePath = app.getPath("exe");
+
   backend = new LauncherBackend({
     appUserDataPath: app.getPath("userData"),
     projectRoot: path.resolve(__dirname, "..", ".."),
     launchDirectory: resolveLaunchDirectory(),
-    runtimeDirectory: path.dirname(app.getPath("exe")),
+    runtimeDirectory: path.dirname(runtimeExecutablePath),
     eventSink: emitToRenderer,
     appVersion: app.getVersion(),
-    executablePath: app.getPath("exe"),
+    executablePath: resolveLauncherExecutablePath(),
     processId: process.pid,
     relaunchArgs: process.argv.slice(1),
     isPackaged: app.isPackaged

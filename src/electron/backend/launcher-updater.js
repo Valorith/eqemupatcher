@@ -108,6 +108,7 @@ class LauncherUpdater {
     this.platform = platform || process.platform;
     this.appVersion = normalizeVersion(appVersion) || "0.0.0";
     this.executablePath = executablePath || "";
+    this.executableName = path.basename(this.executablePath || "");
     this.processId = processId || process.pid;
     this.relaunchArgs = Array.isArray(relaunchArgs) ? [...relaunchArgs] : [];
     this.isPackaged = Boolean(isPackaged);
@@ -169,6 +170,19 @@ class LauncherUpdater {
     await this.ensureHelperInstalled();
     await this.loadStagedReadyMetadata();
 
+    if (this.previousApplyError) {
+      this.updateState({
+        status: "helper-error",
+        latestVersion: this.stagedReadyMetadata?.version || "",
+        releaseUrl: this.stagedReadyMetadata?.releaseUrl || "",
+        assetName: this.stagedReadyMetadata?.assetName || "",
+        progressValue: 0,
+        progressMax: 1,
+        message: `Previous launcher update failed: ${this.previousApplyError}`
+      });
+      return this.getState();
+    }
+
     if (this.stagedReadyMetadata && compareVersions(this.stagedReadyMetadata.version, this.appVersion) > 0) {
       this.updateState({
         status: "ready",
@@ -202,7 +216,7 @@ class LauncherUpdater {
     return this.getState();
   }
 
-  async checkForUpdate({ force = false, releaseApiUrl }) {
+  async checkForUpdate({ force = false, ignoreTtl = false, releaseApiUrl }) {
     if (!this.supported) {
       return this.getState();
     }
@@ -211,7 +225,7 @@ class LauncherUpdater {
       return this.checkPromise;
     }
 
-    this.checkPromise = this.performCheckForUpdate({ force, releaseApiUrl }).finally(() => {
+    this.checkPromise = this.performCheckForUpdate({ force, ignoreTtl, releaseApiUrl }).finally(() => {
       this.checkPromise = null;
     });
     return this.checkPromise;
@@ -271,36 +285,15 @@ class LauncherUpdater {
     const relaunchArgsPayload = Buffer.from(JSON.stringify(this.relaunchArgs), "utf8").toString("base64");
 
     try {
-      await this.spawnDetached(
-        "powershell.exe",
-        [
-          "-NoProfile",
-          "-ExecutionPolicy",
-          "Bypass",
-          "-File",
-          this.helperInstalledPath,
-          "-ParentPid",
-          String(this.processId),
-          "-TargetExe",
-          this.executablePath,
-          "-StagedExe",
-          this.stagedReadyMetadata.filePath,
-          "-BackupExe",
-          backupPath,
-          "-ResultPath",
-          this.applyResultPath,
-          "-LogPath",
-          this.helperLogPath,
-          "-RelaunchArgsJsonBase64",
-          relaunchArgsPayload
-        ],
-        {
-          detached: true,
-          stdio: "ignore",
-          windowsHide: true,
-          cwd: path.dirname(this.executablePath)
-        }
-      );
+      await this.spawnHelperProcess({
+        parentPid: this.processId,
+        targetExe: this.executablePath,
+        stagedExe: this.stagedReadyMetadata.filePath,
+        backupExe: backupPath,
+        resultPath: this.applyResultPath,
+        logPath: this.helperLogPath,
+        relaunchArgsPayload
+      });
     } catch (error) {
       this.updateState({
         status: "error",
@@ -326,7 +319,7 @@ class LauncherUpdater {
     return { ok: true, shouldQuit: true, state: this.getState() };
   }
 
-  async performCheckForUpdate({ force = false, releaseApiUrl }) {
+  async performCheckForUpdate({ force = false, ignoreTtl = false, releaseApiUrl }) {
     const resolvedReleaseApiUrl = String(releaseApiUrl || DEFAULT_RELEASE_API_URL).trim();
     if (!resolvedReleaseApiUrl) {
       this.updateState({
@@ -347,7 +340,7 @@ class LauncherUpdater {
 
     let release;
     try {
-      release = await this.resolveRelease({ force, releaseApiUrl: resolvedReleaseApiUrl });
+      release = await this.resolveRelease({ force, ignoreTtl, releaseApiUrl: resolvedReleaseApiUrl });
     } catch (error) {
       this.updateState({
         status: this.helperReady ? "error" : "helper-error",
@@ -570,9 +563,10 @@ class LauncherUpdater {
     return this.getState();
   }
 
-  async resolveRelease({ force, releaseApiUrl }) {
+  async resolveRelease({ force, ignoreTtl, releaseApiUrl }) {
     const cachedReleaseUsable =
       !force &&
+      !ignoreTtl &&
       this.releaseCache.releaseApiUrl === releaseApiUrl &&
       this.releaseCache.release &&
       this.releaseCache.checkedAt &&
@@ -587,11 +581,16 @@ class LauncherUpdater {
       "User-Agent": `EQEmuLauncher/${this.appVersion}`
     };
 
+    if (force) {
+      headers["Cache-Control"] = "no-cache, no-store";
+      headers.Pragma = "no-cache";
+    }
+
     if (!force && this.releaseCache.releaseApiUrl === releaseApiUrl && this.releaseCache.etag) {
       headers["If-None-Match"] = this.releaseCache.etag;
     }
 
-    const response = await this.fetchImpl(releaseApiUrl, { headers });
+    const response = await this.fetchImpl(this.buildReleaseRequestUrl(releaseApiUrl, { force }), { headers });
     if (response.status === 304 && this.releaseCache.releaseApiUrl === releaseApiUrl && this.releaseCache.release) {
       this.releaseCache.checkedAt = new Date().toISOString();
       await this.saveReleaseCache();
@@ -614,11 +613,21 @@ class LauncherUpdater {
     return clone(parsedRelease);
   }
 
+  buildReleaseRequestUrl(releaseApiUrl, { force }) {
+    if (!force) {
+      return releaseApiUrl;
+    }
+
+    const requestUrl = new URL(releaseApiUrl);
+    requestUrl.searchParams.set("_", String(Date.now()));
+    return requestUrl.toString();
+  }
+
   parseReleasePayload(payload) {
     const latestVersion = normalizeVersion(payload?.tag_name);
     const releaseUrl = String(payload?.html_url || "").trim();
     const assets = Array.isArray(payload?.assets) ? payload.assets : [];
-    const asset = assets.find((candidate) => PORTABLE_ASSET_PATTERN.test(String(candidate?.name || "")));
+    const asset = this.selectReleaseAsset(assets);
 
     if (!latestVersion) {
       return {
@@ -667,6 +676,38 @@ class LauncherUpdater {
       sha256: digestMatch[1].toLowerCase(),
       error: ""
     };
+  }
+
+  selectReleaseAsset(assets) {
+    const executableAssets = assets.filter((candidate) => {
+      const name = String(candidate?.name || "").trim();
+      return Boolean(name) && /\.exe$/i.test(name) && !/\.blockmap$/i.test(name);
+    });
+
+    if (this.executableName) {
+      const exactMatch = executableAssets.find(
+        (candidate) => String(candidate?.name || "").trim().toLowerCase() === this.executableName.toLowerCase()
+      );
+      if (exactMatch) {
+        return exactMatch;
+      }
+    }
+
+    const legacyPortableMatch = executableAssets.find((candidate) => PORTABLE_ASSET_PATTERN.test(String(candidate?.name || "")));
+    if (legacyPortableMatch) {
+      return legacyPortableMatch;
+    }
+
+    if (executableAssets.length === 1) {
+      return executableAssets[0];
+    }
+
+    const portableKeywordMatch = executableAssets.find((candidate) => /portable/i.test(String(candidate?.name || "")));
+    if (portableKeywordMatch) {
+      return portableKeywordMatch;
+    }
+
+    return null;
   }
 
   async ensureHelperInstalled() {
@@ -871,6 +912,39 @@ class LauncherUpdater {
         child.unref();
         finish(resolve);
       });
+    });
+  }
+
+  async spawnHelperProcess({ parentPid, targetExe, stagedExe, backupExe, resultPath, logPath, relaunchArgsPayload }) {
+    const powerShellArgs = [
+      "-NoProfile",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      this.helperInstalledPath,
+      "-ParentPid",
+      String(parentPid),
+      "-TargetExe",
+      targetExe,
+      "-StagedExe",
+      stagedExe,
+      "-BackupExe",
+      backupExe,
+      "-ResultPath",
+      resultPath,
+      "-LogPath",
+      logPath,
+      "-RelaunchArgsJsonBase64",
+      relaunchArgsPayload
+    ];
+
+    const command = process.env.comspec || "cmd.exe";
+    const args = ["/d", "/s", "/c", "start", '""', "powershell.exe", ...powerShellArgs];
+    await this.spawnDetached(command, args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+      cwd: path.dirname(this.executablePath)
     });
   }
 

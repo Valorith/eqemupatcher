@@ -501,7 +501,7 @@ class LauncherBackend {
       releaseApiUrl: this.config.launcherReleaseApiUrl
     });
     const state = await this.refreshState({ performAutoActions: true });
-    this.checkForLauncherUpdate().catch((error) => {
+    this.checkForLauncherUpdate({ force: true }).catch((error) => {
       this.emitLog(`Launcher update check failed: ${error.message}`, "error");
     });
     return state;

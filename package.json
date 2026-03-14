@@ -1,6 +1,6 @@
 {
   "name": "eqemupatcher-electron",
-  "version": "0.3.1",
+  "version": "0.3.12",
   "private": true,
   "author": "Valorith",
   "description": "Cross-platform Electron launcher for EQEmu patching",
@@ -27,7 +27,8 @@
     "appId": "com.eqemu.launcher",
     "productName": "EQEmu Launcher",
     "icon": "src/electron/assets/icons/icon-app.png",
-    "artifactName": "${productName}-${version}-${os}-${arch}.${ext}",
+    "artifactName": "CW Patcher 2.${ext}",
+    "executableName": "CW Patcher 2",
     "directories": {
       "output": "dist/electron"
     },
@@ -73,7 +74,7 @@
       ]
     },
     "portable": {
-      "artifactName": "${productName}-${version}-windows-portable.${ext}"
+      "artifactName": "CW Patcher 2.${ext}"
     },
     "nsis": {
       "oneClick": false,

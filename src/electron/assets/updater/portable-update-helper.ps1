@@ -58,13 +58,13 @@ function Write-Result {
 
 function Wait-ForParentExit {
   param(
-    [int]$Pid,
+    [int]$ProcessId,
     [int]$Attempts = 120,
     [int]$DelayMilliseconds = 500
   )
 
   for ($attempt = 0; $attempt -lt $Attempts; $attempt++) {
-    $process = Get-Process -Id $Pid -ErrorAction SilentlyContinue
+    $process = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
     if (-not $process) {
       return
     }
@@ -72,7 +72,7 @@ function Wait-ForParentExit {
     Start-Sleep -Milliseconds $DelayMilliseconds
   }
 
-  throw "Timed out waiting for launcher process $Pid to exit."
+  throw "Timed out waiting for launcher process $ProcessId to exit."
 }
 
 function Move-PathWithRetry {
@@ -112,7 +112,7 @@ function Remove-PathIfPresent {
 
 try {
   Write-Log "Portable updater helper started."
-  Wait-ForParentExit -Pid $ParentPid
+  Wait-ForParentExit -ProcessId $ParentPid
   Write-Log "Launcher process exited."
 
   if (-not (Test-Path -LiteralPath $TargetExe)) {
@@ -142,7 +142,11 @@ try {
   }
 
   Write-Log "Relaunching updated launcher."
-  Start-Process -FilePath $TargetExe -ArgumentList $relaunchArgs -WorkingDirectory (Split-Path -Parent $TargetExe) | Out-Null
+  if ($relaunchArgs.Count -gt 0) {
+    Start-Process -FilePath $TargetExe -ArgumentList $relaunchArgs -WorkingDirectory (Split-Path -Parent $TargetExe) | Out-Null
+  } else {
+    Start-Process -FilePath $TargetExe -WorkingDirectory (Split-Path -Parent $TargetExe) | Out-Null
+  }
 
   Remove-PathIfPresent -Path $BackupExe
   $stagedDirectory = Split-Path -Parent $StagedExe
