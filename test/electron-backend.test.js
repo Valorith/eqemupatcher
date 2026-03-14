@@ -14,6 +14,10 @@ function md5(text) {
   return crypto.createHash("md5").update(text).digest("hex").toUpperCase();
 }
 
+function sha256(text) {
+  return crypto.createHash("sha256").update(text).digest("hex");
+}
+
 async function createTempDir(prefix) {
   return fsp.mkdtemp(path.join(os.tmpdir(), prefix));
 }
@@ -920,11 +924,12 @@ test("repairs missing files from flush-left legacy manifest entries", async (t) 
 
 test("getPatchNotes loads markdown from configured patch notes URL", async (t) => {
   const { backend, projectRoot } = await createBackendHarness(t);
+  const markdown = "# Updates\n\n- Fixed launcher refresh\n- Added notes search\n- [Safe](https://example.invalid/patches)\n- [Blocked](javascript:alert(1))\n";
 
   const { server, baseUrl } = await startFixtureServer({
     "/notes.md": (_req, res) => {
       res.writeHead(200, { "content-type": "text/markdown" });
-      res.end("# Updates\n\n- Fixed launcher refresh\n- Added notes search\n- [Safe](https://example.invalid/patches)\n- [Blocked](javascript:alert(1))\n");
+      res.end(markdown);
     }
   });
 
@@ -947,6 +952,43 @@ patchNotesUrl: ${baseUrl}/notes.md
   assert.match(notes.html, /<h1>Updates<\/h1>/);
   assert.match(notes.html, /href="https:\/\/example\.invalid\/patches"/);
   assert.match(notes.html, /href="#"/);
+  assert.equal(notes.contentHash, sha256(markdown));
+  assert.equal(notes.error, "");
+});
+
+test("getPatchNotes repairs missing cached content hashes before falling back to cache", async (t) => {
+  const { backend, projectRoot, appUserDataPath } = await createBackendHarness(t);
+  const patchNotesUrl = "http://127.0.0.1:9/notes.md";
+  const markdown = "# Cached\n\n- Existing entry\n";
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    `serverName: Test Realm
+filelistUrl: http://127.0.0.1:9/
+patchNotesUrl: ${patchNotesUrl}
+`,
+    "utf8"
+  );
+  await fsp.writeFile(
+    path.join(appUserDataPath, "patch-notes-cache.json"),
+    JSON.stringify({
+      url: patchNotesUrl,
+      content: markdown,
+      html: "<h1>Cached</h1>",
+      fetchedAt: "2026-03-14T00:00:00.000Z",
+      lineCount: 3,
+      etag: '"notes-v1"',
+      lastModified: ""
+    }),
+    "utf8"
+  );
+
+  await backend.initialize();
+  const notes = await backend.getPatchNotes();
+
+  assert.equal(notes.url, patchNotesUrl);
+  assert.equal(notes.content, markdown);
+  assert.equal(notes.contentHash, sha256(markdown));
   assert.equal(notes.error, "");
 });
 

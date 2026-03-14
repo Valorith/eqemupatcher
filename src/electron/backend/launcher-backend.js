@@ -78,6 +78,28 @@ function normalizeVersion(value) {
   return String(value);
 }
 
+function computePatchNotesContentHash(content) {
+  const normalizedContent = String(content || "");
+  if (!normalizedContent) {
+    return "";
+  }
+
+  return crypto.createHash("sha256").update(normalizedContent, "utf8").digest("hex");
+}
+
+function createEmptyPatchNotesCache() {
+  return {
+    url: "",
+    content: "",
+    html: "",
+    fetchedAt: "",
+    lineCount: 0,
+    contentHash: "",
+    etag: "",
+    lastModified: ""
+  };
+}
+
 function buildUrl(baseUrl, relativePath) {
   const normalizedBaseUrl = String(baseUrl || "").endsWith("/") ? String(baseUrl || "") : `${String(baseUrl || "")}/`;
   return new URL(relativePath, normalizedBaseUrl).toString();
@@ -343,15 +365,7 @@ class LauncherBackend {
     this.cancelController = null;
     this.cancelRequested = false;
     this.resolvedConfigPath = this.configPath;
-    this.patchNotesCache = {
-      url: "",
-      content: "",
-      html: "",
-      fetchedAt: "",
-      lineCount: 0,
-      etag: "",
-      lastModified: ""
-    };
+    this.patchNotesCache = createEmptyPatchNotesCache();
     this.patchNotesCacheLoaded = false;
 
     this.state = {
@@ -621,6 +635,7 @@ class LauncherBackend {
         html: "",
         fetchedAt: "",
         lineCount: 0,
+        contentHash: "",
         error: error.message || "Unable to load patch notes."
       };
     }
@@ -683,16 +698,11 @@ class LauncherBackend {
         ...this.patchNotesCache,
         ...(parsed || {})
       };
+      if (this.patchNotesCache.content && !this.patchNotesCache.contentHash) {
+        this.patchNotesCache.contentHash = computePatchNotesContentHash(this.patchNotesCache.content);
+      }
     } catch (_error) {
-      this.patchNotesCache = {
-        url: "",
-        content: "",
-        html: "",
-        fetchedAt: "",
-        lineCount: 0,
-        etag: "",
-        lastModified: ""
-      };
+      this.patchNotesCache = createEmptyPatchNotesCache();
     }
   }
 
@@ -707,24 +717,8 @@ class LauncherBackend {
     await this.loadPatchNotesCache();
 
     if (!patchNotesUrl) {
-      this.patchNotesCache = {
-        url: "",
-        content: "",
-        html: "",
-        fetchedAt: "",
-        lineCount: 0,
-        etag: "",
-        lastModified: ""
-      };
-      return {
-        url: "",
-        content: "",
-        html: "",
-        fetchedAt: "",
-        lineCount: 0,
-        etag: "",
-        lastModified: ""
-      };
+      this.patchNotesCache = createEmptyPatchNotesCache();
+      return createEmptyPatchNotesCache();
     }
 
     const requestHeaders = {};
@@ -760,6 +754,7 @@ class LauncherBackend {
       html,
       fetchedAt: new Date().toISOString(),
       lineCount: content ? content.split("\n").length : 0,
+      contentHash: computePatchNotesContentHash(content),
       etag: response.headers?.get?.("etag") || "",
       lastModified: response.headers?.get?.("last-modified") || ""
     };

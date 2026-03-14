@@ -9,12 +9,14 @@ const state = {
   launcherUpdateAutoApplyVersion: "",
   launcherUpdateAutoApplyInFlight: false,
   patchNotes: {
+    loaded: false,
     loadedUrl: "",
     content: "",
     html: "",
     error: "",
     loading: false,
     fetchedAt: "",
+    contentHash: "",
     signature: "",
     hasUnread: false,
     matchCount: 0,
@@ -22,6 +24,11 @@ const state = {
   }
 };
 const PATCH_NOTES_READ_STORAGE_KEY = "eqemu-launcher.patchNotesRead";
+const { createPatchNotesReadTracker, getPatchNotesSignature, shouldLoadPatchNotes } = window.PatchNotesState;
+const patchNotesReadTracker = createPatchNotesReadTracker({
+  storage: window.localStorage,
+  storageKey: PATCH_NOTES_READ_STORAGE_KEY
+});
 const elements = {
   leftStage: document.getElementById("leftStage"),
   statusChip: document.getElementById("statusChip"),
@@ -85,36 +92,19 @@ const elements = {
   launcherUpdateActionButton: document.getElementById("launcherUpdateActionButton"),
   launcherUpdateLinkButton: document.getElementById("launcherUpdateLinkButton")
 };
-function readPatchNotesReadState() {
-  try {
-    const raw = window.localStorage.getItem(PATCH_NOTES_READ_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch (_error) {
-    return {};
-  }
-}
-function writePatchNotesReadState(nextState) {
-  try {
-    window.localStorage.setItem(PATCH_NOTES_READ_STORAGE_KEY, JSON.stringify(nextState));
-  } catch (_error) {
-    // Ignore storage failures; unread state will fall back to this session only.
-  }
-}
-function hashText(value) {
-  let hash = 0;
-  const text = String(value || "");
-  for (let index = 0; index < text.length; index += 1) {
-    hash = (hash * 31 + text.charCodeAt(index)) | 0;
-  }
-  return (hash >>> 0).toString(16);
-}
-function getPatchNotesSignature(url, content) {
-  const normalizedUrl = String(url || "").trim();
-  const normalizedContent = String(content || "");
-  if (!normalizedUrl || !normalizedContent) {
-    return "";
-  }
-  return `${normalizedUrl}::${hashText(normalizedContent)}`;
+function resetPatchNotesState() {
+  state.patchNotes.loaded = false;
+  state.patchNotes.loadedUrl = "";
+  state.patchNotes.content = "";
+  state.patchNotes.html = "";
+  state.patchNotes.error = "";
+  state.patchNotes.loading = false;
+  state.patchNotes.fetchedAt = "";
+  state.patchNotes.contentHash = "";
+  state.patchNotes.signature = "";
+  state.patchNotes.hasUnread = false;
+  state.patchNotes.matchCount = 0;
+  state.patchNotes.activeMatchIndex = -1;
 }
 function normalizePatchNotesLinkHref(href) {
   const normalized = String(href || "").trim();
@@ -139,9 +129,7 @@ function markCurrentPatchNotesRead() {
     return;
   }
 
-  const readState = readPatchNotesReadState();
-  readState[state.patchNotes.loadedUrl] = state.patchNotes.signature;
-  writePatchNotesReadState(readState);
+  patchNotesReadTracker.markRead(state.patchNotes.loadedUrl, state.patchNotes.signature);
   state.patchNotes.hasUnread = false;
   updatePatchNotesAttention();
 }
@@ -152,9 +140,7 @@ function syncPatchNotesUnreadState() {
     return;
   }
 
-  const readState = readPatchNotesReadState();
-  const lastReadSignature = readState[state.patchNotes.loadedUrl] || "";
-  state.patchNotes.hasUnread = lastReadSignature !== state.patchNotes.signature;
+  state.patchNotes.hasUnread = patchNotesReadTracker.isUnread(state.patchNotes.loadedUrl, state.patchNotes.signature);
 
   if (state.activeTab === "notes" && state.patchNotes.html) {
     markCurrentPatchNotesRead();
@@ -244,9 +230,12 @@ function updatePatchNotesMeta(text) {
   elements.notesMeta.textContent = text;
 }
 
+function getConfiguredPatchNotesUrl() {
+  return String(state.current?.patchNotesUrl || "").trim();
+}
 
 function hasConfiguredPatchNotesSource() {
-  return Boolean(String(state.current?.patchNotesUrl || "").trim());
+  return Boolean(getConfiguredPatchNotesUrl());
 }
 
 function setPatchNotesSearchEnabled(enabled) {
@@ -270,6 +259,36 @@ function updateMatchNavigation() {
   elements.notesPrevMatchButton.disabled = !hasMatches || !hasActive || state.patchNotes.activeMatchIndex === 0;
   elements.notesNextMatchButton.disabled =
     !hasMatches || !hasActive || state.patchNotes.activeMatchIndex >= state.patchNotes.matchCount - 1;
+}
+
+function syncPatchNotesSourceState() {
+  const configuredUrl = getConfiguredPatchNotesUrl();
+
+  if (!configuredUrl) {
+    if (state.patchNotes.loaded || state.patchNotes.loading || state.patchNotes.loadedUrl || state.patchNotes.html || state.patchNotes.error) {
+      resetPatchNotesState();
+      renderPatchNotes();
+    }
+    return;
+  }
+
+  if (!shouldLoadPatchNotes(configuredUrl, state.patchNotes)) {
+    return;
+  }
+
+  loadPatchNotes(false).catch((error) => {
+    state.patchNotes.loaded = true;
+    state.patchNotes.loading = false;
+    state.patchNotes.loadedUrl = configuredUrl;
+    state.patchNotes.content = "";
+    state.patchNotes.html = "";
+    state.patchNotes.error = `Unable to load patch notes: ${error.message}`;
+    state.patchNotes.fetchedAt = "";
+    state.patchNotes.contentHash = "";
+    state.patchNotes.signature = "";
+    state.patchNotes.hasUnread = false;
+    renderPatchNotes();
+  });
 }
 
 function scrollMatchIntoView(match, options = {}) {
@@ -412,15 +431,18 @@ function renderPatchNotes() {
   }
 
   if (!state.patchNotes.html) {
-    elements.notesContent.innerHTML = '<p class="notes-copy">Patch Notes source not configured.</p>';
+    const hasSource = hasConfiguredPatchNotesSource();
+    elements.notesContent.innerHTML = hasSource
+      ? '<p class="notes-copy">No patch notes have been published yet.</p>'
+      : '<p class="notes-copy">Patch Notes source not configured.</p>';
     state.patchNotes.matchCount = 0;
     state.patchNotes.activeMatchIndex = -1;
     state.patchNotes.signature = "";
     state.patchNotes.hasUnread = false;
-    if (!hasConfiguredPatchNotesSource()) {
+    if (!hasSource) {
       elements.notesSearchInput.value = "";
     }
-    updatePatchNotesMeta("No source configured");
+    updatePatchNotesMeta(hasSource ? "0 lines" : "No source configured");
     updatePatchNotesAttention();
     updateMatchNavigation();
     return;
@@ -447,13 +469,19 @@ async function loadPatchNotes(forceRefresh = false) {
   renderPatchNotes();
 
   const notes = await window.launcher.getPatchNotes({ forceRefresh });
+  state.patchNotes.loaded = true;
   state.patchNotes.loading = false;
   state.patchNotes.loadedUrl = notes.url || "";
   state.patchNotes.content = notes.content || "";
   state.patchNotes.html = notes.html || "";
   state.patchNotes.error = notes.error || "";
   state.patchNotes.fetchedAt = notes.fetchedAt || "";
-  state.patchNotes.signature = getPatchNotesSignature(state.patchNotes.loadedUrl, state.patchNotes.content);
+  state.patchNotes.contentHash = notes.contentHash || "";
+  state.patchNotes.signature = getPatchNotesSignature(
+    state.patchNotes.loadedUrl,
+    state.patchNotes.contentHash,
+    state.patchNotes.content
+  );
   state.patchNotes.matchCount = 0;
   state.patchNotes.activeMatchIndex = -1;
   syncPatchNotesUnreadState();
@@ -790,6 +818,7 @@ function renderLogs() {
 function renderState(nextState) {
   state.current = nextState;
   setPatchNotesSearchEnabled(hasConfiguredPatchNotesSource());
+  syncPatchNotesSourceState();
   renderLauncherUpdate(nextState.launcherUpdate);
   handleLauncherUpdatePrompt(nextState.launcherUpdate);
   handleLauncherUpdateAutoApply(nextState.launcherUpdate).catch((error) => {
