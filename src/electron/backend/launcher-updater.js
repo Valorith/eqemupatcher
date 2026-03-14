@@ -75,6 +75,7 @@ function createDefaultState({ appVersion, supported }) {
     currentVersion: normalizeVersion(appVersion) || "0.0.0",
     latestVersion: "",
     releaseUrl: "",
+    releaseNotes: "",
     assetName: "",
     progressValue: 0,
     progressMax: 1,
@@ -175,6 +176,7 @@ class LauncherUpdater {
         status: "helper-error",
         latestVersion: this.stagedReadyMetadata?.version || "",
         releaseUrl: this.stagedReadyMetadata?.releaseUrl || "",
+        releaseNotes: "",
         assetName: this.stagedReadyMetadata?.assetName || "",
         progressValue: 0,
         progressMax: 1,
@@ -188,6 +190,7 @@ class LauncherUpdater {
         status: "ready",
         latestVersion: this.stagedReadyMetadata.version,
         releaseUrl: this.stagedReadyMetadata.releaseUrl || "",
+        releaseNotes: "",
         assetName: this.stagedReadyMetadata.assetName || "",
         progressValue: this.stagedReadyMetadata.size || 1,
         progressMax: this.stagedReadyMetadata.size || 1,
@@ -208,6 +211,7 @@ class LauncherUpdater {
       status: "idle",
       latestVersion: "",
       releaseUrl: String(releaseApiUrl || "").trim(),
+      releaseNotes: "",
       assetName: "",
       progressValue: 0,
       progressMax: 1,
@@ -263,6 +267,7 @@ class LauncherUpdater {
       this.updateState({
         status: "error",
         releaseUrl: this.latestRelease?.releaseUrl || "",
+        releaseNotes: this.latestRelease?.releaseNotes || "",
         message: "No staged launcher update is ready to apply."
       });
       return { ok: false, shouldQuit: false, state: this.getState() };
@@ -274,6 +279,7 @@ class LauncherUpdater {
       this.updateState({
         status: "error",
         releaseUrl: this.latestRelease?.releaseUrl || this.stagedReadyMetadata.releaseUrl || "",
+        releaseNotes: this.latestRelease?.releaseNotes || "",
         assetName: this.stagedReadyMetadata.assetName || "",
         latestVersion: this.stagedReadyMetadata.version || "",
         message: error.message || "The launcher directory is not writable."
@@ -298,6 +304,7 @@ class LauncherUpdater {
       this.updateState({
         status: "error",
         releaseUrl: this.latestRelease?.releaseUrl || this.stagedReadyMetadata.releaseUrl || "",
+        releaseNotes: this.latestRelease?.releaseNotes || "",
         assetName: this.stagedReadyMetadata.assetName || "",
         latestVersion: this.stagedReadyMetadata.version || "",
         message: error.message || "Unable to start the launcher updater helper."
@@ -309,6 +316,7 @@ class LauncherUpdater {
       status: "applying",
       latestVersion: this.stagedReadyMetadata.version || "",
       releaseUrl: this.latestRelease?.releaseUrl || this.stagedReadyMetadata.releaseUrl || "",
+      releaseNotes: this.latestRelease?.releaseNotes || "",
       assetName: this.stagedReadyMetadata.assetName || "",
       progressValue: this.stagedReadyMetadata.size || 1,
       progressMax: this.stagedReadyMetadata.size || 1,
@@ -358,6 +366,7 @@ class LauncherUpdater {
           status: "ready",
           latestVersion: this.stagedReadyMetadata.version,
           releaseUrl: this.stagedReadyMetadata.releaseUrl || release.releaseUrl || "",
+          releaseNotes: release.releaseNotes || "",
           assetName: this.stagedReadyMetadata.assetName || release.assetName || "",
           progressValue: this.stagedReadyMetadata.size || 1,
           progressMax: this.stagedReadyMetadata.size || 1,
@@ -370,6 +379,7 @@ class LauncherUpdater {
         status: "up-to-date",
         latestVersion: release.latestVersion,
         releaseUrl: release.releaseUrl || "",
+        releaseNotes: release.releaseNotes || "",
         assetName: release.assetName || "",
         progressValue: 0,
         progressMax: 1,
@@ -383,6 +393,7 @@ class LauncherUpdater {
         status: "error",
         latestVersion: release.latestVersion,
         releaseUrl: release.releaseUrl || "",
+        releaseNotes: release.releaseNotes || "",
         assetName: release.assetName || "",
         progressValue: 0,
         progressMax: 1,
@@ -396,6 +407,7 @@ class LauncherUpdater {
         status: "helper-error",
         latestVersion: release.latestVersion,
         releaseUrl: release.releaseUrl || "",
+        releaseNotes: release.releaseNotes || "",
         assetName: release.assetName || "",
         progressValue: 0,
         progressMax: 1,
@@ -409,6 +421,7 @@ class LauncherUpdater {
         status: "helper-error",
         latestVersion: release.latestVersion,
         releaseUrl: release.releaseUrl || "",
+        releaseNotes: release.releaseNotes || "",
         assetName: release.assetName || "",
         progressValue: 0,
         progressMax: 1,
@@ -422,6 +435,7 @@ class LauncherUpdater {
         status: "ready",
         latestVersion: release.latestVersion,
         releaseUrl: release.releaseUrl || "",
+        releaseNotes: release.releaseNotes || "",
         assetName: release.assetName || "",
         progressValue: release.size || 1,
         progressMax: release.size || 1,
@@ -434,6 +448,7 @@ class LauncherUpdater {
       status: "available",
       latestVersion: release.latestVersion,
       releaseUrl: release.releaseUrl || "",
+      releaseNotes: release.releaseNotes || "",
       assetName: release.assetName || "",
       progressValue: 0,
       progressMax: 1,
@@ -459,6 +474,7 @@ class LauncherUpdater {
     if (!release || compareVersions(release.latestVersion, this.appVersion) <= 0) {
       this.updateState({
         status: "up-to-date",
+        releaseNotes: release?.releaseNotes || "",
         message: "Launcher is up to date."
       });
       return this.getState();
@@ -468,6 +484,7 @@ class LauncherUpdater {
       this.updateState({
         status: "error",
         releaseUrl: release.releaseUrl || "",
+        releaseNotes: release.releaseNotes || "",
         message: release.error
       });
       return this.getState();
@@ -478,6 +495,7 @@ class LauncherUpdater {
         status: "ready",
         latestVersion: release.latestVersion,
         releaseUrl: release.releaseUrl || "",
+        releaseNotes: release.releaseNotes || "",
         assetName: release.assetName || "",
         progressValue: release.size || 1,
         progressMax: release.size || 1,
@@ -497,6 +515,7 @@ class LauncherUpdater {
       status: "downloading",
       latestVersion: release.latestVersion,
       releaseUrl: release.releaseUrl || "",
+      releaseNotes: release.releaseNotes || "",
       assetName: release.assetName || "",
       progressValue: 0,
       progressMax: release.size || 1,
@@ -514,6 +533,7 @@ class LauncherUpdater {
             status: "downloading",
             latestVersion: release.latestVersion,
             releaseUrl: release.releaseUrl || "",
+            releaseNotes: release.releaseNotes || "",
             assetName: release.assetName || "",
             progressValue: downloadedBytes,
             progressMax: release.size || Math.max(downloadedBytes, 1),
@@ -542,6 +562,7 @@ class LauncherUpdater {
         status: "ready",
         latestVersion: release.latestVersion,
         releaseUrl: release.releaseUrl || "",
+        releaseNotes: release.releaseNotes || "",
         assetName: release.assetName || "",
         progressValue: release.size || download.downloadedBytes || 1,
         progressMax: release.size || download.downloadedBytes || 1,
@@ -553,6 +574,7 @@ class LauncherUpdater {
         status: "error",
         latestVersion: release.latestVersion,
         releaseUrl: release.releaseUrl || "",
+        releaseNotes: release.releaseNotes || "",
         assetName: release.assetName || "",
         progressValue: 0,
         progressMax: release.size || 1,
@@ -626,6 +648,7 @@ class LauncherUpdater {
   parseReleasePayload(payload) {
     const latestVersion = normalizeVersion(payload?.tag_name);
     const releaseUrl = String(payload?.html_url || "").trim();
+    const releaseNotes = String(payload?.body || "").trim();
     const assets = Array.isArray(payload?.assets) ? payload.assets : [];
     const asset = this.selectReleaseAsset(assets);
 
@@ -633,6 +656,7 @@ class LauncherUpdater {
       return {
         latestVersion: "",
         releaseUrl,
+        releaseNotes,
         assetName: "",
         downloadUrl: "",
         size: 0,
@@ -645,6 +669,7 @@ class LauncherUpdater {
       return {
         latestVersion,
         releaseUrl,
+        releaseNotes,
         assetName: "",
         downloadUrl: "",
         size: 0,
@@ -659,6 +684,7 @@ class LauncherUpdater {
       return {
         latestVersion,
         releaseUrl,
+        releaseNotes,
         assetName: String(asset.name || "").trim(),
         downloadUrl: String(asset.browser_download_url || "").trim(),
         size: Number(asset.size) || 0,
@@ -670,6 +696,7 @@ class LauncherUpdater {
     return {
       latestVersion,
       releaseUrl,
+      releaseNotes,
       assetName: String(asset.name || "").trim(),
       downloadUrl: String(asset.browser_download_url || "").trim(),
       size: Number(asset.size) || 0,

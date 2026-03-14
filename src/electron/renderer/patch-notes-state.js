@@ -54,8 +54,9 @@
   }
 
   function createPatchNotesReadTracker(options = {}) {
-    const { storage = null, storageKey = "" } = options;
+    const { storage = null, storageKey = "", initializedStorageKey = "" } = options;
     let sessionState = {};
+    let sessionInitialized = false;
 
     function readState() {
       try {
@@ -78,6 +79,35 @@
       }
 
       return { ...sessionState };
+    }
+
+    function hasInitialized() {
+      const readStateValue = readState();
+      if (Object.keys(readStateValue).length > 0) {
+        sessionInitialized = true;
+        return true;
+      }
+
+      try {
+        const raw = storage?.getItem?.(initializedStorageKey);
+        sessionInitialized = raw === "true" || sessionInitialized;
+      } catch (_error) {
+        return sessionInitialized;
+      }
+
+      return sessionInitialized;
+    }
+
+    function writeInitialized(value) {
+      sessionInitialized = value === true;
+
+      try {
+        storage?.setItem?.(initializedStorageKey, sessionInitialized ? "true" : "false");
+      } catch (_error) {
+        // Keep the session flag when persistent storage is unavailable.
+      }
+
+      return sessionInitialized;
     }
 
     function markRead(url, signature) {
@@ -103,11 +133,25 @@
       return (readStateValue[normalizedUrl] || "") !== normalizedSignature;
     }
 
+    function initializeBaseline(url, signature) {
+      const normalizedUrl = String(url || "").trim();
+      const normalizedSignature = String(signature || "").trim();
+      if (!normalizedUrl || !normalizedSignature || hasInitialized()) {
+        return false;
+      }
+
+      markRead(normalizedUrl, normalizedSignature);
+      writeInitialized(true);
+      return true;
+    }
+
     return {
+      initializeBaseline,
       readState,
       writeState,
       markRead,
-      isUnread
+      isUnread,
+      hasInitialized
     };
   }
 

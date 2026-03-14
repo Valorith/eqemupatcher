@@ -8,6 +8,7 @@ const state = {
   launcherUpdatePromptedVersion: "",
   launcherUpdateAutoApplyVersion: "",
   launcherUpdateAutoApplyInFlight: false,
+  patchNotesPromptDismissedSignature: "",
   patchNotes: {
     loaded: false,
     loadedUrl: "",
@@ -24,10 +25,12 @@ const state = {
   }
 };
 const PATCH_NOTES_READ_STORAGE_KEY = "eqemu-launcher.patchNotesRead";
+const PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY = "eqemu-launcher.patchNotesReadInitialized";
 const { createPatchNotesReadTracker, getPatchNotesSignature, shouldLoadPatchNotes } = window.PatchNotesState;
 const patchNotesReadTracker = createPatchNotesReadTracker({
   storage: window.localStorage,
-  storageKey: PATCH_NOTES_READ_STORAGE_KEY
+  storageKey: PATCH_NOTES_READ_STORAGE_KEY,
+  initializedStorageKey: PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY
 });
 const elements = {
   leftStage: document.getElementById("leftStage"),
@@ -84,15 +87,24 @@ const elements = {
   launcherUpdateSummary: document.getElementById("launcherUpdateSummary"),
   launcherUpdateCurrentVersion: document.getElementById("launcherUpdateCurrentVersion"),
   launcherUpdateLatestVersion: document.getElementById("launcherUpdateLatestVersion"),
+  launcherUpdateReleaseNotes: document.getElementById("launcherUpdateReleaseNotes"),
   launcherUpdateLaterButton: document.getElementById("launcherUpdateLaterButton"),
   launcherUpdateNowButton: document.getElementById("launcherUpdateNowButton"),
   launcherUpdatePanel: document.getElementById("launcherUpdatePanel"),
   launcherUpdateMeta: document.getElementById("launcherUpdateMeta"),
   launcherUpdateMessage: document.getElementById("launcherUpdateMessage"),
   launcherUpdateActionButton: document.getElementById("launcherUpdateActionButton"),
-  launcherUpdateLinkButton: document.getElementById("launcherUpdateLinkButton")
+  launcherUpdateLinkButton: document.getElementById("launcherUpdateLinkButton"),
+  patchNotesPromptModal: document.getElementById("patchNotesPromptModal"),
+  patchNotesPromptBackdrop: document.getElementById("patchNotesPromptBackdrop"),
+  patchNotesPromptCloseButton: document.getElementById("patchNotesPromptCloseButton"),
+  patchNotesPromptMessage: document.getElementById("patchNotesPromptMessage"),
+  patchNotesPromptLaterButton: document.getElementById("patchNotesPromptLaterButton"),
+  patchNotesPromptViewButton: document.getElementById("patchNotesPromptViewButton")
 };
 function resetPatchNotesState() {
+  closePatchNotesPromptModal();
+  state.patchNotesPromptDismissedSignature = "";
   state.patchNotes.loaded = false;
   state.patchNotes.loadedUrl = "";
   state.patchNotes.content = "";
@@ -125,17 +137,30 @@ function updatePatchNotesAttention() {
 function markCurrentPatchNotesRead() {
   if (!state.patchNotes.signature || !state.patchNotes.loadedUrl) {
     state.patchNotes.hasUnread = false;
+    closePatchNotesPromptModal();
     updatePatchNotesAttention();
     return;
   }
 
   patchNotesReadTracker.markRead(state.patchNotes.loadedUrl, state.patchNotes.signature);
+  if (state.patchNotesPromptDismissedSignature === state.patchNotes.signature) {
+    state.patchNotesPromptDismissedSignature = "";
+  }
   state.patchNotes.hasUnread = false;
+  closePatchNotesPromptModal();
   updatePatchNotesAttention();
 }
 function syncPatchNotesUnreadState() {
   if (!state.patchNotes.signature || !state.patchNotes.loadedUrl) {
     state.patchNotes.hasUnread = false;
+    closePatchNotesPromptModal();
+    updatePatchNotesAttention();
+    return;
+  }
+
+  if (patchNotesReadTracker.initializeBaseline(state.patchNotes.loadedUrl, state.patchNotes.signature)) {
+    state.patchNotes.hasUnread = false;
+    closePatchNotesPromptModal();
     updatePatchNotesAttention();
     return;
   }
@@ -185,18 +210,61 @@ function closeUnsupportedClientModal() {
   elements.unsupportedClientModal.classList.add("hidden");
   elements.unsupportedClientModal.setAttribute("aria-hidden", "true");
 }
+function isPatchNotesPromptModalVisible() {
+  return !elements.patchNotesPromptModal.classList.contains("hidden");
+}
+function isLauncherUpdateModalVisible() {
+  return !elements.launcherUpdateModal.classList.contains("hidden");
+}
+function openPatchNotesPromptModal() {
+  const serverName = state.current?.serverName || "this server";
+  elements.patchNotesPromptMessage.textContent = `New patch notes were detected for ${serverName}. Open the Patch Notes tab now?`;
+  elements.patchNotesPromptModal.classList.remove("hidden");
+  elements.patchNotesPromptModal.setAttribute("aria-hidden", "false");
+}
+function closePatchNotesPromptModal() {
+  elements.patchNotesPromptModal.classList.add("hidden");
+  elements.patchNotesPromptModal.setAttribute("aria-hidden", "true");
+}
+function dismissPatchNotesPrompt() {
+  if (state.patchNotes.signature) {
+    state.patchNotesPromptDismissedSignature = state.patchNotes.signature;
+  }
+  closePatchNotesPromptModal();
+}
+function handlePatchNotesPrompt() {
+  if (!state.patchNotes.hasUnread || !state.patchNotes.signature || state.activeTab === "notes") {
+    closePatchNotesPromptModal();
+    return;
+  }
+
+  if (isLauncherUpdateModalVisible()) {
+    closePatchNotesPromptModal();
+    return;
+  }
+
+  if (state.patchNotesPromptDismissedSignature === state.patchNotes.signature) {
+    return;
+  }
+
+  openPatchNotesPromptModal();
+}
 function openLauncherUpdateModal(updateState) {
+  closePatchNotesPromptModal();
   const currentVersion = `v${updateState.currentVersion || "0.0.0"}`;
   const latestVersion = `v${updateState.latestVersion || updateState.currentVersion || "0.0.0"}`;
   elements.launcherUpdateSummary.textContent = `A new patcher update is available. Update from ${currentVersion} to ${latestVersion}.`;
   elements.launcherUpdateCurrentVersion.textContent = currentVersion;
   elements.launcherUpdateLatestVersion.textContent = latestVersion;
+  elements.launcherUpdateReleaseNotes.textContent =
+    String(updateState.releaseNotes || "").trim() || "No release notes were provided for this version.";
   elements.launcherUpdateModal.classList.remove("hidden");
   elements.launcherUpdateModal.setAttribute("aria-hidden", "false");
 }
 function closeLauncherUpdateModal() {
   elements.launcherUpdateModal.classList.add("hidden");
   elements.launcherUpdateModal.setAttribute("aria-hidden", "true");
+  handlePatchNotesPrompt();
 }
 async function startLauncherUpdateDownloadFlow(expectedVersion = "") {
   state.launcherUpdateAutoApplyVersion = String(expectedVersion || state.current?.launcherUpdate?.latestVersion || "").trim();
@@ -424,6 +492,7 @@ function renderPatchNotes() {
     state.patchNotes.matchCount = 0;
     state.patchNotes.activeMatchIndex = -1;
     state.patchNotes.hasUnread = false;
+    closePatchNotesPromptModal();
     updatePatchNotesMeta("Unable to load");
     updatePatchNotesAttention();
     updateMatchNavigation();
@@ -439,6 +508,7 @@ function renderPatchNotes() {
     state.patchNotes.activeMatchIndex = -1;
     state.patchNotes.signature = "";
     state.patchNotes.hasUnread = false;
+    closePatchNotesPromptModal();
     if (!hasSource) {
       elements.notesSearchInput.value = "";
     }
@@ -485,6 +555,7 @@ async function loadPatchNotes(forceRefresh = false) {
   state.patchNotes.matchCount = 0;
   state.patchNotes.activeMatchIndex = -1;
   syncPatchNotesUnreadState();
+  handlePatchNotesPrompt();
   renderPatchNotes();
 }
 
@@ -821,6 +892,7 @@ function renderState(nextState) {
   syncPatchNotesSourceState();
   renderLauncherUpdate(nextState.launcherUpdate);
   handleLauncherUpdatePrompt(nextState.launcherUpdate);
+  handlePatchNotesPrompt();
   handleLauncherUpdateAutoApply(nextState.launcherUpdate).catch((error) => {
     pushLog({
       text: `Unable to apply the downloaded patcher update automatically: ${error.message}`,
@@ -975,6 +1047,19 @@ function wireEvents() {
     closeLauncherUpdateModal();
     await startLauncherUpdateDownloadFlow(state.current?.launcherUpdate?.latestVersion);
   });
+  elements.patchNotesPromptCloseButton.addEventListener("click", () => {
+    dismissPatchNotesPrompt();
+  });
+  elements.patchNotesPromptLaterButton.addEventListener("click", () => {
+    dismissPatchNotesPrompt();
+  });
+  elements.patchNotesPromptBackdrop.addEventListener("click", () => {
+    dismissPatchNotesPrompt();
+  });
+  elements.patchNotesPromptViewButton.addEventListener("click", () => {
+    closePatchNotesPromptModal();
+    setActiveTab("notes");
+  });
   elements.patchTabButton.addEventListener("click", () => {
     setActiveTab("patch");
   });
@@ -1105,6 +1190,10 @@ function wireEvents() {
     }
     if (!elements.launcherUpdateModal.classList.contains("hidden")) {
       closeLauncherUpdateModal();
+      return;
+    }
+    if (!elements.patchNotesPromptModal.classList.contains("hidden")) {
+      dismissPatchNotesPrompt();
       return;
     }
     if (!elements.settingsModal.classList.contains("hidden")) {

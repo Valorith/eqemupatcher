@@ -10,6 +10,8 @@ const {
 } = require("../src/electron/renderer/patch-notes-state");
 
 const APP_SOURCE = fs.readFileSync(path.join(__dirname, "..", "src", "electron", "renderer", "app.js"), "utf8");
+const PATCH_NOTES_READ_STORAGE_KEY = "eqemu-launcher.patchNotesRead";
+const PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY = "eqemu-launcher.patchNotesReadInitialized";
 
 class FakeClassList {
   constructor() {
@@ -245,7 +247,17 @@ function sha256(text) {
   return crypto.createHash("sha256").update(text, "utf8").digest("hex");
 }
 
-function createLauncherState(patchNotesUrl) {
+function createLauncherState(patchNotesUrl, options = {}) {
+  const launcherUpdate = {
+    status: "up-to-date",
+    currentVersion: "0.3.12",
+    latestVersion: "0.3.12",
+    progressValue: 0,
+    progressMax: 0,
+    releaseUrl: "",
+    ...(options.launcherUpdate || {})
+  };
+
   return {
     serverName: "Test Realm",
     patchNotesUrl,
@@ -268,14 +280,7 @@ function createLauncherState(patchNotesUrl) {
     isPatching: false,
     manifestVersion: "",
     needsPatch: false,
-    launcherUpdate: {
-      status: "up-to-date",
-      currentVersion: "0.3.12",
-      latestVersion: "0.3.12",
-      progressValue: 0,
-      progressMax: 0,
-      releaseUrl: ""
-    }
+    launcherUpdate
   };
 }
 
@@ -302,13 +307,19 @@ async function createRendererHarness(options = {}) {
   let refreshedNotes = options.refreshedNotes || initialNotes;
   const document = new FakeDocument();
   const localStorage = new MemoryStorage();
+  if (options.initializedReadState) {
+    localStorage.setItem(PATCH_NOTES_READ_STORAGE_KEY, JSON.stringify(options.initializedReadState));
+    localStorage.setItem(PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY, "true");
+  } else if (options.markInitialized) {
+    localStorage.setItem(PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY, "true");
+  }
   const calls = {
     getPatchNotes: [],
     refreshState: 0,
     checkForLauncherUpdate: 0
   };
 
-  const launcherState = createLauncherState(options.includePatchNotesUrl === false ? "" : patchNotesUrl);
+  const launcherState = createLauncherState(options.includePatchNotesUrl === false ? "" : patchNotesUrl, options);
   const launcher = {
     async initialize() {
       return launcherState;
@@ -385,6 +396,14 @@ async function createRendererHarness(options = {}) {
   context.globalThis = context;
   context.window.window = context.window;
   context.window.document = document;
+  document.getElementById("patchTabButton").classList.add("is-active");
+  document.getElementById("notesTabPanel").classList.add("hidden");
+  document.getElementById("settingsModal").classList.add("hidden");
+  document.getElementById("unsupportedClientModal").classList.add("hidden");
+  document.getElementById("launcherUpdateModal").classList.add("hidden");
+  document.getElementById("patchNotesPromptModal").classList.add("hidden");
+  document.getElementById("toolsMenu").classList.add("hidden");
+  document.getElementById("launcherUpdatePanel").classList.add("hidden");
 
   vm.runInNewContext(APP_SOURCE, context, {
     filename: "renderer-app.js"
@@ -399,7 +418,13 @@ async function createRendererHarness(options = {}) {
       notesTabButton: document.getElementById("notesTabButton"),
       patchTabButton: document.getElementById("patchTabButton"),
       refreshButton: document.getElementById("refreshButton"),
-      notesContent: document.getElementById("notesContent")
+      notesContent: document.getElementById("notesContent"),
+      patchNotesPromptModal: document.getElementById("patchNotesPromptModal"),
+      patchNotesPromptLaterButton: document.getElementById("patchNotesPromptLaterButton"),
+      patchNotesPromptViewButton: document.getElementById("patchNotesPromptViewButton"),
+      launcherUpdateModal: document.getElementById("launcherUpdateModal"),
+      launcherUpdateLaterButton: document.getElementById("launcherUpdateLaterButton"),
+      launcherUpdateReleaseNotes: document.getElementById("launcherUpdateReleaseNotes")
     },
     localStorage,
     setRefreshedNotes(value) {
@@ -410,29 +435,74 @@ async function createRendererHarness(options = {}) {
 
 test("renderer bootstrap loads configured patch notes in the background and shows unread state", async () => {
   const harness = await createRendererHarness({
-    initialNotes: createPatchNotesResponse("https://example.invalid/notes.md", "Unread patch note")
+    initialNotes: createPatchNotesResponse("https://example.invalid/notes.md", "Existing patch note")
   });
 
   assert.equal(harness.calls.getPatchNotes.length, 1);
   assert.deepEqual(harness.calls.getPatchNotes[0], { forceRefresh: false });
+  assert.equal(harness.elements.notesTabButton.classList.contains("has-unread"), false);
+  assert.equal(harness.elements.patchNotesPromptModal.classList.contains("hidden"), true);
+});
+
+test("renderer first load stores the current patch notes as the baseline read state", async () => {
+  const notes = createPatchNotesResponse("https://example.invalid/notes.md", "Existing patch note");
+  const harness = await createRendererHarness({
+    initialNotes: notes
+  });
+
+  const expectedSignature = getPatchNotesSignature(notes.url, notes.contentHash, notes.content);
+  const stored = JSON.parse(harness.localStorage.getItem(PATCH_NOTES_READ_STORAGE_KEY));
+
+  assert.equal(harness.localStorage.getItem(PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY), "true");
+  assert.equal(stored[notes.url], expectedSignature);
+});
+
+test("patch notes prompt Later dismisses the current unread notice", async () => {
+  const notes = createPatchNotesResponse("https://example.invalid/notes.md", "Unread patch note");
+  const harness = await createRendererHarness({
+    initialNotes: notes,
+    refreshedNotes: notes,
+    markInitialized: true
+  });
+
+  await harness.elements.patchNotesPromptLaterButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.refreshButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.elements.patchNotesPromptModal.classList.contains("hidden"), true);
   assert.equal(harness.elements.notesTabButton.classList.contains("has-unread"), true);
-  assert.equal(harness.elements.notesTabButton.attributes["aria-label"], "Patch Notes (new unread notes)");
 });
 
 test("opening the notes tab marks the current notes as read", async () => {
   const notes = createPatchNotesResponse("https://example.invalid/notes.md", "Read me");
   const harness = await createRendererHarness({
-    initialNotes: notes
+    initialNotes: notes,
+    markInitialized: true
   });
 
   await harness.elements.notesTabButton.dispatch("click");
   await flushAsyncWork();
 
   const expectedSignature = getPatchNotesSignature(notes.url, notes.contentHash, notes.content);
-  const stored = JSON.parse(harness.localStorage.getItem("eqemu-launcher.patchNotesRead"));
+  const stored = JSON.parse(harness.localStorage.getItem(PATCH_NOTES_READ_STORAGE_KEY));
 
   assert.equal(harness.elements.notesTabButton.classList.contains("has-unread"), false);
   assert.equal(stored[notes.url], expectedSignature);
+});
+
+test("patch notes prompt View opens the patch notes tab", async () => {
+  const harness = await createRendererHarness({
+    initialNotes: createPatchNotesResponse("https://example.invalid/notes.md", "Unread patch note"),
+    markInitialized: true
+  });
+
+  await harness.elements.patchNotesPromptViewButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.elements.patchNotesPromptModal.classList.contains("hidden"), true);
+  assert.equal(harness.elements.notesTabButton.classList.contains("is-active"), true);
+  assert.equal(harness.elements.notesTabButton.classList.contains("has-unread"), false);
 });
 
 test("refreshing after notes change restores the unread indicator", async () => {
@@ -440,7 +510,10 @@ test("refreshing after notes change restores the unread indicator", async () => 
   const refreshedNotes = createPatchNotesResponse("https://example.invalid/notes.md", "Version two");
   const harness = await createRendererHarness({
     initialNotes,
-    refreshedNotes
+    refreshedNotes,
+    initializedReadState: {
+      [initialNotes.url]: getPatchNotesSignature(initialNotes.url, initialNotes.contentHash, initialNotes.content)
+    }
   });
 
   await harness.elements.notesTabButton.dispatch("click");
@@ -456,6 +529,29 @@ test("refreshing after notes change restores the unread indicator", async () => 
   assert.equal(harness.calls.checkForLauncherUpdate, 1);
   assert.deepEqual(harness.calls.getPatchNotes.at(-1), { forceRefresh: true });
   assert.equal(harness.elements.notesTabButton.classList.contains("has-unread"), true);
+  assert.equal(harness.elements.patchNotesPromptModal.classList.contains("hidden"), false);
+});
+
+test("launcher update prompt takes priority over the patch notes prompt", async () => {
+  const harness = await createRendererHarness({
+    initialNotes: createPatchNotesResponse("https://example.invalid/notes.md", "Unread patch note"),
+    launcherUpdate: {
+      status: "available",
+      latestVersion: "0.3.13",
+      releaseNotes: "## Release Notes\n\n- Added informed update dialogs"
+    },
+    markInitialized: true
+  });
+
+  assert.equal(harness.elements.launcherUpdateModal.classList.contains("hidden"), false);
+  assert.equal(harness.elements.patchNotesPromptModal.classList.contains("hidden"), true);
+  assert.match(harness.elements.launcherUpdateReleaseNotes.textContent, /Added informed update dialogs/);
+
+  await harness.elements.launcherUpdateLaterButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.elements.launcherUpdateModal.classList.contains("hidden"), true);
+  assert.equal(harness.elements.patchNotesPromptModal.classList.contains("hidden"), false);
 });
 
 test("renderer bootstrap skips patch notes loading when no source is configured", async () => {

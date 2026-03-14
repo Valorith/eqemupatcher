@@ -99,6 +99,7 @@ function latestReleasePayload(version, digest, overrides = {}) {
   return {
     tag_name: version,
     html_url: "https://github.com/Valorith/eqemupatcher/releases/tag/v0.2.2",
+    body: "## Release Notes\n\n- Fixed launcher refresh\n- Added better update prompts",
     assets: [
       {
         name: "notes.txt",
@@ -232,6 +233,7 @@ test("parseReleasePayload accepts version tags with and without a leading v", as
 
   assert.equal(withV.latestVersion, "0.2.2");
   assert.equal(withoutV.latestVersion, "0.2.3");
+  assert.match(withV.releaseNotes, /Fixed launcher refresh/);
 });
 
 test("parseReleasePayload selects the portable Windows asset", async (t) => {
@@ -396,6 +398,21 @@ test("checkForUpdate requires a SHA-256 digest on the release asset", async (t) 
 
   assert.equal(state.status, "error");
   assert.match(state.message, /missing a SHA-256 digest/i);
+  assert.equal(state.releaseNotes, "");
+});
+
+test("checkForUpdate exposes GitHub release notes with the available update state", async (t) => {
+  const { updater } = await createUpdaterHarness(t, {
+    fetchImpl: async () =>
+      createJsonResponse(200, latestReleasePayload("v0.2.2", `sha256:${sha256("launcher-0.2.2")}`))
+  });
+
+  await updater.initialize({ releaseApiUrl: "https://api.github.com/repos/Valorith/eqemupatcher/releases/latest" });
+  const state = await updater.checkForUpdate({ force: true, releaseApiUrl: "https://api.github.com/repos/Valorith/eqemupatcher/releases/latest" });
+
+  assert.equal(state.status, "available");
+  assert.match(state.releaseNotes, /Release Notes/);
+  assert.match(state.releaseNotes, /Added better update prompts/);
 });
 
 test("startDownload verifies and stages the launcher, then reuses the staged copy", async (t) => {

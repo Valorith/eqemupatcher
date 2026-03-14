@@ -41,10 +41,12 @@ test("getPatchNotesSignature falls back to a stable content signature when neede
 test("createPatchNotesReadTracker persists and compares read signatures", () => {
   const tracker = createPatchNotesReadTracker({
     storage: new MemoryStorage(),
-    storageKey: "eqemu.patchNotesRead"
+    storageKey: "eqemu.patchNotesRead",
+    initializedStorageKey: "eqemu.patchNotesReadInitialized"
   });
 
-  assert.equal(tracker.isUnread("https://example.invalid/notes.md", "sig-v1"), true);
+  assert.equal(tracker.initializeBaseline("https://example.invalid/notes.md", "sig-v1"), true);
+  assert.equal(tracker.isUnread("https://example.invalid/notes.md", "sig-v1"), false);
   tracker.markRead("https://example.invalid/notes.md", "sig-v1");
   assert.equal(tracker.isUnread("https://example.invalid/notes.md", "sig-v1"), false);
   assert.equal(tracker.isUnread("https://example.invalid/notes.md", "sig-v2"), true);
@@ -60,12 +62,25 @@ test("createPatchNotesReadTracker falls back to session memory when storage is u
         throw new Error("storage unavailable");
       }
     },
-    storageKey: "eqemu.patchNotesRead"
+    storageKey: "eqemu.patchNotesRead",
+    initializedStorageKey: "eqemu.patchNotesReadInitialized"
   });
 
-  tracker.markRead("https://example.invalid/notes.md", "sig-v1");
+  tracker.initializeBaseline("https://example.invalid/notes.md", "sig-v1");
 
   assert.equal(tracker.isUnread("https://example.invalid/notes.md", "sig-v1"), false);
+  assert.equal(tracker.isUnread("https://example.invalid/notes.md", "sig-v2"), true);
+});
+
+test("createPatchNotesReadTracker only baselines the first clean load", () => {
+  const tracker = createPatchNotesReadTracker({
+    storage: new MemoryStorage(),
+    storageKey: "eqemu.patchNotesRead",
+    initializedStorageKey: "eqemu.patchNotesReadInitialized"
+  });
+
+  assert.equal(tracker.initializeBaseline("https://example.invalid/notes.md", "sig-v1"), true);
+  assert.equal(tracker.initializeBaseline("https://example.invalid/notes.md", "sig-v2"), false);
   assert.equal(tracker.isUnread("https://example.invalid/notes.md", "sig-v2"), true);
 });
 

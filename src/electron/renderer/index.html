@@ -297,9 +297,35 @@
             <strong id="launcherUpdateLatestVersion">v0.0.0</strong>
           </div>
         </div>
+        <div class="launcher-update-release-notes">
+          <p class="summary-label launcher-update-release-notes-label">Release Notes</p>
+          <div id="launcherUpdateReleaseNotes" class="launcher-update-release-notes-body">No release notes were provided for this version.</div>
+        </div>
         <div class="utility-list utility-list-inline">
           <button id="launcherUpdateLaterButton" class="secondary-button utility-button" type="button">Later</button>
           <button id="launcherUpdateNowButton" class="primary-button utility-button" type="button">Update</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="patchNotesPromptModal" class="modal-shell hidden" aria-hidden="true">
+      <div id="patchNotesPromptBackdrop" class="modal-backdrop"></div>
+      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="patchNotesPromptTitle">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Patch Notes</p>
+            <h2 id="patchNotesPromptTitle" class="section-title">New Patch Notes Detected</h2>
+          </div>
+          <button id="patchNotesPromptCloseButton" class="icon-button modal-close-button" type="button" aria-label="Close patch notes notice">
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+        <p id="patchNotesPromptMessage" class="modal-copy">
+          New patch notes were detected. Open the Patch Notes tab to review them now.
+        </p>
+        <div class="utility-list utility-list-inline">
+          <button id="patchNotesPromptLaterButton" class="secondary-button utility-button" type="button">Later</button>
+          <button id="patchNotesPromptViewButton" class="primary-button utility-button" type="button">View</button>
         </div>
       </section>
     </div>
