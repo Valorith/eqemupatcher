@@ -72,9 +72,10 @@ class FakeTextNode extends FakeNode {
 }
 
 class FakeElement extends FakeNode {
-  constructor(id = "") {
+  constructor(id = "", tagName = "div") {
     super();
     this.id = id;
+    this.tagName = String(tagName || "div").toUpperCase();
     this.dataset = {};
     this.style = {};
     this.attributes = {};
@@ -216,7 +217,7 @@ class FakeDocument {
   }
 
   createElement(tagName) {
-    return new FakeElement(tagName);
+    return new FakeElement("", tagName);
   }
 
   createTextNode(text) {
@@ -245,6 +246,29 @@ class FakeDocument {
 
 function sha256(text) {
   return crypto.createHash("sha256").update(text, "utf8").digest("hex");
+}
+
+function collectTextContent(node) {
+  if (!node) {
+    return "";
+  }
+
+  if (node instanceof FakeTextNode) {
+    return node.textContent;
+  }
+
+  if (node instanceof FakeFragment) {
+    return node.children.map((child) => collectTextContent(child)).join("");
+  }
+
+  if (node instanceof FakeElement) {
+    if (!node.children.length) {
+      return node.textContent || "";
+    }
+    return node.children.map((child) => collectTextContent(child)).join("");
+  }
+
+  return "";
 }
 
 function createLauncherState(patchNotesUrl, options = {}) {
@@ -316,7 +340,8 @@ async function createRendererHarness(options = {}) {
   const calls = {
     getPatchNotes: [],
     refreshState: 0,
-    checkForLauncherUpdate: 0
+    checkForLauncherUpdate: 0,
+    openExternal: []
   };
 
   const launcherState = createLauncherState(options.includePatchNotesUrl === false ? "" : patchNotesUrl, options);
@@ -362,7 +387,8 @@ async function createRendererHarness(options = {}) {
     async closeWindow() {
       return true;
     },
-    async openExternal() {
+    async openExternal(url) {
+      calls.openExternal.push(url);
       return true;
     },
     async openConfigFile() {
@@ -545,13 +571,59 @@ test("launcher update prompt takes priority over the patch notes prompt", async 
 
   assert.equal(harness.elements.launcherUpdateModal.classList.contains("hidden"), false);
   assert.equal(harness.elements.patchNotesPromptModal.classList.contains("hidden"), true);
-  assert.match(harness.elements.launcherUpdateReleaseNotes.textContent, /Added informed update dialogs/);
+  assert.match(collectTextContent(harness.elements.launcherUpdateReleaseNotes), /Added informed update dialogs/);
 
   await harness.elements.launcherUpdateLaterButton.dispatch("click");
   await flushAsyncWork();
 
   assert.equal(harness.elements.launcherUpdateModal.classList.contains("hidden"), true);
   assert.equal(harness.elements.patchNotesPromptModal.classList.contains("hidden"), false);
+});
+
+test("launcher update release notes render clickable links", async () => {
+  const harness = await createRendererHarness({
+    launcherUpdate: {
+      status: "available",
+      latestVersion: "0.3.13",
+      releaseNotes: "Read the [changelog](https://example.invalid/changelog) or visit https://example.invalid/raw."
+    },
+    markInitialized: true
+  });
+
+  const anchors = harness.elements.launcherUpdateReleaseNotes.children.filter(
+    (child) => child instanceof FakeElement && child.tagName === "A"
+  );
+
+  assert.equal(anchors.length, 2);
+  assert.equal(anchors[0].textContent, "changelog");
+  assert.equal(anchors[0].getAttribute("href"), "https://example.invalid/changelog");
+  assert.equal(anchors[1].textContent, "https://example.invalid/raw");
+  assert.equal(anchors[1].getAttribute("href"), "https://example.invalid/raw");
+});
+
+test("clicking a launcher update release note link opens it externally", async () => {
+  const harness = await createRendererHarness({
+    launcherUpdate: {
+      status: "available",
+      latestVersion: "0.3.13",
+      releaseNotes: "More details: https://example.invalid/update."
+    },
+    markInitialized: true
+  });
+
+  const [anchor] = harness.elements.launcherUpdateReleaseNotes.children.filter(
+    (child) => child instanceof FakeElement && child.tagName === "A"
+  );
+
+  await harness.elements.launcherUpdateReleaseNotes.dispatch("click", {
+    target: {
+      closest(selector) {
+        return selector === "a" ? anchor : null;
+      }
+    }
+  });
+
+  assert.deepEqual(harness.calls.openExternal, ["https://example.invalid/update"]);
 });
 
 test("renderer bootstrap skips patch notes loading when no source is configured", async () => {

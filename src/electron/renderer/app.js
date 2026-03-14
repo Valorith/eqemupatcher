@@ -130,6 +130,91 @@ function normalizePatchNotesLinkHref(href) {
 
   return normalized;
 }
+const RELEASE_NOTES_LINK_PATTERN = /\[([^\]\n]+)\]\((https?:\/\/[^\s)]+)\)|<((?:https?:\/\/)[^>\s]+)>|((?:https?:\/\/)[^\s<]+)/gi;
+function clearElementContent(element) {
+  element.textContent = "";
+  element.innerHTML = "";
+  if (Array.isArray(element.children)) {
+    element.children.length = 0;
+  }
+}
+function createExternalLinkElement(href, label) {
+  const anchor = document.createElement("a");
+  anchor.className = "launcher-update-release-link";
+  anchor.textContent = label;
+  anchor.setAttribute("href", href);
+  anchor.setAttribute("target", "_blank");
+  anchor.setAttribute("rel", "noopener noreferrer");
+  return anchor;
+}
+function splitTrailingReleaseNotesPunctuation(url) {
+  let normalizedUrl = url;
+  let trailingText = "";
+
+  while (/[),.!?;:]$/.test(normalizedUrl)) {
+    const trailingCharacter = normalizedUrl.slice(-1);
+    if (trailingCharacter === ")") {
+      const openingParens = (normalizedUrl.match(/\(/g) || []).length;
+      const closingParens = (normalizedUrl.match(/\)/g) || []).length;
+      if (closingParens <= openingParens) {
+        break;
+      }
+    }
+
+    trailingText = `${trailingCharacter}${trailingText}`;
+    normalizedUrl = normalizedUrl.slice(0, -1);
+  }
+
+  return {
+    url: normalizedUrl,
+    trailingText
+  };
+}
+function appendReleaseNotesTextWithLinks(fragment, text) {
+  RELEASE_NOTES_LINK_PATTERN.lastIndex = 0;
+  let cursor = 0;
+  let match = RELEASE_NOTES_LINK_PATTERN.exec(text);
+
+  while (match) {
+    const startIndex = match.index;
+    const endIndex = startIndex + match[0].length;
+
+    if (startIndex > cursor) {
+      fragment.appendChild(document.createTextNode(text.slice(cursor, startIndex)));
+    }
+
+    if (match[1] && match[2]) {
+      fragment.appendChild(createExternalLinkElement(match[2], match[1]));
+    } else {
+      const rawUrl = match[3] || match[4] || "";
+      const { url, trailingText } = splitTrailingReleaseNotesPunctuation(rawUrl);
+      fragment.appendChild(createExternalLinkElement(url, url));
+      if (trailingText) {
+        fragment.appendChild(document.createTextNode(trailingText));
+      }
+    }
+
+    cursor = endIndex;
+    match = RELEASE_NOTES_LINK_PATTERN.exec(text);
+  }
+
+  if (cursor < text.length) {
+    fragment.appendChild(document.createTextNode(text.slice(cursor)));
+  }
+}
+function renderLauncherUpdateReleaseNotes(releaseNotes) {
+  const releaseNotesText = String(releaseNotes || "").trim();
+  clearElementContent(elements.launcherUpdateReleaseNotes);
+
+  if (!releaseNotesText) {
+    elements.launcherUpdateReleaseNotes.textContent = "No release notes were provided for this version.";
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  appendReleaseNotesTextWithLinks(fragment, releaseNotesText);
+  elements.launcherUpdateReleaseNotes.appendChild(fragment);
+}
 function updatePatchNotesAttention() {
   elements.notesTabButton.classList.toggle("has-unread", state.patchNotes.hasUnread);
   elements.notesTabButton.setAttribute("aria-label", state.patchNotes.hasUnread ? "Patch Notes (new unread notes)" : "Patch Notes");
@@ -256,8 +341,7 @@ function openLauncherUpdateModal(updateState) {
   elements.launcherUpdateSummary.textContent = `A new patcher update is available. Update from ${currentVersion} to ${latestVersion}.`;
   elements.launcherUpdateCurrentVersion.textContent = currentVersion;
   elements.launcherUpdateLatestVersion.textContent = latestVersion;
-  elements.launcherUpdateReleaseNotes.textContent =
-    String(updateState.releaseNotes || "").trim() || "No release notes were provided for this version.";
+  renderLauncherUpdateReleaseNotes(updateState.releaseNotes);
   elements.launcherUpdateModal.classList.remove("hidden");
   elements.launcherUpdateModal.setAttribute("aria-hidden", "false");
 }
@@ -1042,6 +1126,20 @@ function wireEvents() {
   });
   elements.launcherUpdateBackdrop.addEventListener("click", () => {
     closeLauncherUpdateModal();
+  });
+  elements.launcherUpdateReleaseNotes.addEventListener("click", async (event) => {
+    const link = event.target.closest("a");
+    if (!link || !elements.launcherUpdateReleaseNotes.contains(link)) {
+      return;
+    }
+
+    const href = normalizePatchNotesLinkHref(link.getAttribute("href"));
+    if (!/^https?:\/\//i.test(href)) {
+      return;
+    }
+
+    event.preventDefault();
+    await window.launcher.openExternal(href);
   });
   elements.launcherUpdateNowButton.addEventListener("click", async () => {
     closeLauncherUpdateModal();

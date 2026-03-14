@@ -1243,6 +1243,23 @@ body {
   scrollbar-gutter: stable;
 }
 
+.launcher-update-release-link {
+  color: #8ccfff;
+  text-decoration: underline;
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.18em;
+}
+
+.launcher-update-release-link:hover {
+  color: #cfe8ff;
+}
+
+.launcher-update-release-link:focus-visible {
+  outline: 2px solid rgba(140, 207, 255, 0.65);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
 .danger-button {
   color: #fff1f5;
   background: linear-gradient(135deg, #b02f54 0%, #851f3d 58%, #601328 100%);
