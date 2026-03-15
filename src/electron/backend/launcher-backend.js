@@ -324,6 +324,174 @@ function isLaunchPermissionError(error) {
   return error && ["EACCES", "EPERM"].includes(error.code);
 }
 
+const WINDOWS_STARTUP_STATUS_HINTS = {
+  0xC0000135: {
+    symbol: "STATUS_DLL_NOT_FOUND",
+    assessment: "A required DLL was missing during startup.",
+    guidance: "Install the DirectX 9 June 2010 runtime and the Visual C++ redistributables, then try again."
+  },
+  0xC000007B: {
+    symbol: "STATUS_INVALID_IMAGE_FORMAT",
+    assessment: "Windows reported an invalid image format while loading the client.",
+    guidance: "A 32-bit/64-bit dependency mismatch or a corrupted DLL is likely. Reinstall the client dependencies and check for replaced DLLs in the game folder."
+  },
+  0xC0000142: {
+    symbol: "STATUS_DLL_INIT_FAILED",
+    assessment: "A required DLL failed to initialize before the game window appeared.",
+    guidance: "Graphics runtimes, overlays, or injected DLLs can cause this. Disable overlays and reinstall DirectX 9 runtime components."
+  },
+  0xC0000005: {
+    symbol: "STATUS_ACCESS_VIOLATION",
+    assessment: "The client crashed with an access violation during startup.",
+    guidance: "This usually points to a bad or incompatible DLL, overlay injection, or a damaged client file."
+  },
+  0xC000001D: {
+    symbol: "STATUS_ILLEGAL_INSTRUCTION",
+    assessment: "The client hit an illegal CPU instruction during startup.",
+    guidance: "This can happen with incompatible binaries, aggressive compatibility settings, or corrupted executable files."
+  },
+  0xC0000409: {
+    symbol: "STATUS_STACK_BUFFER_OVERRUN",
+    assessment: "Windows terminated the client after a stack buffer overrun.",
+    guidance: "Overlays, injected hooks, or corrupted client files are common causes. Disable third-party overlays and verify the client files."
+  },
+  0xC00000FD: {
+    symbol: "STATUS_STACK_OVERFLOW",
+    assessment: "The client overflowed its stack during startup.",
+    guidance: "This usually indicates a crash in early initialization or a bad injected module."
+  },
+  0x40000015: {
+    symbol: "STATUS_FATAL_APP_EXIT",
+    assessment: "The client aborted itself during startup.",
+    guidance: "Look for a client-side dialog, missing dependency, or configuration problem immediately after launch."
+  }
+};
+
+function toWindowsStatusHex(code) {
+  if (!Number.isFinite(code)) {
+    return "";
+  }
+
+  return `0x${(code >>> 0).toString(16).toUpperCase().padStart(8, "0")}`;
+}
+
+function getWindowsStartupStatusHint(code) {
+  if (!Number.isFinite(code)) {
+    return null;
+  }
+
+  return WINDOWS_STARTUP_STATUS_HINTS[code >>> 0] || null;
+}
+
+function describeImmediateExit(code, signal) {
+  if (code != null) {
+    const windowsStatus = toWindowsStatusHex(code);
+    const hint = getWindowsStartupStatusHint(code);
+
+    return {
+      statusDetail: `exit code ${code}${windowsStatus ? ` / ${windowsStatus}` : ""}`,
+      hint: hint ? `${hint.assessment} ${hint.guidance}` : "",
+      windowsStatus,
+      symbol: hint?.symbol || "",
+      assessment: hint?.assessment || "",
+      guidance: hint?.guidance || ""
+    };
+  }
+
+  if (signal) {
+    return {
+      statusDetail: `signal ${signal}`,
+      hint: "",
+      windowsStatus: "",
+      symbol: "",
+      assessment: "The client was terminated by a signal during startup.",
+      guidance: ""
+    };
+  }
+
+  return {
+    statusDetail: "an unknown status",
+    hint: "",
+    windowsStatus: "",
+    symbol: "",
+    assessment: "",
+    guidance: ""
+  };
+}
+
+function createImmediateExitError(command, code, signal, launchMethod = "") {
+  const processLabel = path.basename(command || "process");
+  const { statusDetail, hint, windowsStatus, symbol, assessment, guidance } = describeImmediateExit(code, signal);
+  const error = new Error(`${processLabel} exited immediately (${statusDetail}).${hint ? ` ${hint}` : ""}`);
+  error.code = "EARLY_EXIT";
+  error.exitCode = code;
+  error.signal = signal;
+  error.launchMethod = launchMethod;
+  error.windowsStatus = windowsStatus;
+  error.windowsStatusSymbol = symbol;
+  error.assessment = assessment;
+  error.guidance = guidance;
+  return error;
+}
+
+function createLaunchDiagnostics(error) {
+  const diagnostics = [];
+  const launchMethod = error?.launchMethod || "";
+  if (launchMethod) {
+    diagnostics.push({
+      text: `Launch method: ${launchMethod}.`,
+      tone: "warning"
+    });
+  }
+
+  if (error?.code === "EARLY_EXIT") {
+    const rawStatus = error.windowsStatus
+      ? `Startup status: ${error.windowsStatus}${error.windowsStatusSymbol ? ` (${error.windowsStatusSymbol})` : ""}.`
+      : error.exitCode != null
+        ? `Startup status: exit code ${error.exitCode}.`
+        : error.signal
+          ? `Startup status: signal ${error.signal}.`
+          : "";
+
+    if (rawStatus) {
+      diagnostics.push({
+        text: rawStatus,
+        tone: "warning"
+      });
+    }
+
+    if (error.assessment) {
+      diagnostics.push({
+        text: `Assessment: ${error.assessment}`,
+        tone: "warning"
+      });
+    }
+
+    if (error.guidance) {
+      diagnostics.push({
+        text: `Suggested fix: ${error.guidance}`,
+        tone: "warning"
+      });
+    } else {
+      diagnostics.push({
+        text: "Suggested fix: run eqgame.exe patchme manually from the EverQuest folder to check for a Windows dialog or missing dependency prompt.",
+        tone: "warning"
+      });
+    }
+  } else if (isLaunchPermissionError(error)) {
+    diagnostics.push({
+      text: "Assessment: Windows denied the launcher permission to start the client directly.",
+      tone: "warning"
+    });
+    diagnostics.push({
+      text: "Suggested fix: check antivirus, Controlled Folder Access, and any compatibility or 'Run as administrator' settings on eqgame.exe.",
+      tone: "warning"
+    });
+  }
+
+  return diagnostics;
+}
+
 class LauncherBackend {
   constructor({
     appUserDataPath,
@@ -338,7 +506,8 @@ class LauncherBackend {
     executablePath,
     processId,
     relaunchArgs,
-    isPackaged
+    isPackaged,
+    launchStabilizationMs
   }) {
     this.appUserDataPath = appUserDataPath;
     this.projectRoot = projectRoot;
@@ -353,6 +522,7 @@ class LauncherBackend {
     this.processId = processId || process.pid;
     this.relaunchArgs = Array.isArray(relaunchArgs) ? [...relaunchArgs] : [];
     this.isPackaged = Boolean(isPackaged);
+    this.launchStabilizationMs = Number.isFinite(launchStabilizationMs) && launchStabilizationMs >= 0 ? launchStabilizationMs : 500;
     this.appStatePath = path.join(this.appUserDataPath, "launcher-state.yml");
     this.patchNotesCachePath = path.join(this.appUserDataPath, "patch-notes-cache.json");
     this.configPath = path.join(this.projectRoot, "launcher-config.yml");
@@ -1265,6 +1435,9 @@ class LauncherBackend {
     } catch (error) {
       this.setStatus("Launch Error", error.message, error.message);
       this.emitLog(`Launch failed: ${error.message}`, "error");
+      for (const diagnostic of createLaunchDiagnostics(error)) {
+        this.emitLog(diagnostic.text, diagnostic.tone);
+      }
       this.emitState();
     }
 
@@ -1357,27 +1530,38 @@ class LauncherBackend {
     };
 
     try {
-      await this.spawnDetached(eqGamePath, ["patchme"], launchOptions);
+      await this.spawnDetached(eqGamePath, ["patchme"], launchOptions, {
+        waitForExitMs: this.launchStabilizationMs,
+        launchMethod: "direct spawn"
+      });
     } catch (error) {
       if (this.platform !== "win32" || !isLaunchPermissionError(error)) {
         throw error;
       }
 
+      error.launchMethod = error.launchMethod || "direct spawn";
       this.emitLog(`Direct launch was denied (${error.code}). Retrying through cmd.exe...`, "warning");
       await this.spawnDetached(
         process.env.comspec || "cmd.exe",
         ["/d", "/s", "/c", "start", '""', "/d", this.state.gameDirectory, eqGamePath, "patchme"],
-        launchOptions
+        launchOptions,
+        { launchMethod: "cmd.exe start fallback" }
       );
     }
   }
 
-  async spawnDetached(command, args, options) {
+  async spawnDetached(command, args, options, behavior = {}) {
+    const waitForExitMs = Number.isFinite(behavior.waitForExitMs) && behavior.waitForExitMs > 0 ? behavior.waitForExitMs : 0;
+    const launchMethod = typeof behavior.launchMethod === "string" ? behavior.launchMethod : "";
+
     await new Promise((resolve, reject) => {
       let child;
       try {
         child = this.spawnImpl(command, args, options);
       } catch (error) {
+        if (launchMethod && error && !error.launchMethod) {
+          error.launchMethod = launchMethod;
+        }
         reject(error);
         return;
       }
@@ -1391,11 +1575,42 @@ class LauncherBackend {
         callback(value);
       };
 
+      let launchTimer = null;
+      const clearLaunchTimer = () => {
+        if (launchTimer) {
+          clearTimeout(launchTimer);
+          launchTimer = null;
+        }
+      };
+
       child.once("error", (error) => {
+        if (launchMethod && error && !error.launchMethod) {
+          error.launchMethod = launchMethod;
+        }
+        clearLaunchTimer();
         finish(reject, error);
       });
 
+      if (waitForExitMs > 0) {
+        const rejectOnEarlyExit = (code, signal) => {
+          clearLaunchTimer();
+          finish(reject, createImmediateExitError(command, code, signal, launchMethod));
+        };
+
+        child.once("exit", rejectOnEarlyExit);
+        child.once("close", rejectOnEarlyExit);
+      }
+
       child.once("spawn", () => {
+        if (waitForExitMs > 0) {
+          launchTimer = setTimeout(() => {
+            launchTimer = null;
+            child.unref();
+            finish(resolve);
+          }, waitForExitMs);
+          return;
+        }
+
         child.unref();
         finish(resolve);
       });

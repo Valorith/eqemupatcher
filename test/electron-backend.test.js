@@ -748,6 +748,7 @@ test("launchGame falls back to cmd.exe when direct spawn is denied on Windows", 
   const spawnCalls = [];
   const { backend } = await createBackendHarness(t, {
     platform: "win32",
+    launchStabilizationMs: 10,
     spawnImpl: (command, args, options) => {
       spawnCalls.push({ command, args, options });
       const child = new EventEmitter();
@@ -789,6 +790,86 @@ test("launchGame falls back to cmd.exe when direct spawn is denied on Windows", 
   assert.equal(spawnCalls[1].args[6], gameDirectory);
   assert.equal(spawnCalls[1].args[7], path.join(gameDirectory, "eqgame.exe"));
   assert.equal(spawnCalls[1].args[8], "patchme");
+});
+
+test("launchGame reports an immediate exit instead of claiming success", async (t) => {
+  const { backend, events } = await createBackendHarness(t, {
+    platform: "win32",
+    launchStabilizationMs: 10,
+    spawnImpl: () => {
+      const child = new EventEmitter();
+      child.unref = () => {};
+
+      process.nextTick(() => {
+        child.emit("spawn");
+        child.emit("exit", 1, null);
+      });
+
+      return child;
+    }
+  });
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+  backend.state.gameDirectory = gameDirectory;
+  backend.state.clientVersion = "Rain_Of_Fear_2";
+  backend.state.clientLabel = "Rain of Fear 2";
+  backend.state.clientSupported = true;
+
+  const state = await backend.launchGame();
+  const logMessages = events.filter((event) => event.type === "log").map((event) => event.payload.text);
+
+  assert.equal(state.statusBadge, "Launch Error");
+  assert.match(state.statusDetail, /eqgame\.exe exited immediately \(exit code 1 \/ 0x00000001\)\./i);
+  assert(logMessages.includes("Launch method: direct spawn."));
+  assert(logMessages.includes("Startup status: 0x00000001."));
+  assert(logMessages.includes("Suggested fix: run eqgame.exe patchme manually from the EverQuest folder to check for a Windows dialog or missing dependency prompt."));
+});
+
+test("launchGame includes Windows dependency hints for missing DLL startup failures", async (t) => {
+  const missingDllExitCode = 0xC0000135;
+  const { backend, events } = await createBackendHarness(t, {
+    platform: "win32",
+    launchStabilizationMs: 10,
+    spawnImpl: () => {
+      const child = new EventEmitter();
+      child.unref = () => {};
+
+      process.nextTick(() => {
+        child.emit("spawn");
+        child.emit("exit", missingDllExitCode, null);
+      });
+
+      return child;
+    }
+  });
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+  backend.state.gameDirectory = gameDirectory;
+  backend.state.clientVersion = "Rain_Of_Fear_2";
+  backend.state.clientLabel = "Rain of Fear 2";
+  backend.state.clientSupported = true;
+
+  const state = await backend.launchGame();
+  const logMessages = events.filter((event) => event.type === "log").map((event) => event.payload.text);
+
+  assert.equal(state.statusBadge, "Launch Error");
+  assert.match(state.statusDetail, /0xC0000135/i);
+  assert.match(state.statusDetail, /required DLL was missing/i);
+  assert.match(state.statusDetail, /DirectX 9 June 2010 runtime/i);
+  assert(logMessages.includes("Launch method: direct spawn."));
+  assert(logMessages.includes("Startup status: 0xC0000135 (STATUS_DLL_NOT_FOUND)."));
+  assert(logMessages.includes("Assessment: A required DLL was missing during startup."));
+  assert(logMessages.includes("Suggested fix: Install the DirectX 9 June 2010 runtime and the Visual C++ redistributables, then try again."));
 });
 
 test("remains compatible with legacy filelistbuilder manifest output", async (t) => {
