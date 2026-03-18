@@ -459,26 +459,30 @@ async function createRendererHarness(options = {}) {
   };
 }
 
-test("renderer bootstrap loads configured patch notes in the background and shows unread state", async () => {
+test("renderer bootstrap defers patch notes loading until they are needed", async () => {
   const harness = await createRendererHarness({
     initialNotes: createPatchNotesResponse("https://example.invalid/notes.md", "Existing patch note")
   });
 
-  assert.equal(harness.calls.getPatchNotes.length, 1);
-  assert.deepEqual(harness.calls.getPatchNotes[0], { forceRefresh: false });
+  assert.equal(harness.calls.getPatchNotes.length, 0);
   assert.equal(harness.elements.notesTabButton.classList.contains("has-unread"), false);
   assert.equal(harness.elements.patchNotesPromptModal.classList.contains("hidden"), true);
 });
 
-test("renderer first load stores the current patch notes as the baseline read state", async () => {
+test("opening the notes tab loads patch notes and stores the baseline read state", async () => {
   const notes = createPatchNotesResponse("https://example.invalid/notes.md", "Existing patch note");
   const harness = await createRendererHarness({
     initialNotes: notes
   });
 
+  await harness.elements.notesTabButton.dispatch("click");
+  await flushAsyncWork();
+
   const expectedSignature = getPatchNotesSignature(notes.url, notes.contentHash, notes.content);
   const stored = JSON.parse(harness.localStorage.getItem(PATCH_NOTES_READ_STORAGE_KEY));
 
+  assert.equal(harness.calls.getPatchNotes.length, 1);
+  assert.deepEqual(harness.calls.getPatchNotes[0], { forceRefresh: false });
   assert.equal(harness.localStorage.getItem(PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY), "true");
   assert.equal(stored[notes.url], expectedSignature);
 });
@@ -491,6 +495,8 @@ test("patch notes prompt Later dismisses the current unread notice", async () =>
     markInitialized: true
   });
 
+  await harness.elements.refreshButton.dispatch("click");
+  await flushAsyncWork();
   await harness.elements.patchNotesPromptLaterButton.dispatch("click");
   await flushAsyncWork();
   await harness.elements.refreshButton.dispatch("click");
@@ -523,6 +529,8 @@ test("patch notes prompt View opens the patch notes tab", async () => {
     markInitialized: true
   });
 
+  await harness.elements.refreshButton.dispatch("click");
+  await flushAsyncWork();
   await harness.elements.patchNotesPromptViewButton.dispatch("click");
   await flushAsyncWork();
 
@@ -552,7 +560,7 @@ test("refreshing after notes change restores the unread indicator", async () => 
   await flushAsyncWork();
 
   assert.equal(harness.calls.refreshState, 1);
-  assert.equal(harness.calls.checkForLauncherUpdate, 1);
+  assert.equal(harness.calls.checkForLauncherUpdate, 0);
   assert.deepEqual(harness.calls.getPatchNotes.at(-1), { forceRefresh: true });
   assert.equal(harness.elements.notesTabButton.classList.contains("has-unread"), true);
   assert.equal(harness.elements.patchNotesPromptModal.classList.contains("hidden"), false);
@@ -568,6 +576,9 @@ test("launcher update prompt takes priority over the patch notes prompt", async 
     },
     markInitialized: true
   });
+
+  await harness.elements.refreshButton.dispatch("click");
+  await flushAsyncWork();
 
   assert.equal(harness.elements.launcherUpdateModal.classList.contains("hidden"), false);
   assert.equal(harness.elements.patchNotesPromptModal.classList.contains("hidden"), true);

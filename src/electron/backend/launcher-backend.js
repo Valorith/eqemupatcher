@@ -537,6 +537,7 @@ class LauncherBackend {
     this.resolvedConfigPath = this.configPath;
     this.patchNotesCache = createEmptyPatchNotesCache();
     this.patchNotesCacheLoaded = false;
+    this.initializePromise = null;
 
     this.state = {
       platform: this.platform,
@@ -675,6 +676,18 @@ class LauncherBackend {
   }
 
   async initialize() {
+    if (this.initializePromise) {
+      return this.initializePromise;
+    }
+
+    this.initializePromise = this.performInitialize().finally(() => {
+      this.initializePromise = null;
+    });
+
+    return this.initializePromise;
+  }
+
+  async performInitialize() {
     await this.loadConfig();
     await this.loadAppState();
     await this.useLaunchDirectory();
@@ -684,7 +697,20 @@ class LauncherBackend {
     await this.launcherUpdater.initialize({
       releaseApiUrl: this.config.launcherReleaseApiUrl
     });
-    const state = await this.refreshState({ performAutoActions: true });
+
+    const state = await this.refreshState({
+      performAutoActions: false,
+      skipManifestFetch: true
+    });
+
+    if (state.gameDirectory && state.clientVersion !== "Unknown" && state.clientSupported) {
+      this.refreshState({ performAutoActions: true }).catch((error) => {
+        this.setStatus("Manifest Error", error.message, error.message);
+        this.emitLog(`Manifest fetch failed: ${error.message}`, "error");
+        this.emitState();
+      });
+    }
+
     this.checkForLauncherUpdate({ force: true }).catch((error) => {
       this.emitLog(`Launcher update check failed: ${error.message}`, "error");
     });
@@ -1055,7 +1081,7 @@ class LauncherBackend {
   }
 
   async refreshState(options = {}) {
-    const { performAutoActions = false } = options;
+    const { performAutoActions = false, skipManifestFetch = false } = options;
 
     this.state.eqGamePath = this.getEqGamePath();
     this.state.heroImageUrl = this.getHeroImageUrl(this.state.clientVersion);
@@ -1115,6 +1141,15 @@ class LauncherBackend {
       this.state.patchActionLabel = "Unsupported Build";
       this.state.canLaunch = false;
       this.setStatus("Unsupported", `${this.state.serverName} does not publish patches for ${this.state.clientLabel}.`);
+      this.emitState();
+      return this.getState();
+    }
+
+    if (skipManifestFetch) {
+      this.state.patchActionLabel = "Verify Integrity";
+      this.state.launchActionLabel = "Launch Game";
+      this.state.progressLabel = "Checking patch state";
+      this.setStatus("Checking", "Checking the current patch state.");
       this.emitState();
       return this.getState();
     }

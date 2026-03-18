@@ -419,8 +419,21 @@ function syncPatchNotesSourceState() {
   if (!configuredUrl) {
     if (state.patchNotes.loaded || state.patchNotes.loading || state.patchNotes.loadedUrl || state.patchNotes.html || state.patchNotes.error) {
       resetPatchNotesState();
+      if (state.activeTab === "notes") {
+        renderPatchNotes();
+      }
+    }
+    return;
+  }
+
+  if (state.patchNotes.loadedUrl && state.patchNotes.loadedUrl !== configuredUrl) {
+    resetPatchNotesState();
+    if (state.activeTab === "notes") {
       renderPatchNotes();
     }
+  }
+
+  if (state.activeTab !== "notes") {
     return;
   }
 
@@ -1092,8 +1105,7 @@ function wireEvents() {
     try {
       const [nextState] = await Promise.all([
         window.launcher.refreshState(),
-        loadPatchNotes(true),
-        window.launcher.checkForLauncherUpdate({ force: true })
+        loadPatchNotes(true)
       ]);
       renderState(nextState);
     } finally {

@@ -240,6 +240,74 @@ test("refreshState recognizes a configured supported client and manifest status"
   assert.equal(state.statusBadge, "Update Ready");
 });
 
+test("initialize returns local state before the manifest refresh completes", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  let releaseManifestRequest = null;
+  const manifestRequestGate = new Promise((resolve) => {
+    releaseManifestRequest = resolve;
+  });
+  const { backend, projectRoot, events } = await createBackendHarness(t, {
+    platform: "win32",
+    launchDirectory,
+    fetchImpl: async (url) => {
+      if (url.endsWith("/rof/filelist_rof.yml")) {
+        await manifestRequestGate;
+        return {
+          ok: true,
+          status: 200,
+          async text() {
+            return "version: 7\ndownloadprefix: http://127.0.0.1:1/files/\ndownloads: []\n";
+          }
+        };
+      }
+
+      throw new Error(`Unexpected fetch: ${url}`);
+    }
+  });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\nsupportedClients:\n  - Rain_Of_Fear\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(launchDirectory, "eqgame.exe"), "dummy", "utf8");
+
+  backend.detectClientVersion = async () => ({
+    found: true,
+    hash: "KNOWN",
+    version: "Rain_Of_Fear"
+  });
+  backend.checkForLauncherUpdate = async () => backend.getState();
+
+  const state = await Promise.race([
+    backend.initialize(),
+    new Promise((_, reject) => setTimeout(() => reject(new Error("initialize timed out")), 150))
+  ]);
+
+  assert.equal(state.gameDirectory, launchDirectory);
+  assert.equal(state.manifestVersion, "");
+  assert.equal(state.canPatch, false);
+  assert.equal(state.canLaunch, false);
+  assert.equal(state.statusBadge, "Checking");
+
+  releaseManifestRequest();
+  const deadline = Date.now() + 200;
+  while (Date.now() < deadline) {
+    if (events.some((event) => event.type === "state" && event.payload.manifestVersion === "7")) {
+      break;
+    }
+    await new Promise((resolve) => setImmediate(resolve));
+  }
+
+  const stateEvents = events.filter((event) => event.type === "state").map((event) => event.payload);
+  assert.ok(stateEvents.some((payload) => payload.statusBadge === "Checking"));
+  assert.ok(stateEvents.some((payload) => payload.manifestVersion === "7"));
+});
+
 test("detectClientVersion matches the Rain_Of_Fear_2_4GB hash", async (t) => {
   const { backend } = await createBackendHarness(t);
   const gameDirectory = await createTempDir("eqemu-game-");

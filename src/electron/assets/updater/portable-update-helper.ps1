@@ -110,6 +110,152 @@ function Remove-PathIfPresent {
   }
 }
 
+function Format-WindowsArgument {
+  param([string]$Value)
+
+  if ($null -eq $Value) {
+    return '""'
+  }
+
+  if ($Value -eq "") {
+    return '""'
+  }
+
+  if ($Value -notmatch '[\s"]') {
+    return $Value
+  }
+
+  $builder = New-Object System.Text.StringBuilder
+  [void]$builder.Append('"')
+  $backslashCount = 0
+
+  foreach ($character in $Value.ToCharArray()) {
+    if ($character -eq '\') {
+      $backslashCount += 1
+      continue
+    }
+
+    if ($character -eq '"') {
+      [void]$builder.Append(('\' * (($backslashCount * 2) + 1)))
+      [void]$builder.Append('"')
+      $backslashCount = 0
+      continue
+    }
+
+    if ($backslashCount -gt 0) {
+      [void]$builder.Append(('\' * $backslashCount))
+      $backslashCount = 0
+    }
+
+    [void]$builder.Append($character)
+  }
+
+  if ($backslashCount -gt 0) {
+    [void]$builder.Append(('\' * ($backslashCount * 2)))
+  }
+
+  [void]$builder.Append('"')
+  return $builder.ToString()
+}
+
+function Join-WindowsArguments {
+  param([string[]]$ArgumentList = @())
+
+  if (-not $ArgumentList -or $ArgumentList.Count -eq 0) {
+    return ""
+  }
+
+  return (($ArgumentList | ForEach-Object { Format-WindowsArgument -Value $_ }) -join " ")
+}
+
+function Start-LauncherViaProcessApi {
+  param(
+    [string]$ExecutablePath,
+    [string[]]$ArgumentList = @(),
+    [string]$WorkingDirectory,
+    [bool]$UseShellExecute
+  )
+
+  $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+  $startInfo.FileName = $ExecutablePath
+  $startInfo.WorkingDirectory = $WorkingDirectory
+  $startInfo.UseShellExecute = $UseShellExecute
+  $startInfo.Arguments = Join-WindowsArguments -ArgumentList $ArgumentList
+
+  return [System.Diagnostics.Process]::Start($startInfo)
+}
+
+function Invoke-LauncherStartStrategy {
+  param(
+    [string]$StrategyName,
+    [string]$ExecutablePath,
+    [string[]]$ArgumentList = @(),
+    [string]$WorkingDirectory
+  )
+
+  switch ($StrategyName) {
+    "start-process" {
+      if ($ArgumentList.Count -gt 0) {
+        $quotedArguments = Join-WindowsArguments -ArgumentList $ArgumentList
+        return Start-Process -FilePath $ExecutablePath -ArgumentList $quotedArguments -WorkingDirectory $WorkingDirectory -PassThru
+      }
+
+      return Start-Process -FilePath $ExecutablePath -WorkingDirectory $WorkingDirectory -PassThru
+    }
+    "process-api" {
+      return Start-LauncherViaProcessApi -ExecutablePath $ExecutablePath -ArgumentList $ArgumentList -WorkingDirectory $WorkingDirectory -UseShellExecute:$false
+    }
+    "shell-execute" {
+      return Start-LauncherViaProcessApi -ExecutablePath $ExecutablePath -ArgumentList $ArgumentList -WorkingDirectory $WorkingDirectory -UseShellExecute:$true
+    }
+    default {
+      throw "Unknown launcher start strategy: $StrategyName"
+    }
+  }
+}
+
+function Start-LauncherWithRetry {
+  param(
+    [string]$ExecutablePath,
+    [string[]]$ArgumentList = @(),
+    [int]$Attempts = 20,
+    [int]$DelayMilliseconds = 750,
+    [int]$StabilityDelayMilliseconds = 1500
+  )
+
+  $workingDirectory = Split-Path -Parent $ExecutablePath
+  $lastError = $null
+  $strategies = @("start-process", "process-api", "shell-execute")
+
+  for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+    foreach ($strategy in $strategies) {
+      try {
+        $process = Invoke-LauncherStartStrategy -StrategyName $strategy -ExecutablePath $ExecutablePath -ArgumentList $ArgumentList -WorkingDirectory $workingDirectory
+        if (-not $process) {
+          throw "Launcher process did not return a process handle."
+        }
+
+        Start-Sleep -Milliseconds $StabilityDelayMilliseconds
+        if ($process.HasExited) {
+          throw "Launcher process exited immediately with code $($process.ExitCode)."
+        }
+
+        Write-Log "Launcher relaunch succeeded on attempt $attempt via $strategy (pid=$($process.Id))."
+        return
+      } catch {
+        $lastError = "${strategy}: $($_.Exception.Message)"
+        Write-Log "Launcher relaunch attempt $attempt via $strategy failed: $($_.Exception.Message)"
+      }
+    }
+
+    if ($attempt -lt $Attempts) {
+      Start-Sleep -Milliseconds $DelayMilliseconds
+    }
+  }
+
+  throw "Unable to relaunch the updated launcher after $Attempts attempts. Last error: $lastError"
+}
+
 try {
   Write-Log "Portable updater helper started."
   Wait-ForParentExit -ProcessId $ParentPid
@@ -142,11 +288,7 @@ try {
   }
 
   Write-Log "Relaunching updated launcher."
-  if ($relaunchArgs.Count -gt 0) {
-    Start-Process -FilePath $TargetExe -ArgumentList $relaunchArgs -WorkingDirectory (Split-Path -Parent $TargetExe) | Out-Null
-  } else {
-    Start-Process -FilePath $TargetExe -WorkingDirectory (Split-Path -Parent $TargetExe) | Out-Null
-  }
+  Start-LauncherWithRetry -ExecutablePath $TargetExe -ArgumentList $relaunchArgs
 
   Remove-PathIfPresent -Path $BackupExe
   $stagedDirectory = Split-Path -Parent $StagedExe
