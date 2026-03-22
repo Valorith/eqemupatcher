@@ -296,7 +296,7 @@ function createLauncherState(patchNotesUrl, options = {}) {
     canLaunch: false,
     autoPatch: false,
     autoPlay: false,
-    gameDirectory: "",
+    gameDirectory: options.gameDirectory || "",
     reportUrl: "",
     progressValue: 0,
     progressMax: 1,
@@ -316,6 +316,104 @@ function createPatchNotesResponse(url, content) {
     error: "",
     fetchedAt: "2026-03-14T00:00:00.000Z",
     contentHash: sha256(content)
+  };
+}
+
+function createUiManagerOverviewResponse() {
+  return {
+    gameDirectory: "C:\\EQ",
+    uiFilesDirectory: "C:\\EQ\\uifiles",
+    canManage: true,
+    packages: [
+      {
+        name: "FancyUI",
+        path: "C:\\EQ\\uifiles\\FancyUI",
+        protected: false,
+        prepared: true,
+        optionCount: 2,
+        rootXmlCount: 3
+      }
+    ],
+    targets: [
+      {
+        path: "C:\\EQ\\UI_Test_CW.ini",
+        fileName: "UI_Test_CW.ini",
+        characterName: "Test",
+        serverName: "CW",
+        uiSkin: "Default"
+      }
+    ]
+  };
+}
+
+function createUiManagerDetailResponse() {
+  return {
+    name: "FancyUI",
+    path: "C:\\EQ\\uifiles\\FancyUI",
+    protected: false,
+    prepared: true,
+    rootFiles: ["EQUI_Inventory.xml", "bar.tga"],
+    bundles: [
+      {
+        optionPath: "Options/Default",
+        label: "Default",
+        categoryPath: "",
+        isDefault: true,
+        xmlFiles: ["EQUI_Inventory.xml"],
+        tgaFiles: [],
+        previewImageUrl: "",
+        instructions: "",
+        activeState: "inactive"
+      },
+      {
+        optionPath: "Options/Alt/Blue",
+        label: "Blue",
+        categoryPath: "Alt",
+        isDefault: false,
+        xmlFiles: ["EQUI_Inventory.xml"],
+        tgaFiles: ["bar.tga"],
+        previewImageUrl: "file:///preview.png",
+        instructions: "",
+        activeState: "active"
+      },
+      {
+        optionPath: "Options/Alt/Red",
+        label: "Red",
+        categoryPath: "Alt",
+        isDefault: false,
+        xmlFiles: ["EQUI_Inventory.xml"],
+        tgaFiles: [],
+        previewImageUrl: "",
+        instructions: "",
+        activeState: "inactive"
+      }
+    ],
+    backups: [
+      {
+        id: "2026-03-21-restore",
+        packageName: "FancyUI",
+        reason: "reset",
+        createdAt: "2026-03-21T12:00:00.000Z",
+        sizeBytes: 8192,
+        hasSnapshot: true,
+        iniFiles: []
+      },
+      {
+        id: "2026-03-20-set-uiskin",
+        packageName: "FancyUI",
+        reason: "set-uiskin",
+        createdAt: "2026-03-20T12:00:00.000Z",
+        sizeBytes: 1024,
+        hasSnapshot: false,
+        iniFiles: [{ originalPath: "C:\\EQ\\UI_Test_CW.ini", backupFile: "01__UI_Test_CW.ini" }]
+      }
+    ],
+    backupSummary: {
+      backupCount: 2,
+      totalSizeBytes: 9216,
+      maxBackupCount: 20,
+      maxTotalSizeBytes: 536870912
+    }
   };
 }
 
@@ -341,8 +439,20 @@ async function createRendererHarness(options = {}) {
     getPatchNotes: [],
     refreshState: 0,
     checkForLauncherUpdate: 0,
-    openExternal: []
+    openExternal: [],
+    getUiManagerOverview: 0,
+    getUiPackageDetails: [],
+    prepareUiPackage: [],
+    checkUiPackageMetadata: [],
+    validateUiPackageOptionComments: [],
+    activateUiOption: [],
+    setUiSkinTargets: [],
+    resetUiPackage: [],
+    restoreUiManagerBackup: [],
+    importUiPackageFolder: []
   };
+  let uiManagerOverview = options.uiManagerOverview || createUiManagerOverviewResponse();
+  let uiManagerDetail = options.uiManagerDetail || createUiManagerDetailResponse();
 
   const launcherState = createLauncherState(options.includePatchNotesUrl === false ? "" : patchNotesUrl, options);
   const launcher = {
@@ -397,6 +507,81 @@ async function createRendererHarness(options = {}) {
     async openGameDirectory() {
       return { ok: false, path: "", error: "No game directory is currently selected." };
     },
+    async getUiManagerOverview() {
+      calls.getUiManagerOverview += 1;
+      return uiManagerOverview;
+    },
+    async openUiManagerImportDialog() {
+      return {
+        canceled: true,
+        sourcePath: ""
+      };
+    },
+    async importUiPackageFolder(sourcePath) {
+      calls.importUiPackageFolder.push(sourcePath);
+      return {
+        overview: uiManagerOverview,
+        details: uiManagerDetail
+      };
+    },
+    async prepareUiPackage(packageName) {
+      calls.prepareUiPackage.push(packageName);
+      return {
+        details: uiManagerDetail
+      };
+    },
+    async checkUiPackageMetadata(packageName) {
+      calls.checkUiPackageMetadata.push(packageName);
+      return {
+        packageName,
+        status: "healthy",
+        scannedCount: 2,
+        invalidCount: 0,
+        healthy: true
+      };
+    },
+    async validateUiPackageOptionComments(packageName) {
+      calls.validateUiPackageOptionComments.push(packageName);
+      return {
+        details: uiManagerDetail,
+        summary: {
+          scannedCount: 2,
+          correctedCount: 1
+        }
+      };
+    },
+    async getUiPackageDetails(packageName) {
+      calls.getUiPackageDetails.push(packageName);
+      return uiManagerDetail;
+    },
+    async activateUiOption(requestOptions) {
+      calls.activateUiOption.push(requestOptions);
+      return {
+        details: uiManagerDetail
+      };
+    },
+    async setUiSkinTargets(requestOptions) {
+      calls.setUiSkinTargets.push(requestOptions);
+      return {
+        targets: uiManagerOverview.targets
+      };
+    },
+    async resetUiPackage(packageName) {
+      calls.resetUiPackage.push(packageName);
+      return {
+        details: uiManagerDetail
+      };
+    },
+    async listUiManagerBackups() {
+      return uiManagerDetail.backups;
+    },
+    async restoreUiManagerBackup(requestOptions) {
+      calls.restoreUiManagerBackup.push(requestOptions);
+      return {
+        details: uiManagerDetail,
+        targets: uiManagerOverview.targets
+      };
+    },
     onEvent() {
       return () => {};
     }
@@ -428,6 +613,8 @@ async function createRendererHarness(options = {}) {
   document.getElementById("unsupportedClientModal").classList.add("hidden");
   document.getElementById("launcherUpdateModal").classList.add("hidden");
   document.getElementById("patchNotesPromptModal").classList.add("hidden");
+  document.getElementById("uiManagerModal").classList.add("hidden");
+  document.getElementById("uiManagerConfirmModal").classList.add("hidden");
   document.getElementById("toolsMenu").classList.add("hidden");
   document.getElementById("launcherUpdatePanel").classList.add("hidden");
 
@@ -445,6 +632,25 @@ async function createRendererHarness(options = {}) {
       patchTabButton: document.getElementById("patchTabButton"),
       refreshButton: document.getElementById("refreshButton"),
       notesContent: document.getElementById("notesContent"),
+      uiManagerTabButton: document.getElementById("uiManagerTabButton"),
+      openUiManagerButton: document.getElementById("openUiManagerButton"),
+      uiManagerModal: document.getElementById("uiManagerModal"),
+      uiManagerPackageCount: document.getElementById("uiManagerPackageCount"),
+      uiManagerPreviewName: document.getElementById("uiManagerPreviewName"),
+      uiManagerPackageList: document.getElementById("uiManagerPackageList"),
+      uiManagerRecoveryButton: document.getElementById("uiManagerRecoveryButton"),
+      uiManagerRecoveryStats: document.getElementById("uiManagerRecoveryStats"),
+      uiManagerBackupList: document.getElementById("uiManagerBackupList"),
+      uiManagerOptionList: document.getElementById("uiManagerOptionList"),
+      uiManagerApplyOptionButton: document.getElementById("uiManagerApplyOptionButton"),
+      uiManagerStageTabs: document.getElementById("uiManagerStageTabs"),
+      uiManagerResetButton: document.getElementById("uiManagerResetButton"),
+      uiManagerTargetServerFilter: document.getElementById("uiManagerTargetServerFilter"),
+      uiManagerTargetList: document.getElementById("uiManagerTargetList"),
+      uiManagerStagePackagesButton: document.getElementById("uiManagerStagePackagesButton"),
+      uiManagerConfirmModal: document.getElementById("uiManagerConfirmModal"),
+      uiManagerConfirmAcceptButton: document.getElementById("uiManagerConfirmAcceptButton"),
+      uiManagerNotice: document.getElementById("uiManagerNotice"),
       patchNotesPromptModal: document.getElementById("patchNotesPromptModal"),
       patchNotesPromptLaterButton: document.getElementById("patchNotesPromptLaterButton"),
       patchNotesPromptViewButton: document.getElementById("patchNotesPromptViewButton"),
@@ -455,6 +661,12 @@ async function createRendererHarness(options = {}) {
     localStorage,
     setRefreshedNotes(value) {
       refreshedNotes = value;
+    },
+    setUiManagerOverview(value) {
+      uiManagerOverview = value;
+    },
+    setUiManagerDetail(value) {
+      uiManagerDetail = value;
     }
   };
 }
@@ -644,4 +856,580 @@ test("renderer bootstrap skips patch notes loading when no source is configured"
 
   assert.equal(harness.calls.getPatchNotes.length, 0);
   assert.equal(harness.elements.notesTabButton.classList.contains("has-unread"), false);
+});
+
+test("opening the UI Manager tab loads package overview lazily", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ"
+  });
+
+  assert.equal(harness.calls.getUiManagerOverview, 0);
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.calls.getUiManagerOverview, 1);
+  assert.equal(harness.elements.uiManagerPackageCount.textContent, "1");
+  assert.match(harness.elements.uiManagerPreviewName.textContent, /FancyUI/);
+});
+
+test("opening the UI Manager modal shows the workspace", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ"
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.elements.uiManagerModal.classList.contains("hidden"), false);
+});
+
+test("Stage 1 server filter narrows visible character cards by server name", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    uiManagerOverview: {
+      ...createUiManagerOverviewResponse(),
+      targets: [
+        {
+          path: "C:\\EQ\\UI_One_CW.ini",
+          fileName: "UI_One_CW.ini",
+          characterName: "One",
+          serverName: "CW",
+          uiSkin: "Default"
+        },
+        {
+          path: "C:\\EQ\\UI_Two_CW.ini",
+          fileName: "UI_Two_CW.ini",
+          characterName: "Two",
+          serverName: "CW",
+          uiSkin: "FancyUI"
+        },
+        {
+          path: "C:\\EQ\\UI_Three_PEQ.ini",
+          fileName: "UI_Three_PEQ.ini",
+          characterName: "Three",
+          serverName: "PEQ",
+          uiSkin: "Default"
+        }
+      ]
+    }
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+
+  harness.elements.uiManagerTargetServerFilter.value = "CW";
+  await harness.elements.uiManagerTargetServerFilter.dispatch("change", {
+    target: harness.elements.uiManagerTargetServerFilter
+  });
+  await flushAsyncWork();
+
+  assert.equal(harness.elements.uiManagerTargetList.children.length, 2);
+  assert.match(collectTextContent(harness.elements.uiManagerTargetList.children[0]), /CW/);
+  assert.match(collectTextContent(harness.elements.uiManagerTargetList.children[1]), /CW/);
+});
+
+test("recovery view shows backup retention summary and per-backup storage metadata", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ"
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.uiManagerRecoveryButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.match(collectTextContent(harness.elements.uiManagerRecoveryStats), /2 of 20 kept/);
+  assert.match(collectTextContent(harness.elements.uiManagerRecoveryStats), /9 KB used/);
+  assert.match(collectTextContent(harness.elements.uiManagerRecoveryStats), /Auto-trim at 512\.0 MB/);
+  assert.match(collectTextContent(harness.elements.uiManagerBackupList), /Full snapshot/);
+  assert.match(collectTextContent(harness.elements.uiManagerBackupList), /INI-only/);
+});
+
+test("an unprepared package stays blocked from Stage 3 until prepared from Stage 2", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    uiManagerOverview: {
+      ...createUiManagerOverviewResponse(),
+      packages: [
+        {
+          name: "FancyUI",
+          path: "C:\\EQ\\uifiles\\FancyUI",
+          protected: false,
+          prepared: false,
+          optionCount: 2,
+          rootXmlCount: 3
+        }
+      ]
+    },
+    uiManagerDetail: {
+      ...createUiManagerDetailResponse(),
+      prepared: false
+    }
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.uiManagerStagePackagesButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.uiManagerPackageList.dispatch("click", {
+    target: {
+      closest(selector) {
+        return selector === "button[data-package-name]" ? harness.elements.uiManagerPackageList.children[0] : null;
+      }
+    }
+  });
+  await flushAsyncWork();
+
+  assert.equal(harness.document.getElementById("uiManagerStageComponentsButton").getAttribute("aria-disabled"), "true");
+
+  const prepareButton = {
+    dataset: {
+      uiManagerPackageAction: "prepare"
+    },
+    closest(selector) {
+      return selector === "button[data-ui-manager-package-action]" ? this : null;
+    }
+  };
+  await harness.document.getElementById("uiManagerPackageDetail").dispatch("click", {
+    target: prepareButton
+  });
+  await flushAsyncWork();
+  await harness.elements.uiManagerConfirmAcceptButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.prepareUiPackage, ["FancyUI"]);
+});
+
+test("opening Stage 2 automatically runs the UI Meta Data health check for prepared custom packages", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ"
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+  harness.elements.uiManagerStagePackagesButton.dataset.uiManagerStage = "packages";
+  await harness.elements.uiManagerStageTabs.dispatch("click", {
+    target: {
+      closest(selector) {
+        return selector === "button[data-ui-manager-stage]" ? harness.elements.uiManagerStagePackagesButton : null;
+      }
+    }
+  });
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.checkUiPackageMetadata, ["FancyUI"]);
+});
+
+test("Stage 2 package cards use a tooltip on the health check instead of a visible UI Meta Data label", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ"
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.uiManagerStagePackagesButton.dispatch("click");
+  await flushAsyncWork();
+
+  const firstPackageCard = harness.elements.uiManagerPackageList.children[0];
+  const healthRow = firstPackageCard.children[1];
+  const healthCopy = healthRow.children[0];
+  const healthCheck = healthRow.children[1];
+
+  assert.doesNotMatch(collectTextContent(healthCopy), /UI Meta Data/);
+  assert.match(collectTextContent(healthCopy), /checked|Healthy|Pending|Checking/i);
+  assert.match(healthCheck.getAttribute("title") || "", /UI Meta Data health/i);
+});
+
+test("confirming Apply Option sends the selected package, option, and targets to the backend", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    uiManagerOverview: {
+      ...createUiManagerOverviewResponse(),
+      targets: [
+        {
+          path: "C:\\EQ\\UI_Test_CW.ini",
+          fileName: "UI_Test_CW.ini",
+          characterName: "Test",
+          serverName: "CW",
+          uiSkin: "FancyUI"
+        }
+      ]
+    }
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+
+  const targetInput = harness.elements.uiManagerTargetList.children[0].children[0];
+  targetInput.checked = true;
+  await harness.elements.uiManagerTargetList.dispatch("change", {
+    target: targetInput
+  });
+  await flushAsyncWork();
+
+  const redOptionCard = harness.elements.uiManagerOptionList.children[2];
+  const redOptionCheckbox = redOptionCard.children[0].children[2].children[0];
+  redOptionCheckbox.checked = true;
+  redOptionCheckbox.closest = (selector) => selector === "input[data-option-toggle='true']" ? redOptionCheckbox : null;
+  await harness.elements.uiManagerOptionList.dispatch("change", {
+    target: redOptionCheckbox
+  });
+  await flushAsyncWork();
+
+  await harness.elements.uiManagerApplyOptionButton.dispatch("click");
+  await flushAsyncWork();
+  assert.equal(harness.elements.uiManagerConfirmModal.classList.contains("hidden"), false);
+
+  await harness.elements.uiManagerConfirmAcceptButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.calls.activateUiOption.length, 1);
+  assert.equal(harness.calls.activateUiOption[0].packageName, "FancyUI");
+  assert.equal(harness.calls.activateUiOption[0].optionPath, "Options/Alt/Red");
+  assert.deepEqual(Array.from(harness.calls.activateUiOption[0].iniPaths), ["C:\\EQ\\UI_Test_CW.ini"]);
+});
+
+test("apply confirmation omits UISkin copy when the selected targets already use that package", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    uiManagerOverview: {
+      ...createUiManagerOverviewResponse(),
+      targets: [
+        {
+          path: "C:\\EQ\\UI_Test_CW.ini",
+          fileName: "UI_Test_CW.ini",
+          characterName: "Test",
+          serverName: "CW",
+          uiSkin: "FancyUI"
+        }
+      ]
+    }
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+
+  const redOptionCard = harness.elements.uiManagerOptionList.children[2];
+  const redOptionCheckbox = redOptionCard.children[0].children[2].children[0];
+  redOptionCheckbox.checked = true;
+  redOptionCheckbox.closest = (selector) => selector === "input[data-option-toggle='true']" ? redOptionCheckbox : null;
+  await harness.elements.uiManagerOptionList.dispatch("change", {
+    target: redOptionCheckbox
+  });
+  await flushAsyncWork();
+
+  await harness.elements.uiManagerApplyOptionButton.dispatch("click");
+  await flushAsyncWork();
+
+  const confirmMessage = harness.document.getElementById("uiManagerConfirmMessage").textContent;
+  assert.match(confirmMessage, /Apply 1 component change/);
+  assert.doesNotMatch(confirmMessage, /UISkin=FancyUI/);
+});
+
+test("clicking a competing UI component variant only updates the review selection", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ"
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+
+  const redOptionCard = harness.elements.uiManagerOptionList.children[2];
+  redOptionCard.closest = (selector) => selector === "[data-option-path]" ? redOptionCard : null;
+  await harness.elements.uiManagerOptionList.dispatch("click", {
+    target: redOptionCard
+  });
+  await flushAsyncWork();
+
+  await harness.elements.uiManagerApplyOptionButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.elements.uiManagerConfirmModal.classList.contains("hidden"), true);
+  assert.equal(harness.calls.activateUiOption.length, 0);
+  assert.equal(harness.elements.uiManagerOptionList.children[2].classList.contains("is-selected"), true);
+});
+
+test("checking a competing UI component variant replaces the flagged bundle for apply", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ"
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+
+  const redOptionCard = harness.elements.uiManagerOptionList.children[2];
+  const redOptionCheckbox = redOptionCard.children[0].children[2].children[0];
+  redOptionCheckbox.checked = true;
+  redOptionCheckbox.closest = (selector) => selector === "input[data-option-toggle='true']" ? redOptionCheckbox : null;
+  await harness.elements.uiManagerOptionList.dispatch("change", {
+    target: redOptionCheckbox
+  });
+  await flushAsyncWork();
+
+  await harness.elements.uiManagerApplyOptionButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.uiManagerConfirmAcceptButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.calls.activateUiOption.length, 1);
+  assert.equal(harness.calls.activateUiOption[0].optionPath, "Options/Alt/Red");
+});
+
+test("pending component changes are cleared when a UISkin/package switch becomes the pending action", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    uiManagerOverview: {
+      ...createUiManagerOverviewResponse(),
+      targets: [
+        {
+          path: "C:\\EQ\\UI_Test_CW.ini",
+          fileName: "UI_Test_CW.ini",
+          characterName: "Test",
+          serverName: "CW",
+          uiSkin: "FancyUI"
+        },
+        {
+          path: "C:\\EQ\\UI_Alt_CW.ini",
+          fileName: "UI_Alt_CW.ini",
+          characterName: "Alt",
+          serverName: "CW",
+          uiSkin: "OtherUI"
+        }
+      ]
+    }
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+
+  const redOptionCard = harness.elements.uiManagerOptionList.children[2];
+  const redOptionCheckbox = redOptionCard.children[0].children[2].children[0];
+  redOptionCheckbox.checked = true;
+  redOptionCheckbox.closest = (selector) => selector === "input[data-option-toggle='true']" ? redOptionCheckbox : null;
+  await harness.elements.uiManagerOptionList.dispatch("change", {
+    target: redOptionCheckbox
+  });
+  await flushAsyncWork();
+
+  const secondTargetCheckbox = harness.elements.uiManagerTargetList.children[1].children[0];
+  secondTargetCheckbox.checked = true;
+  await harness.elements.uiManagerTargetList.dispatch("change", {
+    target: secondTargetCheckbox
+  });
+  await flushAsyncWork();
+
+  const confirmStageButton = harness.document.getElementById("uiManagerStageConfirmButton");
+  confirmStageButton.dataset.uiManagerStage = "confirm";
+  await harness.elements.uiManagerStageTabs.dispatch("click", {
+    target: {
+      closest(selector) {
+        return selector === "button[data-ui-manager-stage]" ? confirmStageButton : null;
+      }
+    }
+  });
+  await flushAsyncWork();
+
+  assert.equal(harness.elements.uiManagerApplyOptionButton.disabled, false);
+});
+
+test("apply handles pure UISkin/package changes without component diffs", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    uiManagerOverview: {
+      ...createUiManagerOverviewResponse(),
+      targets: [
+        {
+          path: "C:\\EQ\\UI_Test_CW.ini",
+          fileName: "UI_Test_CW.ini",
+          characterName: "Test",
+          serverName: "CW",
+          uiSkin: "OtherUI"
+        }
+      ]
+    }
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+
+  const targetInput = harness.elements.uiManagerTargetList.children[0].children[0];
+  targetInput.checked = true;
+  await harness.elements.uiManagerTargetList.dispatch("change", {
+    target: targetInput
+  });
+  await flushAsyncWork();
+
+  const confirmStageButton = harness.document.getElementById("uiManagerStageConfirmButton");
+  confirmStageButton.dataset.uiManagerStage = "confirm";
+  await harness.elements.uiManagerStageTabs.dispatch("click", {
+    target: {
+      closest(selector) {
+        return selector === "button[data-ui-manager-stage]" ? confirmStageButton : null;
+      }
+    }
+  });
+  await flushAsyncWork();
+
+  await harness.elements.uiManagerApplyOptionButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.uiManagerConfirmAcceptButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(
+    JSON.stringify(harness.calls.setUiSkinTargets),
+    JSON.stringify([
+      {
+        packageName: "FancyUI",
+        iniPaths: ["C:\\EQ\\UI_Test_CW.ini"]
+      }
+    ])
+  );
+  assert.equal(harness.calls.activateUiOption.length, 0);
+});
+
+test("switching UI packages with pending component changes requires confirmation", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    uiManagerOverview: {
+      ...createUiManagerOverviewResponse(),
+      packages: [
+        {
+          name: "FancyUI",
+          path: "C:\\EQ\\uifiles\\FancyUI",
+          protected: false,
+          prepared: true,
+          optionCount: 2,
+          rootXmlCount: 3
+        },
+        {
+          name: "OtherUI",
+          path: "C:\\EQ\\uifiles\\OtherUI",
+          protected: false,
+          prepared: true,
+          optionCount: 1,
+          rootXmlCount: 2
+        }
+      ],
+      targets: [
+        {
+          path: "C:\\EQ\\UI_Test_CW.ini",
+          fileName: "UI_Test_CW.ini",
+          characterName: "Test",
+          serverName: "CW",
+          uiSkin: "FancyUI"
+        }
+      ]
+    }
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+
+  const redOptionCard = harness.elements.uiManagerOptionList.children[2];
+  const redOptionCheckbox = redOptionCard.children[0].children[2].children[0];
+  redOptionCheckbox.checked = true;
+  redOptionCheckbox.closest = (selector) => selector === "input[data-option-toggle='true']" ? redOptionCheckbox : null;
+  await harness.elements.uiManagerOptionList.dispatch("change", {
+    target: redOptionCheckbox
+  });
+  await flushAsyncWork();
+
+  const otherPackageCard = harness.elements.uiManagerPackageList.children[1];
+  otherPackageCard.dataset.packageName = "OtherUI";
+  await harness.elements.uiManagerPackageList.dispatch("click", {
+    target: {
+      closest(selector) {
+        return selector === "button[data-package-name]" ? otherPackageCard : null;
+      }
+    }
+  });
+  await flushAsyncWork();
+
+  assert.equal(harness.elements.uiManagerConfirmModal.classList.contains("hidden"), false);
+  assert.match(harness.document.getElementById("uiManagerConfirmMessage").textContent, /pending component changes.*will be lost/i);
+
+  await harness.elements.uiManagerConfirmAcceptButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.calls.getUiPackageDetails.at(-1), "OtherUI");
+});
+
+test("confirming Reset UI routes through the reset backend action", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ"
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.uiManagerResetButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.uiManagerConfirmAcceptButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.resetUiPackage, ["FancyUI"]);
+});
+
+test("validating UI Meta Data routes through the backend package action", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ"
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.uiManagerStagePackagesButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.uiManagerPackageList.dispatch("contextmenu", {
+    clientX: 120,
+    clientY: 180,
+    target: {
+      closest(selector) {
+        return selector === "button[data-package-name]" ? harness.elements.uiManagerPackageList.children[0] : null;
+      }
+    },
+    preventDefault() {}
+  });
+  await flushAsyncWork();
+  const validateAction = harness.document.getElementById("uiManagerPackageValidateAction");
+  validateAction.dataset.uiManagerPackageContextAction = "validate-comments";
+  await harness.document.getElementById("uiManagerPackageContextMenu").dispatch("click", {
+    target: {
+      closest(selector) {
+        return selector === "button[data-ui-manager-package-context-action]" ? validateAction : null;
+      }
+    }
+  });
+  await harness.elements.uiManagerConfirmAcceptButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.validateUiPackageOptionComments, ["FancyUI"]);
+  assert.match(harness.elements.uiManagerNotice.textContent, /Validated UI Meta Data for 2 option XML file\(s\); corrected 1\./);
 });

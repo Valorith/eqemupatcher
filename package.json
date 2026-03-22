@@ -1,6 +1,6 @@
 {
   "name": "eqemupatcher-electron",
-  "version": "1.0.11",
+  "version": "2.0.0",
   "private": true,
   "author": "Valorith",
   "description": "Cross-platform Electron launcher for EQEmu patching",
@@ -10,8 +10,8 @@
     "dev": "node ./scripts/run-electron.js src/electron/main.js",
     "start:filelistbuilder": "node ./scripts/run-electron.js src/filelistbuilder-electron/main.js",
     "dev:filelistbuilder": "node ./scripts/run-electron.js src/filelistbuilder-electron/main.js",
-    "check": "node --check src/electron/main.js && node --check src/electron/preload.js && node --check src/electron/backend/launcher-backend.js && node --check src/electron/backend/launcher-updater.js && node --check src/electron/renderer/patch-notes-state.js && node --check src/electron/renderer/app.js && node --check src/filelistbuilder-electron/main.js && node --check src/filelistbuilder-electron/preload.js && node --check src/filelistbuilder-electron/backend/legacy-filelistbuilder.js && node --check src/filelistbuilder-electron/backend/filelistbuilder-backend.js && node --check src/filelistbuilder-electron/renderer/app.js",
-    "test": "node --test test/electron-backend.test.js test/launcher-updater.test.js test/filelistbuilder-backend.test.js test/patch-notes-state.test.js test/renderer-app.test.js",
+    "check": "node --check src/electron/main.js && node --check src/electron/preload.js && node --check src/electron/backend/launcher-backend.js && node --check src/electron/backend/ui-manager.js && node --check src/electron/backend/launcher-updater.js && node --check src/electron/renderer/patch-notes-state.js && node --check src/electron/renderer/app.js && node --check src/filelistbuilder-electron/main.js && node --check src/filelistbuilder-electron/preload.js && node --check src/filelistbuilder-electron/backend/legacy-filelistbuilder.js && node --check src/filelistbuilder-electron/backend/filelistbuilder-backend.js && node --check src/filelistbuilder-electron/renderer/app.js",
+    "test": "node --test test/electron-backend.test.js test/ui-manager-backend.test.js test/launcher-updater.test.js test/filelistbuilder-backend.test.js test/patch-notes-state.test.js test/renderer-app.test.js",
     "dist": "electron-builder",
     "dist:dir": "electron-builder --dir",
     "dist:win": "electron-builder --win portable",
