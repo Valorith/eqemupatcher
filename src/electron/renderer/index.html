@@ -133,7 +133,10 @@
               <div class="tab-strip" role="tablist" aria-label="Launcher panels">
                 <button id="patchTabButton" class="tab-button is-active" type="button" role="tab" aria-selected="true" aria-controls="patchTabPanel">Patch</button>
                 <button id="notesTabButton" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="notesTabPanel">Patch Notes</button>
-                <button id="uiManagerTabButton" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="uiManagerTabPanel">UI Manager</button>
+                <button id="uiManagerTabButton" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="uiManagerTabPanel">
+                  UI Manager
+                  <span class="ui-manager-beta-badge ui-manager-beta-badge-tab">Beta</span>
+                </button>
               </div>
             </div>
             <div class="toolbar-actions">
@@ -375,7 +378,10 @@
       <section class="modal-panel ui-manager-modal-panel" role="dialog" aria-modal="true" aria-labelledby="uiManagerTitle">
         <div class="modal-header ui-manager-modal-header">
           <div>
-            <p class="eyebrow">UI Manager</p>
+            <p class="eyebrow ui-manager-modal-eyebrow">
+              <span>UI Manager</span>
+              <span class="ui-manager-beta-badge">Beta</span>
+            </p>
             <h2 id="uiManagerTitle" class="section-title">Package Workspace</h2>
           </div>
           <div class="ui-manager-header-actions">

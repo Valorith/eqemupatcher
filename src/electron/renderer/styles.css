@@ -756,6 +756,9 @@ body {
 
 .tab-button {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
   padding: 0.68rem 1rem 0.62rem;
   border: 1px solid rgba(117, 146, 191, 0.18);
   border-bottom: 0;
@@ -815,6 +818,38 @@ body {
   background: #f5c468;
   box-shadow: 0 0 0 0 rgba(245, 196, 104, 0.35);
   animation: patch-notes-dot 1800ms ease-in-out infinite;
+}
+
+.ui-manager-beta-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.4rem;
+  padding: 0 0.5rem;
+  border: 1px solid rgba(245, 196, 104, 0.38);
+  border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255, 208, 110, 0.18), rgba(179, 114, 17, 0.16));
+  color: #ffd889;
+  font-family: "Avenir Next Condensed", "Gill Sans", sans-serif;
+  font-size: 0.64rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.ui-manager-beta-badge-tab {
+  min-height: 1.1rem;
+  padding: 0 0.38rem;
+  font-size: 0.52rem;
+  letter-spacing: 0.1em;
+}
+
+.ui-manager-modal-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
 }
 
 .refresh-button,
@@ -2981,7 +3016,7 @@ body {
 }
 
 #uiManagerPackagesStage {
-  padding-bottom: 64px;
+  padding-bottom: 88px;
   box-sizing: border-box;
 }
 
@@ -2989,7 +3024,7 @@ body {
   width: 100%;
   min-width: 0;
   max-width: none;
-  height: 100%;
+  height: calc(100% - 6px);
 }
 
 .ui-manager-stage-grid-packages .ui-manager-section-header,
