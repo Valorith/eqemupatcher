@@ -47,7 +47,9 @@ const state = {
     targetServerFilter: "",
     targetPickerOpen: false,
     noticeText: "",
-    noticeTone: "info"
+    noticeTone: "info",
+    optionSearchQuery: "",
+    optionFilterMode: "all"
   }
 };
 let uiManagerNoticeTimeoutId = null;
@@ -173,6 +175,7 @@ const elements = {
   uiManagerOptionMeta: document.getElementById("uiManagerOptionMeta"),
   uiManagerOptionPrevButton: document.getElementById("uiManagerOptionPrevButton"),
   uiManagerOptionNextButton: document.getElementById("uiManagerOptionNextButton"),
+  uiManagerOptionSearchInput: document.getElementById("uiManagerOptionSearchInput"),
   uiManagerOptionList: document.getElementById("uiManagerOptionList"),
   uiManagerPreviewPanel: document.getElementById("uiManagerPreviewPanel"),
   uiManagerConfirmationSummary: document.getElementById("uiManagerConfirmationSummary"),
@@ -1375,6 +1378,25 @@ function renderUiManagerTargetList() {
     elements.uiManagerTargetList.appendChild(wrapper);
   }
 }
+function getFilteredUiManagerBundles() {
+  const bundles = Array.isArray(state.uiManager.detail?.bundles) ? state.uiManager.detail.bundles : [];
+  const selectedPaths = new Set(state.uiManager.selectedOptionPaths || []);
+  const query = (state.uiManager.optionSearchQuery || "").trim().toLowerCase();
+  const filter = state.uiManager.optionFilterMode || "all";
+
+  return bundles.filter((bundle) => {
+    if (filter === "active" && bundle.activeState !== "active") return false;
+    if (filter === "flagged" && !selectedPaths.has(bundle.optionPath)) return false;
+
+    if (query) {
+      const label = (bundle.label || bundle.optionPath || "").toLowerCase();
+      const category = (bundle.categoryPath || "").toLowerCase();
+      const groupLabel = getUiManagerBundleGroupLabel(bundle).toLowerCase();
+      if (!label.includes(query) && !category.includes(query) && !groupLabel.includes(query)) return false;
+    }
+    return true;
+  });
+}
 function renderUiManagerOptionList() {
   clearElementContent(elements.uiManagerOptionList);
   const bundles = Array.isArray(state.uiManager.detail?.bundles) ? state.uiManager.detail.bundles : [];
@@ -1395,7 +1417,39 @@ function renderUiManagerOptionList() {
     return;
   }
 
-  for (const bundle of bundles) {
+  const filtered = getFilteredUiManagerBundles();
+
+  if (!filtered.length) {
+    elements.uiManagerOptionList.appendChild(
+      createUiManagerEmptyState("No matching components", "Try adjusting your search or filter criteria.")
+    );
+    return;
+  }
+
+  const uniqueCategories = new Set(filtered.map((b) => (b.categoryPath || "").trim().toLowerCase() || "_uncategorized"));
+  const showGroupHeaders = uniqueCategories.size > 1;
+  const seenCategories = new Set();
+  for (const bundle of filtered) {
+    const categoryKey = (bundle.categoryPath || "").trim().toLowerCase() || "_uncategorized";
+    if (showGroupHeaders && !seenCategories.has(categoryKey)) {
+      const isFirst = seenCategories.size === 0;
+      seenCategories.add(categoryKey);
+      if (!isFirst) {
+        const categoryBundles = filtered.filter((b) => ((b.categoryPath || "").trim().toLowerCase() || "_uncategorized") === categoryKey);
+        const header = document.createElement("div");
+        header.className = "ui-manager-option-group-header";
+        const headerLabel = document.createElement("span");
+        headerLabel.className = "ui-manager-option-group-label";
+        headerLabel.textContent = formatUiManagerPrettyPath(bundle.categoryPath || "") || "General";
+        header.appendChild(headerLabel);
+        const headerCount = document.createElement("span");
+        headerCount.className = "ui-manager-option-group-count";
+        headerCount.textContent = `${categoryBundles.length}`;
+        header.appendChild(headerCount);
+        elements.uiManagerOptionList.appendChild(header);
+      }
+    }
+
     const groupKey = getUiManagerBundleGroupKey(bundle);
     const relatedBundles = bundleGroups.get(groupKey) || [bundle];
     const groupLabel = getUiManagerBundleGroupLabel(bundle);
@@ -3092,6 +3146,17 @@ function wireEvents() {
   });
   elements.uiManagerOptionNextButton.addEventListener("click", () => {
     scrollUiManagerRail(elements.uiManagerOptionList, 1);
+  });
+  elements.uiManagerOptionSearchInput.addEventListener("input", (event) => {
+    state.uiManager.optionSearchQuery = event.target.value || "";
+    renderUiManager();
+  });
+  document.querySelectorAll("[data-ui-manager-option-filter]").forEach((pill) => {
+    pill.addEventListener("click", () => {
+      state.uiManager.optionFilterMode = pill.dataset.uiManagerOptionFilter || "all";
+      document.querySelectorAll("[data-ui-manager-option-filter]").forEach((p) => p.classList.toggle("is-active", p === pill));
+      renderUiManager();
+    });
   });
   elements.uiManagerTargetSearchInput.addEventListener("input", (event) => {
     state.uiManager.targetSearchQuery = event.target.value || "";
