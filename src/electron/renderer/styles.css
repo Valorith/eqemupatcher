@@ -1239,6 +1239,32 @@ body {
   margin-top: 22px;
 }
 
+.settings-field {
+  display: grid;
+  gap: 10px;
+}
+
+.settings-label {
+  color: var(--muted);
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+.settings-select {
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid rgba(141, 167, 214, 0.26);
+  border-radius: 14px;
+  background: rgba(10, 18, 29, 0.92);
+  color: var(--text);
+  font: inherit;
+}
+
+.settings-select:focus-visible {
+  outline: 2px solid rgba(122, 198, 255, 0.45);
+  outline-offset: 2px;
+}
+
 .utility-list-inline {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }

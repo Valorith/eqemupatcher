@@ -272,6 +272,16 @@ function collectTextContent(node) {
 }
 
 function createLauncherState(patchNotesUrl, options = {}) {
+  const {
+    launcherUpdate: launcherUpdateOverrides,
+    patchNotesUrl: _patchNotesUrl,
+    initialNotes: _initialNotes,
+    refreshedNotes: _refreshedNotes,
+    initializedReadState: _initializedReadState,
+    markInitialized: _markInitialized,
+    includePatchNotesUrl: _includePatchNotesUrl,
+    ...stateOverrides
+  } = options;
   const launcherUpdate = {
     status: "up-to-date",
     currentVersion: "0.3.12",
@@ -279,7 +289,7 @@ function createLauncherState(patchNotesUrl, options = {}) {
     progressValue: 0,
     progressMax: 0,
     releaseUrl: "",
-    ...(options.launcherUpdate || {})
+    ...(launcherUpdateOverrides || {})
   };
 
   return {
@@ -296,6 +306,7 @@ function createLauncherState(patchNotesUrl, options = {}) {
     canLaunch: false,
     autoPatch: false,
     autoPlay: false,
+    onGameLaunch: "minimize",
     gameDirectory: options.gameDirectory || "",
     reportUrl: "",
     progressValue: 0,
@@ -304,7 +315,8 @@ function createLauncherState(patchNotesUrl, options = {}) {
     isPatching: false,
     manifestVersion: "",
     needsPatch: false,
-    launcherUpdate
+    launcherUpdate,
+    ...stateOverrides
   };
 }
 
@@ -449,7 +461,11 @@ async function createRendererHarness(options = {}) {
     setUiSkinTargets: [],
     resetUiPackage: [],
     restoreUiManagerBackup: [],
-    importUiPackageFolder: []
+    importUiPackageFolder: [],
+    launchGame: 0,
+    updateSettings: [],
+    minimizeWindow: 0,
+    closeWindow: 0
   };
   let uiManagerOverview = options.uiManagerOverview || createUiManagerOverviewResponse();
   let uiManagerDetail = options.uiManagerDetail || createUiManagerDetailResponse();
@@ -486,15 +502,20 @@ async function createRendererHarness(options = {}) {
       return launcherState;
     },
     async launchGame() {
+      calls.launchGame += 1;
       return launcherState;
     },
-    async updateSettings() {
+    async updateSettings(patch = {}) {
+      calls.updateSettings.push({ ...patch });
+      Object.assign(launcherState, patch);
       return launcherState;
     },
     async minimizeWindow() {
+      calls.minimizeWindow += 1;
       return true;
     },
     async closeWindow() {
+      calls.closeWindow += 1;
       return true;
     },
     async openExternal(url) {
@@ -651,6 +672,8 @@ async function createRendererHarness(options = {}) {
       uiManagerConfirmModal: document.getElementById("uiManagerConfirmModal"),
       uiManagerConfirmAcceptButton: document.getElementById("uiManagerConfirmAcceptButton"),
       uiManagerNotice: document.getElementById("uiManagerNotice"),
+      launchButton: document.getElementById("launchButton"),
+      onGameLaunchSelect: document.getElementById("onGameLaunchSelect"),
       patchNotesPromptModal: document.getElementById("patchNotesPromptModal"),
       patchNotesPromptLaterButton: document.getElementById("patchNotesPromptLaterButton"),
       patchNotesPromptViewButton: document.getElementById("patchNotesPromptViewButton"),
@@ -847,6 +870,41 @@ test("clicking a launcher update release note link opens it externally", async (
   });
 
   assert.deepEqual(harness.calls.openExternal, ["https://example.invalid/update"]);
+});
+
+test("renderer syncs and persists the on game launch setting", async () => {
+  const harness = await createRendererHarness({
+    onGameLaunch: "close"
+  });
+
+  assert.equal(harness.elements.onGameLaunchSelect.value, "close");
+
+  harness.elements.onGameLaunchSelect.value = "minimize";
+  await harness.elements.onGameLaunchSelect.dispatch("change");
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.updateSettings, [{ onGameLaunch: "minimize" }]);
+  assert.equal(harness.elements.onGameLaunchSelect.value, "minimize");
+});
+
+test("renderer launch button no longer hardcodes a window action", async () => {
+  const harness = await createRendererHarness({
+    clientVersion: "Rain_Of_Fear_2",
+    clientLabel: "Rain of Fear 2",
+    clientSupported: true,
+    canLaunch: true,
+    gameDirectory: "C:\\EverQuest",
+    manifestVersion: "42",
+    statusBadge: "Ready",
+    statusDetail: "Ready to launch."
+  });
+
+  await harness.elements.launchButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.calls.launchGame, 1);
+  assert.equal(harness.calls.minimizeWindow, 0);
+  assert.equal(harness.calls.closeWindow, 0);
 });
 
 test("renderer bootstrap skips patch notes loading when no source is configured", async () => {

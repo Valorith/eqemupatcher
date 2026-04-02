@@ -75,10 +75,12 @@ test("initialize without a selected game directory reports selection state", asy
   assert.equal(state.patchActionLabel, "Deploy Patch");
   assert.equal(state.autoPatch, false);
   assert.equal(state.autoPlay, false);
+  assert.equal(state.onGameLaunch, "minimize");
 
   const appStatePath = path.join(appUserDataPath, "launcher-state.yml");
   const savedState = await fsp.readFile(appStatePath, "utf8");
   assert.match(savedState, /gameDirectory: ""/);
+  assert.match(savedState, /onGameLaunch: minimize/);
 });
 
 test("initialize uses the launcher directory when it already contains eqgame.exe", async (t) => {
@@ -558,6 +560,25 @@ test("refreshState treats legacy string patch versions as up to date", async (t)
   assert.equal(state.statusBadge, "Ready");
 });
 
+test("updateSettings persists the on game launch preference", async (t) => {
+  const { backend, appUserDataPath } = await createBackendHarness(t, { platform: "win32" });
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+
+  await backend.initialize();
+  await backend.setGameDirectory(gameDirectory);
+  const state = await backend.updateSettings({ onGameLaunch: "close" });
+  const savedState = await fsp.readFile(path.join(appUserDataPath, "launcher-state.yml"), "utf8");
+
+  assert.equal(state.onGameLaunch, "close");
+  assert.match(savedState, /onGameLaunch: close/);
+});
+
 test("unknown clients remain non-launchable even on Windows", async (t) => {
   let spawnCalls = 0;
   const { backend } = await createBackendHarness(t, {
@@ -858,6 +879,43 @@ test("launchGame falls back to cmd.exe when direct spawn is denied on Windows", 
   assert.equal(spawnCalls[1].args[6], gameDirectory);
   assert.equal(spawnCalls[1].args[7], path.join(gameDirectory, "eqgame.exe"));
   assert.equal(spawnCalls[1].args[8], "patchme");
+});
+
+test("launchGame invokes the selected window action callback after a successful launch", async (t) => {
+  const launchActions = [];
+  const { backend } = await createBackendHarness(t, {
+    platform: "win32",
+    launchStabilizationMs: 10,
+    onGameLaunched: async (payload) => {
+      launchActions.push(payload);
+    },
+    spawnImpl: () => {
+      const child = new EventEmitter();
+      child.unref = () => {};
+
+      process.nextTick(() => {
+        child.emit("spawn");
+      });
+
+      return child;
+    }
+  });
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+  backend.state.gameDirectory = gameDirectory;
+  backend.state.clientVersion = "Rain_Of_Fear_2";
+  backend.state.clientLabel = "Rain of Fear 2";
+  backend.state.clientSupported = true;
+  backend.state.onGameLaunch = "close";
+
+  await backend.launchGame();
+
+  assert.deepEqual(launchActions, [{ action: "close", autoTriggered: false }]);
 });
 
 test("launchGame reports an immediate exit instead of claiming success", async (t) => {

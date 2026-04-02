@@ -33,6 +33,37 @@ function Get-PackageJsonPath {
   return $packageJsonPath
 }
 
+function Set-PackageJsonVersion {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Version
+  )
+
+  if ($Version -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Version '$Version' is not valid. Use semantic version format like 1.2.3."
+  }
+
+  $packageJsonPath = Get-PackageJsonPath
+  $rawJson = Get-Content -LiteralPath $packageJsonPath -Raw
+  $versionMatch = [regex]::Match($rawJson, '"version"\s*:\s*"(?<version>\d+)\.(?<minor>\d+)\.(?<patch>\d+)"')
+
+  if (-not $versionMatch.Success) {
+    throw "Could not find a semantic version in package.json."
+  }
+
+  $updatedJson = [regex]::Replace(
+    $rawJson,
+    '"version"\s*:\s*"\d+\.\d+\.\d+"',
+    ('"version": "{0}"' -f $Version),
+    1
+  )
+
+  $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+  [System.IO.File]::WriteAllText($packageJsonPath, $updatedJson, $utf8NoBom)
+
+  return $Version
+}
+
 function Invoke-VersionUpdate {
   param(
     [Parameter(Mandatory = $true)]
@@ -68,16 +99,31 @@ function Invoke-VersionUpdate {
       }
     }
 
-    $newVersion = "$major.$minor.$patch"
-    $updatedJson = [regex]::Replace(
-      $rawJson,
-      '"version"\s*:\s*"\d+\.\d+\.\d+"',
-      ('"version": "{0}"' -f $newVersion),
-      1
-    )
+    $newVersion = Set-PackageJsonVersion -Version "$major.$minor.$patch"
 
-    $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-    [System.IO.File]::WriteAllText($packageJsonPath, $updatedJson, $utf8NoBom)
+    Show-VersionUpdateDialog `
+      -Title "Version Update Successful" `
+      -Message "package.json was updated to version $newVersion." `
+      -Icon "Information"
+  } catch {
+    Show-VersionUpdateDialog `
+      -Title "Version Update Failed" `
+      -Message $_.Exception.Message `
+      -Icon "Error"
+    exit 1
+  }
+}
+
+function Invoke-VersionUpdateDynamic {
+  try {
+    $requestedVersion = Read-Host "Enter the version to set package.json to (for example 1.2.3)"
+    $requestedVersion = [string]::IsNullOrWhiteSpace($requestedVersion) ? "" : $requestedVersion.Trim()
+
+    if (-not $requestedVersion) {
+      throw "No version was provided."
+    }
+
+    $newVersion = Set-PackageJsonVersion -Version $requestedVersion
 
     Show-VersionUpdateDialog `
       -Title "Version Update Successful" `

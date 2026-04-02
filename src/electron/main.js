@@ -74,6 +74,20 @@ function emitToRenderer(event) {
   mainWindow.webContents.send("launcher:event", event);
 }
 
+async function handleGameLaunchWindowAction({ action } = {}) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+
+  if (action === "close") {
+    mainWindow.close();
+    return true;
+  }
+
+  mainWindow.minimize();
+  return true;
+}
+
 async function createBackend() {
   const runtimeExecutablePath = app.getPath("exe");
 
@@ -87,7 +101,8 @@ async function createBackend() {
     executablePath: resolveLauncherExecutablePath(),
     processId: process.pid,
     relaunchArgs: process.argv.slice(1),
-    isPackaged: app.isPackaged
+    isPackaged: app.isPackaged,
+    onGameLaunched: handleGameLaunchWindowAction
   });
 }
 

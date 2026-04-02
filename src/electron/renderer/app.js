@@ -105,6 +105,7 @@ const elements = {
   settingsModal: document.getElementById("settingsModal"),
   settingsBackdrop: document.getElementById("settingsBackdrop"),
   settingsCloseButton: document.getElementById("settingsCloseButton"),
+  onGameLaunchSelect: document.getElementById("onGameLaunchSelect"),
   openConfigButton: document.getElementById("openConfigButton"),
   openGameDirectoryButton: document.getElementById("openGameDirectoryButton"),
   unsupportedClientModal: document.getElementById("unsupportedClientModal"),
@@ -2800,6 +2801,7 @@ function renderState(nextState) {
     !["launch", "patch"].includes(presentation.actionButtonAction);
   elements.autoPatchToggle.checked = nextState.autoPatch;
   elements.autoPlayToggle.checked = nextState.autoPlay;
+  elements.onGameLaunchSelect.value = nextState.onGameLaunch === "close" ? "close" : "minimize";
   elements.openGameDirectoryButton.disabled = !nextState.gameDirectory;
   if (nextState.reportUrl) {
     elements.reportLink.classList.remove("hidden");
@@ -3357,7 +3359,6 @@ function wireEvents() {
       return;
     }
     if (action === "launch") {
-      await window.launcher.minimizeWindow();
       await window.launcher.launchGame();
     }
   });
@@ -3367,6 +3368,10 @@ function wireEvents() {
   });
   elements.autoPlayToggle.addEventListener("change", async () => {
     const nextState = await window.launcher.updateSettings({ autoPlay: elements.autoPlayToggle.checked });
+    renderState(nextState);
+  });
+  elements.onGameLaunchSelect.addEventListener("change", async () => {
+    const nextState = await window.launcher.updateSettings({ onGameLaunch: elements.onGameLaunchSelect.value });
     renderState(nextState);
   });
   elements.reportLink.addEventListener("click", async (event) => {

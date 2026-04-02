@@ -15,6 +15,7 @@ const DEFAULTS = {
   launcherReleaseApiUrl: DEFAULT_RELEASE_API_URL,
   defaultAutoPatch: false,
   defaultAutoPlay: false,
+  defaultOnGameLaunch: "minimize",
   supportedClients: ["Rain_Of_Fear_2", "Rain_Of_Fear_2_4GB"]
 };
 
@@ -77,6 +78,10 @@ function normalizeVersion(value) {
   }
 
   return String(value);
+}
+
+function normalizeOnGameLaunch(value) {
+  return value === "close" ? "close" : "minimize";
 }
 
 function computePatchNotesContentHash(content) {
@@ -508,7 +513,8 @@ class LauncherBackend {
     processId,
     relaunchArgs,
     isPackaged,
-    launchStabilizationMs
+    launchStabilizationMs,
+    onGameLaunched
   }) {
     this.appUserDataPath = appUserDataPath;
     this.projectRoot = projectRoot;
@@ -524,6 +530,7 @@ class LauncherBackend {
     this.relaunchArgs = Array.isArray(relaunchArgs) ? [...relaunchArgs] : [];
     this.isPackaged = Boolean(isPackaged);
     this.launchStabilizationMs = Number.isFinite(launchStabilizationMs) && launchStabilizationMs >= 0 ? launchStabilizationMs : 500;
+    this.onGameLaunched = typeof onGameLaunched === "function" ? onGameLaunched : null;
     this.appStatePath = path.join(this.appUserDataPath, "launcher-state.yml");
     this.patchNotesCachePath = path.join(this.appUserDataPath, "patch-notes-cache.json");
     this.configPath = path.join(this.projectRoot, "launcher-config.yml");
@@ -532,7 +539,10 @@ class LauncherBackend {
     this.runtimeConfigPath = this.runtimeDirectory ? path.join(this.runtimeDirectory, "launcher-config.yml") : "";
     this.config = { ...DEFAULTS };
     this.gameSettings = null;
-    this.appState = { gameDirectory: "" };
+    this.appState = {
+      gameDirectory: "",
+      onGameLaunch: normalizeOnGameLaunch(DEFAULTS.defaultOnGameLaunch)
+    };
     this.cancelController = null;
     this.cancelRequested = false;
     this.resolvedConfigPath = this.configPath;
@@ -562,6 +572,7 @@ class LauncherBackend {
       heroImageUrl: this.getHeroImageUrl("Unknown"),
       autoPatch: this.config.defaultAutoPatch,
       autoPlay: this.config.defaultAutoPlay,
+      onGameLaunch: normalizeOnGameLaunch(this.config.defaultOnGameLaunch),
       isPatching: false,
       progressValue: 0,
       progressMax: 1,
@@ -1024,8 +1035,14 @@ class LauncherBackend {
       const parsed = await this.loadYaml(this.appStatePath);
       this.appState = { ...this.appState, ...(parsed || {}) };
       this.state.gameDirectory = this.appState.gameDirectory || "";
+      this.state.onGameLaunch = normalizeOnGameLaunch(this.appState.onGameLaunch);
+      this.appState.onGameLaunch = this.state.onGameLaunch;
     } catch (_error) {
-      this.appState = { gameDirectory: "" };
+      this.appState = {
+        gameDirectory: "",
+        onGameLaunch: normalizeOnGameLaunch(DEFAULTS.defaultOnGameLaunch)
+      };
+      this.state.onGameLaunch = this.appState.onGameLaunch;
       await this.saveYaml(this.appStatePath, this.appState);
     }
   }
@@ -1124,6 +1141,12 @@ class LauncherBackend {
       this.state.autoPlay = patch.autoPlay;
     }
 
+    if (typeof patch.onGameLaunch === "string") {
+      this.state.onGameLaunch = normalizeOnGameLaunch(patch.onGameLaunch);
+      this.appState.onGameLaunch = this.state.onGameLaunch;
+    }
+
+    await this.saveAppState();
     await this.saveGameSettings();
     this.emitState();
     return this.getState();
@@ -1514,6 +1537,12 @@ class LauncherBackend {
       this.emitState();
 
       await this.spawnEverQuest(eqGamePath);
+      if (this.onGameLaunched) {
+        await this.onGameLaunched({
+          action: normalizeOnGameLaunch(this.state.onGameLaunch),
+          autoTriggered
+        });
+      }
       this.setStatus("Launching", "EverQuest was started.");
       this.emitState();
     } catch (error) {
