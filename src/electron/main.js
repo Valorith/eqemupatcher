@@ -1,13 +1,18 @@
 const path = require("path");
-const { BrowserWindow, app, ipcMain, shell } = require("electron");
+const { BrowserWindow, app, dialog, ipcMain, shell } = require("electron");
 const { LauncherBackend } = require("./backend/launcher-backend");
 
 let mainWindow = null;
 let backend = null;
 const windowsIconPath = path.join(__dirname, "assets", "icons", "icon-app.ico");
 const defaultIconPath = path.join(__dirname, "assets", "icons", "icon-app.png");
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
 
 function resolveLaunchDirectory() {
+  if (process.env.EQEMU_LAUNCH_DIR) {
+    return process.env.EQEMU_LAUNCH_DIR;
+  }
+
   if (process.env.PORTABLE_EXECUTABLE_DIR) {
     return process.env.PORTABLE_EXECUTABLE_DIR;
   }
@@ -86,20 +91,39 @@ async function createBackend() {
   });
 }
 
-app.whenReady().then(async () => {
-  if (process.platform === "win32") {
-    app.setAppUserModelId("com.eqemu.launcher");
-  }
-
-  await createBackend();
-  createWindow();
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return;
     }
+
+    if (mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+
+    mainWindow.show();
+    mainWindow.focus();
   });
-});
+}
+
+if (hasSingleInstanceLock) {
+  app.whenReady().then(async () => {
+    if (process.platform === "win32") {
+      app.setAppUserModelId("com.eqemu.launcher");
+    }
+
+    await createBackend();
+    createWindow();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+      }
+    });
+  });
+}
 
 ipcMain.handle("launcher:initialize", async () => backend.initialize());
 ipcMain.handle("launcher:getVersion", async () => app.getVersion());
@@ -116,6 +140,35 @@ ipcMain.handle("launcher:applyLauncherUpdate", async () => {
   }
   return result;
 });
+ipcMain.handle("launcher:getUiManagerOverview", async () => backend.getUiManagerOverview());
+ipcMain.handle("launcher:openUiManagerImportDialog", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: "Import UI Package Folder",
+    properties: ["openDirectory"]
+  });
+
+  if (result.canceled || !Array.isArray(result.filePaths) || !result.filePaths[0]) {
+    return {
+      canceled: true,
+      sourcePath: ""
+    };
+  }
+
+  return {
+    canceled: false,
+    sourcePath: result.filePaths[0]
+  };
+});
+ipcMain.handle("launcher:importUiPackageFolder", async (_event, sourcePath) => backend.importUiPackageFolder(sourcePath));
+ipcMain.handle("launcher:prepareUiPackage", async (_event, packageName) => backend.prepareUiPackage(packageName));
+ipcMain.handle("launcher:validateUiPackageOptionComments", async (_event, packageName) => backend.validateUiPackageOptionComments(packageName));
+ipcMain.handle("launcher:checkUiPackageMetadata", async (_event, packageName) => backend.checkUiPackageMetadata(packageName));
+ipcMain.handle("launcher:getUiPackageDetails", async (_event, packageName) => backend.getUiPackageDetails(packageName));
+ipcMain.handle("launcher:activateUiOption", async (_event, options) => backend.activateUiOption(options || {}));
+ipcMain.handle("launcher:setUiSkinTargets", async (_event, options) => backend.setUiSkinTargets(options || {}));
+ipcMain.handle("launcher:resetUiPackage", async (_event, packageName) => backend.resetUiPackage(packageName));
+ipcMain.handle("launcher:listUiManagerBackups", async (_event, packageName) => backend.listUiManagerBackups(packageName));
+ipcMain.handle("launcher:restoreUiManagerBackup", async (_event, options) => backend.restoreUiManagerBackup(options || {}));
 ipcMain.handle("launcher:startPatch", async () => backend.startPatch());
 ipcMain.handle("launcher:cancelPatch", async () => backend.cancelPatch());
 ipcMain.handle("launcher:launchGame", async () => backend.launchGame());

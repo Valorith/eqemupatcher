@@ -6,6 +6,7 @@ const { spawn } = require("child_process");
 const { pathToFileURL } = require("url");
 const SimpleYaml = require("./simple-yaml");
 const { DEFAULT_RELEASE_API_URL, LauncherUpdater } = require("./launcher-updater");
+const { UiManager } = require("./ui-manager");
 
 const DEFAULTS = {
   serverName: "Clumsy's World",
@@ -592,6 +593,10 @@ class LauncherBackend {
       isPackaged: this.isPackaged
     });
     this.state.launcherUpdate = this.launcherUpdater.getState();
+    this.uiManager = new UiManager({
+      getGameDirectory: () => this.state.gameDirectory,
+      emitLog: this.emitLog.bind(this)
+    });
   }
 
   emit(type, payload) {
@@ -875,6 +880,50 @@ class LauncherBackend {
       ...result,
       state: this.getState()
     };
+  }
+
+  async getUiManagerOverview() {
+    return this.uiManager.getUiManagerOverview();
+  }
+
+  async importUiPackageFolder(sourcePath) {
+    return this.uiManager.importUiPackageFolder(sourcePath);
+  }
+
+  async prepareUiPackage(packageName) {
+    return this.uiManager.prepareUiPackage(packageName);
+  }
+
+  async validateUiPackageOptionComments(packageName) {
+    return this.uiManager.validateUiPackageOptionComments(packageName);
+  }
+
+  async checkUiPackageMetadata(packageName) {
+    return this.uiManager.checkUiPackageMetadata(packageName);
+  }
+
+  async getUiPackageDetails(packageName) {
+    return this.uiManager.getUiPackageDetails(packageName);
+  }
+
+  async activateUiOption(options = {}) {
+    return this.uiManager.activateUiOption(options);
+  }
+
+  async setUiSkinTargets(options = {}) {
+    return this.uiManager.setUiSkinTargets(options);
+  }
+
+  async resetUiPackage(packageName) {
+    return this.uiManager.resetUiPackage(packageName);
+  }
+
+  async listUiManagerBackups(packageName) {
+    return this.uiManager.listUiManagerBackups(packageName);
+  }
+
+  async restoreUiManagerBackup(options = {}) {
+    return this.uiManager.restoreUiManagerBackup(options);
   }
 
   async loadPatchNotesCache() {

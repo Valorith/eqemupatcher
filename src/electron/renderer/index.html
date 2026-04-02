@@ -133,6 +133,10 @@
               <div class="tab-strip" role="tablist" aria-label="Launcher panels">
                 <button id="patchTabButton" class="tab-button is-active" type="button" role="tab" aria-selected="true" aria-controls="patchTabPanel">Patch</button>
                 <button id="notesTabButton" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="notesTabPanel">Patch Notes</button>
+                <button id="uiManagerTabButton" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="uiManagerTabPanel">
+                  UI Manager
+                  <span class="ui-manager-beta-badge ui-manager-beta-badge-tab">Beta</span>
+                </button>
               </div>
             </div>
             <div class="toolbar-actions">
@@ -213,6 +217,45 @@
               </div>
               <div id="notesCard" class="notes-card" tabindex="0">
                 <div id="notesContent" class="notes-markdown"></div>
+              </div>
+            </div>
+          </section>
+          <section id="uiManagerTabPanel" class="tab-panel hidden" role="tabpanel" aria-labelledby="uiManagerTabButton">
+            <div class="ui-manager-tab-shell">
+              <div class="ui-manager-hero-card">
+                <div class="ui-manager-hero-copy">
+                  <p class="eyebrow">UI Manager</p>
+                  <h2 class="section-title">Customize EverQuest UI Packages</h2>
+                  <p class="ui-manager-copy">
+                    Import packages, prepare option libraries, preview alternate components, and assign the active UI skin to your characters without touching the raw folder structure by hand.
+                  </p>
+                </div>
+                <div class="ui-manager-hero-actions">
+                  <button id="openUiManagerButton" class="primary-button ui-manager-open-button" type="button">Open UI Manager</button>
+                  <button id="uiManagerRefreshButton" class="ghost-button ui-manager-refresh-button" type="button">Refresh UI Data</button>
+                </div>
+              </div>
+              <div class="ui-manager-summary-grid">
+                <div class="summary-item">
+                  <span class="summary-label">Packages</span>
+                  <strong id="uiManagerPackageCount">0</strong>
+                </div>
+                <div class="summary-item">
+                  <span class="summary-label">Prepared</span>
+                  <strong id="uiManagerPreparedCount">0</strong>
+                </div>
+                <div class="summary-item">
+                  <span class="summary-label">Characters</span>
+                  <strong id="uiManagerTargetCount">0</strong>
+                </div>
+              </div>
+              <div class="ui-manager-preview-card">
+                <div class="ui-manager-preview-copy">
+                  <span class="status-caption">Current Focus</span>
+                  <p id="uiManagerPreviewName" class="ui-manager-preview-name">Load UI package data to begin.</p>
+                  <p id="uiManagerPreviewMeta" class="ui-manager-preview-meta">The launcher will scan `uifiles` and character UI settings from your current EQ directory.</p>
+                </div>
+                <div id="uiManagerStatusBadge" class="status-chip ui-manager-status-badge" data-tone="attention">Standby</div>
               </div>
             </div>
           </section>
@@ -326,6 +369,231 @@
         <div class="utility-list utility-list-inline">
           <button id="patchNotesPromptLaterButton" class="secondary-button utility-button" type="button">Later</button>
           <button id="patchNotesPromptViewButton" class="primary-button utility-button" type="button">View</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="uiManagerModal" class="modal-shell hidden" aria-hidden="true">
+      <div id="uiManagerBackdrop" class="modal-backdrop"></div>
+      <section class="modal-panel ui-manager-modal-panel" role="dialog" aria-modal="true" aria-labelledby="uiManagerTitle">
+        <div class="modal-header ui-manager-modal-header">
+          <div>
+            <p class="eyebrow ui-manager-modal-eyebrow">
+              <span>UI Manager</span>
+              <span class="ui-manager-beta-badge">Beta</span>
+            </p>
+            <h2 id="uiManagerTitle" class="section-title">Package Workspace</h2>
+          </div>
+          <div class="ui-manager-header-actions">
+            <button id="uiManagerRecoveryButton" class="ghost-button ui-manager-header-button ui-manager-recovery-button" type="button">Recovery</button>
+            <button id="uiManagerModalRefreshButton" class="ghost-button ui-manager-header-button" type="button">Refresh</button>
+            <button id="uiManagerCloseButton" class="icon-button modal-close-button" type="button" aria-label="Close UI Manager">
+              <span aria-hidden="true">×</span>
+            </button>
+          </div>
+        </div>
+        <div id="uiManagerNotice" class="ui-manager-notice hidden" data-tone="info"></div>
+        <div id="uiManagerPackageContextMenu" class="ui-manager-package-context-menu hidden" role="menu" aria-label="Package actions">
+          <button id="uiManagerPackageValidateAction" class="ui-manager-package-context-action" type="button" role="menuitem" data-ui-manager-package-context-action="validate-comments">
+            Validate UI Meta Data
+          </button>
+        </div>
+        <div class="ui-manager-workspace">
+          <section class="ui-manager-main ui-manager-main-wizard">
+            <div id="uiManagerStageTabs" class="ui-manager-stage-tabs" role="tablist" aria-label="UI Manager stages">
+              <button id="uiManagerStageTargetsButton" class="ui-manager-stage-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="uiManagerTargetsStage" data-ui-manager-stage="targets">
+                <span class="ui-manager-stage-number">1</span>
+                <span class="ui-manager-stage-copy">
+                  <strong>Select Character(s)</strong>
+                  <small>Search targets and choose one, many, or all</small>
+                </span>
+              </button>
+              <button id="uiManagerStagePackagesButton" class="ui-manager-stage-tab" type="button" role="tab" aria-selected="false" aria-controls="uiManagerPackagesStage" data-ui-manager-stage="packages">
+                <span class="ui-manager-stage-number">2</span>
+                <span class="ui-manager-stage-copy">
+                  <strong>Select UI Package</strong>
+                  <small>Pick the package you want to assign or customize</small>
+                </span>
+              </button>
+              <button id="uiManagerStageComponentsButton" class="ui-manager-stage-tab" type="button" role="tab" aria-selected="false" aria-controls="uiManagerComponentsStage" data-ui-manager-stage="components">
+                <span class="ui-manager-stage-number">3</span>
+                <span class="ui-manager-stage-copy">
+                  <strong>UI Components</strong>
+                  <small>Review active and available component variants</small>
+                </span>
+              </button>
+              <button id="uiManagerStageConfirmButton" class="ui-manager-stage-tab" type="button" role="tab" aria-selected="false" aria-controls="uiManagerConfirmStage" data-ui-manager-stage="confirm">
+                <span class="ui-manager-stage-number">4</span>
+                <span class="ui-manager-stage-copy">
+                  <strong>Confirmation</strong>
+                  <small>Review selections, backups, and execute changes</small>
+                </span>
+              </button>
+            </div>
+            <div class="ui-manager-stage-viewport">
+              <section id="uiManagerTargetsStage" class="ui-manager-stage-panel" role="tabpanel" aria-labelledby="uiManagerStageTargetsButton">
+                <div class="ui-manager-stage-grid ui-manager-stage-grid-targets">
+                  <section class="ui-manager-panel ui-manager-stage-primary">
+                    <div class="ui-manager-section-header">
+                      <div>
+                        <p class="eyebrow">Targets</p>
+                        <h3 class="ui-manager-section-title">Character Selection</h3>
+                      </div>
+                      <span id="uiManagerTargetMeta" class="ui-manager-section-meta">0 selected</span>
+                    </div>
+                    <div class="ui-manager-target-stage-shell">
+                      <div class="ui-manager-target-stage-toolbar">
+                        <select id="uiManagerTargetServerFilter" class="ui-manager-target-server-filter" aria-label="Filter characters by server">
+                          <option value="">All Servers</option>
+                        </select>
+                        <input id="uiManagerTargetSearchInput" class="ui-manager-target-search-input" type="search" placeholder="Search characters or servers..." aria-label="Search character UI settings">
+                        <div class="ui-manager-inline-actions">
+                          <button id="uiManagerSelectAllTargetsButton" class="ghost-button ui-manager-inline-button" type="button">All</button>
+                          <button id="uiManagerClearTargetsButton" class="ghost-button ui-manager-inline-button" type="button">Clear</button>
+                        </div>
+                      </div>
+                      <div id="uiManagerTargetList" class="ui-manager-target-list ui-manager-scroll-region"></div>
+                    </div>
+                  </section>
+                </div>
+              </section>
+              <section id="uiManagerPackagesStage" class="ui-manager-stage-panel hidden" role="tabpanel" aria-labelledby="uiManagerStagePackagesButton">
+                <div class="ui-manager-stage-grid ui-manager-stage-grid-packages">
+                  <section class="ui-manager-panel ui-manager-stage-primary">
+                    <div class="ui-manager-section-header">
+                      <div>
+                        <p class="eyebrow">Packages</p>
+                        <h3 class="ui-manager-section-title">Library</h3>
+                      </div>
+                      <div class="ui-manager-section-header-actions">
+                        <span id="uiManagerSidebarMeta" class="ui-manager-section-meta">0 loaded</span>
+                        <button id="uiManagerImportButton" class="ghost-button ui-manager-inline-button" type="button">Import Folder</button>
+                      </div>
+                    </div>
+                    <div id="uiManagerDropZone" class="ui-manager-drop-zone ui-manager-stage-drop-zone" tabindex="0">
+                      <div>
+                        <strong>Drop a UI package folder here</strong>
+                        <p class="ui-manager-drop-copy">Import a new UI package into `uifiles` from this stage.</p>
+                      </div>
+                    </div>
+                    <div id="uiManagerPackageList" class="ui-manager-package-list ui-manager-scroll-region"></div>
+                  </section>
+                  <section class="ui-manager-panel ui-manager-stage-secondary">
+                    <div class="ui-manager-section-header">
+                      <div>
+                        <p class="eyebrow">Workspace</p>
+                        <h3 class="ui-manager-section-title">Package Overview</h3>
+                      </div>
+                      <span id="uiManagerPackageMeta" class="ui-manager-section-meta">No selection</span>
+                    </div>
+                    <div id="uiManagerPackageDetail" class="ui-manager-package-detail ui-manager-scroll-region"></div>
+                  </section>
+                </div>
+              </section>
+              <section id="uiManagerComponentsStage" class="ui-manager-stage-panel hidden" role="tabpanel" aria-labelledby="uiManagerStageComponentsButton">
+                <div class="ui-manager-stage-grid ui-manager-stage-grid-components">
+                  <section class="ui-manager-panel ui-manager-stage-primary">
+                    <div class="ui-manager-section-header">
+                      <div>
+                        <p class="eyebrow">Components</p>
+                        <h3 class="ui-manager-section-title">Option Library</h3>
+                      </div>
+                      <div class="ui-manager-section-actions">
+                        <span id="uiManagerOptionMeta" class="ui-manager-section-meta">Select a package</span>
+                        <div class="ui-manager-carousel-controls" aria-label="Component carousel controls">
+                          <button id="uiManagerOptionPrevButton" class="ui-manager-carousel-button" type="button" aria-label="Previous components">‹</button>
+                          <button id="uiManagerOptionNextButton" class="ui-manager-carousel-button" type="button" aria-label="Next components">›</button>
+                        </div>
+                      </div>
+                    </div>
+                    <div class="ui-manager-option-toolbar">
+                      <input id="uiManagerOptionSearchInput" class="ui-manager-option-search-input" type="search" placeholder="Search components..." aria-label="Search option bundles">
+                      <div class="ui-manager-option-filters">
+                        <button class="ui-manager-option-filter-pill is-active" type="button" data-ui-manager-option-filter="all">All</button>
+                        <button class="ui-manager-option-filter-pill" type="button" data-ui-manager-option-filter="active">Active</button>
+                        <button class="ui-manager-option-filter-pill" type="button" data-ui-manager-option-filter="flagged">Flagged</button>
+                      </div>
+                    </div>
+                    <div id="uiManagerOptionList" class="ui-manager-option-list ui-manager-scroll-region"></div>
+                  </section>
+                  <section class="ui-manager-panel ui-manager-stage-secondary">
+                    <div class="ui-manager-section-header">
+                      <div>
+                        <p class="eyebrow">Selection</p>
+                        <h3 class="ui-manager-section-title">Component Preview</h3>
+                      </div>
+                    </div>
+                    <div id="uiManagerPreviewPanel" class="ui-manager-preview-panel ui-manager-scroll-region"></div>
+                  </section>
+                </div>
+              </section>
+              <section id="uiManagerConfirmStage" class="ui-manager-stage-panel hidden" role="tabpanel" aria-labelledby="uiManagerStageConfirmButton">
+                <div class="ui-manager-stage-grid ui-manager-stage-grid-confirm">
+                  <section class="ui-manager-panel ui-manager-stage-primary">
+                    <div class="ui-manager-section-header">
+                      <div>
+                        <p class="eyebrow">Confirmation</p>
+                        <h3 class="ui-manager-section-title">Review Your Selections</h3>
+                      </div>
+                    </div>
+                    <div id="uiManagerConfirmationSummary" class="ui-manager-confirmation-summary ui-manager-scroll-region"></div>
+                  </section>
+                </div>
+              </section>
+            </div>
+          </section>
+        </div>
+        <div class="ui-manager-action-bar">
+          <div id="uiManagerActionMeta" class="ui-manager-action-meta">Choose a package to start managing its UI files.</div>
+          <div class="ui-manager-stage-actions">
+            <button id="uiManagerPreviousStageButton" class="ghost-button ui-manager-stage-nav-button" type="button">Back</button>
+            <button id="uiManagerNextStageButton" class="secondary-button ui-manager-stage-nav-button" type="button">Next</button>
+          </div>
+          <div class="ui-manager-action-buttons">
+            <button id="uiManagerApplyOptionButton" class="primary-button utility-button" type="button">Apply Option</button>
+            <button id="uiManagerResetButton" class="ghost-button utility-button ui-manager-danger-button" type="button">Reset UI</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <div id="uiManagerRecoveryModal" class="modal-shell hidden" aria-hidden="true">
+      <div id="uiManagerRecoveryBackdrop" class="modal-backdrop"></div>
+      <section class="modal-panel ui-manager-recovery-modal-panel" role="dialog" aria-modal="true" aria-labelledby="uiManagerRecoveryTitle">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Recovery</p>
+            <h2 id="uiManagerRecoveryTitle" class="section-title">Backups & Restore</h2>
+          </div>
+          <button id="uiManagerRecoveryCloseButton" class="icon-button modal-close-button" type="button" aria-label="Close recovery">
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+        <div class="ui-manager-recovery-summary">
+          <p id="uiManagerRecoveryPackageName" class="ui-manager-preview-name">No package selected.</p>
+          <p id="uiManagerRecoveryMeta" class="ui-manager-package-subcopy">Choose a package to review backups and restore points.</p>
+        </div>
+        <div id="uiManagerRecoveryStats" class="ui-manager-recovery-stats"></div>
+        <div id="uiManagerBackupList" class="ui-manager-backup-list ui-manager-scroll-region"></div>
+      </section>
+    </div>
+
+    <div id="uiManagerConfirmModal" class="modal-shell hidden" aria-hidden="true">
+      <div id="uiManagerConfirmBackdrop" class="modal-backdrop"></div>
+      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="uiManagerConfirmTitle">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Confirm</p>
+            <h2 id="uiManagerConfirmTitle" class="section-title">UI Manager Action</h2>
+          </div>
+          <button id="uiManagerConfirmCloseButton" class="icon-button modal-close-button" type="button" aria-label="Close confirmation">
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+        <p id="uiManagerConfirmMessage" class="modal-copy">Confirm this action.</p>
+        <div class="utility-list utility-list-inline">
+          <button id="uiManagerConfirmCancelButton" class="secondary-button utility-button" type="button">Cancel</button>
+          <button id="uiManagerConfirmAcceptButton" class="primary-button utility-button" type="button">Continue</button>
         </div>
       </section>
     </div>
