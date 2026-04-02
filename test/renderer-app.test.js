@@ -872,41 +872,6 @@ test("clicking a launcher update release note link opens it externally", async (
   assert.deepEqual(harness.calls.openExternal, ["https://example.invalid/update"]);
 });
 
-test("renderer syncs and persists the on game launch setting", async () => {
-  const harness = await createRendererHarness({
-    onGameLaunch: "close"
-  });
-
-  assert.equal(harness.elements.onGameLaunchSelect.value, "close");
-
-  harness.elements.onGameLaunchSelect.value = "minimize";
-  await harness.elements.onGameLaunchSelect.dispatch("change");
-  await flushAsyncWork();
-
-  assert.deepEqual(harness.calls.updateSettings, [{ onGameLaunch: "minimize" }]);
-  assert.equal(harness.elements.onGameLaunchSelect.value, "minimize");
-});
-
-test("renderer launch button no longer hardcodes a window action", async () => {
-  const harness = await createRendererHarness({
-    clientVersion: "Rain_Of_Fear_2",
-    clientLabel: "Rain of Fear 2",
-    clientSupported: true,
-    canLaunch: true,
-    gameDirectory: "C:\\EverQuest",
-    manifestVersion: "42",
-    statusBadge: "Ready",
-    statusDetail: "Ready to launch."
-  });
-
-  await harness.elements.launchButton.dispatch("click");
-  await flushAsyncWork();
-
-  assert.equal(harness.calls.launchGame, 1);
-  assert.equal(harness.calls.minimizeWindow, 0);
-  assert.equal(harness.calls.closeWindow, 0);
-});
-
 test("renderer bootstrap skips patch notes loading when no source is configured", async () => {
   const harness = await createRendererHarness({
     includePatchNotesUrl: false

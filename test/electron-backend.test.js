@@ -103,6 +103,19 @@ test("initialize uses the launcher directory when it already contains eqgame.exe
   assert.match(savedState, /eqemu-launch-/);
 });
 
+test("initialize defaults on game launch to minimize when the saved app state predates the setting", async (t) => {
+  const { backend, appUserDataPath } = await createBackendHarness(t);
+  const appStatePath = path.join(appUserDataPath, "launcher-state.yml");
+
+  await fsp.writeFile(appStatePath, 'gameDirectory: ""\n', "utf8");
+
+  const state = await backend.initialize();
+  const savedState = await fsp.readFile(appStatePath, "utf8");
+
+  assert.equal(state.onGameLaunch, "minimize");
+  assert.match(savedState, /gameDirectory: ""/);
+});
+
 test("launch directory config overrides the bundled default server config", async (t) => {
   const launchDirectory = await createTempDir("eqemu-launch-");
   const { backend, projectRoot } = await createBackendHarness(t, { launchDirectory });
