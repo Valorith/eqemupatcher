@@ -991,6 +991,19 @@ body {
   animation: start-patch-pulse 1800ms ease-in-out infinite;
 }
 
+.install-prerequisites-button {
+  color: #101724;
+  background: linear-gradient(135deg, #ffd58c 0%, #f2b34f 56%, #db8e24 100%);
+  border: 1px solid rgba(255, 214, 141, 0.36);
+  box-shadow:
+    0 14px 34px rgba(158, 96, 18, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+.install-prerequisites-button:hover:not(:disabled) {
+  filter: brightness(1.08) saturate(1.04);
+}
+
 .unsupported-launch-button {
   color: #ffeef3;
   background: linear-gradient(135deg, #8f223f 0%, #6b152c 52%, #4a0d1e 100%);
@@ -1069,6 +1082,12 @@ body {
 .action-slot .secondary-button,
 .action-slot .action-status {
   width: 100%;
+}
+
+.manual-prerequisites-button {
+  align-self: flex-start;
+  margin-top: 10px;
+  min-height: 44px;
 }
 
 .action-status {

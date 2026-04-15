@@ -7,6 +7,7 @@ const fsp = require("node:fs/promises");
 const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
+const { Readable } = require("node:stream");
 
 const { LauncherBackend } = require("../src/electron/backend/launcher-backend");
 
@@ -20,6 +21,15 @@ function sha256(text) {
 
 async function createTempDir(prefix) {
   return fsp.mkdtemp(path.join(os.tmpdir(), prefix));
+}
+
+async function writePortableExecutable(filePath, machine) {
+  const buffer = Buffer.alloc(512);
+  buffer.writeUInt16LE(0x5A4D, 0);
+  buffer.writeUInt32LE(0x80, 0x3C);
+  buffer.writeUInt32LE(0x00004550, 0x80);
+  buffer.writeUInt16LE(machine, 0x84);
+  await fsp.writeFile(filePath, buffer);
 }
 
 async function createBackendHarness(t, options = {}) {
@@ -992,11 +1002,22 @@ test("launchGame includes Windows dependency hints for missing DLL startup failu
     await fsp.rm(gameDirectory, { recursive: true, force: true });
   });
 
-  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+  await writePortableExecutable(path.join(gameDirectory, "eqgame.exe"), 0x014C);
   backend.state.gameDirectory = gameDirectory;
   backend.state.clientVersion = "Rain_Of_Fear_2";
   backend.state.clientLabel = "Rain of Fear 2";
   backend.state.clientSupported = true;
+  backend.inspectMissingRuntimeDependencies = async () => ({
+    executableArch: "x86",
+    primaryMissingDependency: "d3dx9_30.dll",
+    missingSummary: "Static dependency scan found unresolved DLL imports, including d3dx9_30.dll.",
+    missingDependencies: [
+      {
+        name: "d3dx9_30.dll",
+        referencedBy: "eqgame.exe"
+      }
+    ]
+  });
 
   const state = await backend.launchGame();
   const logMessages = events.filter((event) => event.type === "log").map((event) => event.payload.text);
@@ -1005,10 +1026,327 @@ test("launchGame includes Windows dependency hints for missing DLL startup failu
   assert.match(state.statusDetail, /0xC0000135/i);
   assert.match(state.statusDetail, /required DLL was missing/i);
   assert.match(state.statusDetail, /DirectX 9 June 2010 runtime/i);
+  assert.equal(state.canInstallPrerequisites, true);
+  assert.equal(state.prerequisiteInstallArch, "x86");
+  assert.equal(state.prerequisiteDirectXUrl, "https://download.microsoft.com/download/8/4/a/84a35bf1-dafe-4ae8-82af-ad2ae20b6b14/directx_Jun2010_redist.exe");
+  assert.equal(state.prerequisiteVcUrl, "https://aka.ms/vc14/vc_redist.x86.exe");
   assert(logMessages.includes("Launch method: direct spawn."));
   assert(logMessages.includes("Startup status: 0xC0000135 (STATUS_DLL_NOT_FOUND)."));
   assert(logMessages.includes("Assessment: A required DLL was missing during startup."));
   assert(logMessages.includes("Suggested fix: Install the DirectX 9 June 2010 runtime and the Visual C++ redistributables, then try again."));
+  assert(logMessages.includes("Using the Visual C++ X86 redistributable because eqgame.exe is X86."));
+  assert(logMessages.includes("Static dependency scan found unresolved DLL imports, including d3dx9_30.dll."));
+  assert(logMessages.includes("Static dependency scan found unresolved DLL import: d3dx9_30.dll (referenced by eqgame.exe)."));
+});
+
+test("installMissingPrerequisites downloads DirectX and the matching Visual C++ runtime", async (t) => {
+  const downloads = [];
+  const spawns = [];
+  const { backend } = await createBackendHarness(t, {
+    platform: "win32",
+    fetchImpl: async (url) => {
+      downloads.push(url);
+      return {
+        ok: true,
+        body: Readable.from([Buffer.from(`payload:${url}`)])
+      };
+    },
+    spawnImpl: (command, args) => {
+      spawns.push({
+        command,
+        args: Array.isArray(args) ? [...args] : []
+      });
+
+      if (path.basename(command).toLowerCase() === "directx_jun2010_redist.exe") {
+        const extractArg = args.find((entry) => String(entry).startsWith("/T:"));
+        const extractPath = extractArg ? String(extractArg).slice(3) : "";
+        if (extractPath) {
+          fs.mkdirSync(extractPath, { recursive: true });
+          fs.writeFileSync(path.join(extractPath, "DXSETUP.exe"), "");
+        }
+      }
+
+      const child = new EventEmitter();
+      child.unref = () => {};
+      process.nextTick(() => {
+        child.emit("spawn");
+        child.emit("exit", 0, null);
+      });
+      return child;
+    }
+  });
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await writePortableExecutable(path.join(gameDirectory, "eqgame.exe"), 0x014C);
+  backend.state.gameDirectory = gameDirectory;
+  backend.state.canInstallPrerequisites = true;
+
+  const state = await backend.installMissingPrerequisites();
+
+  assert.deepEqual(downloads, [
+    "https://download.microsoft.com/download/8/4/a/84a35bf1-dafe-4ae8-82af-ad2ae20b6b14/directx_Jun2010_redist.exe",
+    "https://aka.ms/vc14/vc_redist.x86.exe"
+  ]);
+  assert.equal(path.basename(spawns[0].command).toLowerCase(), "directx_jun2010_redist.exe");
+  assert.deepEqual(spawns[0].args.slice(0, 1), ["/Q"]);
+  assert.equal(path.basename(spawns[1].command).toLowerCase(), "dxsetup.exe");
+  assert.deepEqual(spawns[1].args, ["/silent"]);
+  assert.equal(path.basename(spawns[2].command).toLowerCase(), "vc_redist.x86.exe");
+  assert.deepEqual(spawns[2].args, ["/install", "/passive", "/norestart"]);
+  assert.equal(state.statusBadge, "Ready");
+  assert.match(state.statusDetail, /Launch EverQuest again/i);
+  assert.equal(state.canInstallPrerequisites, false);
+  assert.equal(state.isInstallingPrerequisites, false);
+});
+
+test("installMissingPrerequisites fails gracefully with retry guidance when an installer exits with an error", async (t) => {
+  const events = [];
+  const { backend } = await createBackendHarness(t, {
+    platform: "win32",
+    eventSink: (event) => events.push(event),
+    fetchImpl: async () => {
+      return {
+        ok: true,
+        body: Readable.from([Buffer.from("payload")])
+      };
+    },
+    spawnImpl: (command, args) => {
+      if (path.basename(command).toLowerCase() === "directx_jun2010_redist.exe") {
+        const extractArg = args.find((entry) => String(entry).startsWith("/T:"));
+        const extractPath = extractArg ? String(extractArg).slice(3) : "";
+        if (extractPath) {
+          fs.mkdirSync(extractPath, { recursive: true });
+          fs.writeFileSync(path.join(extractPath, "DXSETUP.exe"), "");
+        }
+      }
+
+      const child = new EventEmitter();
+      child.unref = () => {};
+      process.nextTick(() => {
+        child.emit("spawn");
+        if (path.basename(command).toLowerCase() === "vc_redist.x64.exe") {
+          child.emit("exit", 1603, null);
+          return;
+        }
+        child.emit("exit", 0, null);
+      });
+      return child;
+    },
+    environment: {
+      PROCESSOR_ARCHITECTURE: "AMD64"
+    }
+  });
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await writePortableExecutable(path.join(gameDirectory, "eqgame.exe"), 0x8664);
+  backend.state.gameDirectory = gameDirectory;
+
+  const state = await backend.installMissingPrerequisites();
+  const logMessages = events.filter((event) => event.type === "log").map((event) => event.payload.text);
+
+  assert.equal(state.statusBadge, "Install Error");
+  assert.match(state.statusDetail, /failed while installing visual c\+\+ runtime/i);
+  assert.equal(state.canInstallPrerequisites, true);
+  assert.equal(state.prerequisiteInstallArch, "x64");
+  assert.equal(state.prerequisiteDirectXUrl, "https://download.microsoft.com/download/8/4/a/84a35bf1-dafe-4ae8-82af-ad2ae20b6b14/directx_Jun2010_redist.exe");
+  assert.equal(state.prerequisiteVcUrl, "https://aka.ms/vc14/vc_redist.x64.exe");
+  assert(logMessages.some((entry) => /Runtime installation failed while installing Visual C\+\+ runtime/i.test(entry)));
+  assert(logMessages.some((entry) => /Recommended: Allow any Windows security or UAC prompts/i.test(entry)));
+  assert(logMessages.some((entry) => /Recommended: If the Visual C\+\+ installer keeps failing, restart Windows/i.test(entry)));
+  assert(logMessages.some((entry) => /Recommended: DirectX June 2010:/i.test(entry)));
+  assert(logMessages.some((entry) => /Recommended: Visual C\+\+ X64:/i.test(entry)));
+});
+
+test("installMissingPrerequisites reports an incomplete install when dependency validation still finds a missing DLL", async (t) => {
+  const events = [];
+  const { backend } = await createBackendHarness(t, {
+    platform: "win32",
+    eventSink: (event) => events.push(event),
+    fetchImpl: async () => {
+      return {
+        ok: true,
+        body: Readable.from([Buffer.from("payload")])
+      };
+    },
+    spawnImpl: (command, args) => {
+      if (path.basename(command).toLowerCase() === "directx_jun2010_redist.exe") {
+        const extractArg = args.find((entry) => String(entry).startsWith("/T:"));
+        const extractPath = extractArg ? String(extractArg).slice(3) : "";
+        if (extractPath) {
+          fs.mkdirSync(extractPath, { recursive: true });
+          fs.writeFileSync(path.join(extractPath, "DXSETUP.exe"), "");
+        }
+      }
+
+      const child = new EventEmitter();
+      child.unref = () => {};
+      process.nextTick(() => {
+        child.emit("spawn");
+        child.emit("exit", 0, null);
+      });
+      return child;
+    }
+  });
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await writePortableExecutable(path.join(gameDirectory, "eqgame.exe"), 0x014C);
+  backend.state.gameDirectory = gameDirectory;
+  let validationCallCount = 0;
+  backend.inspectMissingRuntimeDependencies = async () => {
+    validationCallCount += 1;
+    return {
+      executableArch: "x86",
+      primaryMissingDependency: "d3dx9_30.dll",
+      missingSummary: "Static dependency scan found unresolved DLL imports, including d3dx9_30.dll.",
+      missingDependencies: [
+        {
+          name: "d3dx9_30.dll",
+          referencedBy: "eqgame.exe"
+        }
+      ]
+    };
+  };
+
+  const state = await backend.installMissingPrerequisites();
+  const logMessages = events.filter((event) => event.type === "log").map((event) => event.payload.text);
+
+  assert.equal(validationCallCount, 1);
+  assert.equal(state.statusBadge, "Install Incomplete");
+  assert.match(state.statusDetail, /static dependency scan found unresolved dll imports, including d3dx9_30\.dll/i);
+  assert.equal(state.canInstallPrerequisites, true);
+  assert.equal(state.prerequisiteInstallArch, "x86");
+  assert.equal(state.prerequisiteDirectXUrl, "https://download.microsoft.com/download/8/4/a/84a35bf1-dafe-4ae8-82af-ad2ae20b6b14/directx_Jun2010_redist.exe");
+  assert.equal(state.prerequisiteVcUrl, "https://aka.ms/vc14/vc_redist.x86.exe");
+  assert(logMessages.some((entry) => /dependency validation still found unresolved DLL imports/i.test(entry)));
+  assert(logMessages.includes("Static dependency scan found unresolved DLL import: d3dx9_30.dll (referenced by eqgame.exe)."));
+});
+
+test("packaged builds ignore prerequisite simulation hooks unless explicitly enabled", async (t) => {
+  const { backend } = await createBackendHarness(t, {
+    isPackaged: true,
+    environment: {
+      EQEMU_TEST_FORCE_LAUNCH_EXIT: "0xC0000135",
+      EQEMU_TEST_FORCE_SCAN_MISSING_DLLS: "d3dx9_30.dll",
+      EQEMU_TEST_PREREQ_MODE: "success"
+    }
+  });
+
+  assert.equal(backend.testSimulation.active, false);
+  assert.equal(backend.testSimulation.launchExitCode, null);
+  assert.deepEqual(backend.testSimulation.missingDlls, []);
+  assert.equal(backend.testSimulation.installMode, "");
+});
+
+test("spawnAndWait fails clearly when an installer does not finish before the timeout", async (t) => {
+  const { backend } = await createBackendHarness(t, {
+    spawnImpl: () => {
+      const child = new EventEmitter();
+      child.unref = () => {};
+      child.kill = () => {};
+      process.nextTick(() => {
+        child.emit("spawn");
+      });
+      return child;
+    }
+  });
+
+  await assert.rejects(
+    backend.spawnAndWait("hung-installer.exe", [], {}, {
+      label: "Hung installer",
+      timeoutMs: 25
+    }),
+    /Hung installer did not finish within 25 seconds|Hung installer did not finish within 1 second/i
+  );
+});
+
+test("downloadFile allows callers to omit the progress callback", async (t) => {
+  const { backend } = await createBackendHarness(t, {
+    fetchImpl: async () => ({
+      ok: true,
+      body: Readable.from([Buffer.from("payload")]),
+      headers: {
+        get(name) {
+          return String(name).toLowerCase() === "content-length" ? "7" : null;
+        }
+      }
+    })
+  });
+  const destinationDirectory = await createTempDir("eqemu-download-");
+  const destinationPath = path.join(destinationDirectory, "payload.bin");
+
+  t.after(async () => {
+    await fsp.rm(destinationDirectory, { recursive: true, force: true });
+  });
+
+  await backend.downloadFile("https://example.invalid/payload.bin", destinationPath, null);
+
+  assert.equal(await fsp.readFile(destinationPath, "utf8"), "payload");
+});
+
+test("ui manager mutations are blocked while prerequisites are installing", async (t) => {
+  const { backend } = await createBackendHarness(t);
+  const calls = [];
+
+  backend.uiManager = {
+    async getUiManagerOverview() {
+      calls.push("overview");
+      return { packages: [] };
+    },
+    async importUiPackageFolder(_sourcePath) {
+      calls.push("import");
+      return {};
+    },
+    async prepareUiPackage(_packageName) {
+      calls.push("prepare");
+      return {};
+    },
+    async validateUiPackageOptionComments(_packageName) {
+      calls.push("validate");
+      return {};
+    },
+    async activateUiOption(_options) {
+      calls.push("activate");
+      return {};
+    },
+    async setUiSkinTargets(_options) {
+      calls.push("skin");
+      return {};
+    },
+    async resetUiPackage(_packageName) {
+      calls.push("reset");
+      return {};
+    },
+    async restoreUiManagerBackup(_options) {
+      calls.push("restore");
+      return {};
+    }
+  };
+  backend.state.isInstallingPrerequisites = true;
+
+  await assert.rejects(backend.importUiPackageFolder("C:\\Temp\\FancyUI"), /UI Manager actions are unavailable while prerequisites are installing\./);
+  await assert.rejects(backend.prepareUiPackage("FancyUI"), /UI Manager actions are unavailable while prerequisites are installing\./);
+  await assert.rejects(backend.validateUiPackageOptionComments("FancyUI"), /UI Manager actions are unavailable while prerequisites are installing\./);
+  await assert.rejects(backend.activateUiOption({ packageName: "FancyUI", optionPath: "Options/Alt/Red" }), /UI Manager actions are unavailable while prerequisites are installing\./);
+  await assert.rejects(backend.setUiSkinTargets({ packageName: "FancyUI", iniPaths: ["C:\\EQ\\UI_Test.ini"] }), /UI Manager actions are unavailable while prerequisites are installing\./);
+  await assert.rejects(backend.resetUiPackage("FancyUI"), /UI Manager actions are unavailable while prerequisites are installing\./);
+  await assert.rejects(backend.restoreUiManagerBackup({ packageName: "FancyUI", backupId: "backup-1" }), /UI Manager actions are unavailable while prerequisites are installing\./);
+
+  const overview = await backend.getUiManagerOverview();
+
+  assert.deepEqual(overview, { packages: [] });
+  assert.deepEqual(calls, ["overview"]);
 });
 
 test("remains compatible with legacy filelistbuilder manifest output", async (t) => {

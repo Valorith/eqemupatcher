@@ -236,6 +236,10 @@ class FakeDocument {
     };
   }
 
+  querySelectorAll(_selector) {
+    return [];
+  }
+
   addEventListener(type, listener) {
     if (!this.listeners.has(type)) {
       this.listeners.set(type, []);
@@ -309,6 +313,8 @@ function createLauncherState(patchNotesUrl, options = {}) {
     onGameLaunch: "minimize",
     gameDirectory: options.gameDirectory || "",
     reportUrl: "",
+    prerequisiteDirectXUrl: "",
+    prerequisiteVcUrl: "",
     progressValue: 0,
     progressMax: 1,
     progressLabel: "Waiting for input",
@@ -429,6 +435,16 @@ function createUiManagerDetailResponse() {
   };
 }
 
+function getUiManagerOptionCard(harness, optionPath) {
+  return harness.elements.uiManagerOptionList.children.find(
+    (child) => child && typeof child === "object" && child.dataset?.optionPath === optionPath
+  ) || null;
+}
+
+function getUiManagerOptionToggle(card) {
+  return card?.children?.[0]?.children?.[2]?.children?.[0] || null;
+}
+
 async function flushAsyncWork(turns = 6) {
   for (let index = 0; index < turns; index += 1) {
     await new Promise((resolve) => setImmediate(resolve));
@@ -453,6 +469,7 @@ async function createRendererHarness(options = {}) {
     checkForLauncherUpdate: 0,
     openExternal: [],
     getUiManagerOverview: 0,
+    openUiManagerImportDialog: 0,
     getUiPackageDetails: [],
     prepareUiPackage: [],
     checkUiPackageMetadata: [],
@@ -533,6 +550,7 @@ async function createRendererHarness(options = {}) {
       return uiManagerOverview;
     },
     async openUiManagerImportDialog() {
+      calls.openUiManagerImportDialog += 1;
       return {
         canceled: true,
         sourcePath: ""
@@ -659,9 +677,12 @@ async function createRendererHarness(options = {}) {
       uiManagerPackageCount: document.getElementById("uiManagerPackageCount"),
       uiManagerPreviewName: document.getElementById("uiManagerPreviewName"),
       uiManagerPackageList: document.getElementById("uiManagerPackageList"),
+      uiManagerRefreshButton: document.getElementById("uiManagerRefreshButton"),
       uiManagerRecoveryButton: document.getElementById("uiManagerRecoveryButton"),
       uiManagerRecoveryStats: document.getElementById("uiManagerRecoveryStats"),
       uiManagerBackupList: document.getElementById("uiManagerBackupList"),
+      uiManagerImportButton: document.getElementById("uiManagerImportButton"),
+      uiManagerModalRefreshButton: document.getElementById("uiManagerModalRefreshButton"),
       uiManagerOptionList: document.getElementById("uiManagerOptionList"),
       uiManagerApplyOptionButton: document.getElementById("uiManagerApplyOptionButton"),
       uiManagerStageTabs: document.getElementById("uiManagerStageTabs"),
@@ -673,6 +694,7 @@ async function createRendererHarness(options = {}) {
       uiManagerConfirmAcceptButton: document.getElementById("uiManagerConfirmAcceptButton"),
       uiManagerNotice: document.getElementById("uiManagerNotice"),
       launchButton: document.getElementById("launchButton"),
+      manualPrerequisitesButton: document.getElementById("manualPrerequisitesButton"),
       onGameLaunchSelect: document.getElementById("onGameLaunchSelect"),
       patchNotesPromptModal: document.getElementById("patchNotesPromptModal"),
       patchNotesPromptLaterButton: document.getElementById("patchNotesPromptLaterButton"),
@@ -1105,8 +1127,8 @@ test("confirming Apply Option sends the selected package, option, and targets to
   });
   await flushAsyncWork();
 
-  const redOptionCard = harness.elements.uiManagerOptionList.children[2];
-  const redOptionCheckbox = redOptionCard.children[0].children[2].children[0];
+  const redOptionCard = getUiManagerOptionCard(harness, "Options/Alt/Red");
+  const redOptionCheckbox = getUiManagerOptionToggle(redOptionCard);
   redOptionCheckbox.checked = true;
   redOptionCheckbox.closest = (selector) => selector === "input[data-option-toggle='true']" ? redOptionCheckbox : null;
   await harness.elements.uiManagerOptionList.dispatch("change", {
@@ -1149,8 +1171,8 @@ test("apply confirmation omits UISkin copy when the selected targets already use
   await harness.elements.openUiManagerButton.dispatch("click");
   await flushAsyncWork();
 
-  const redOptionCard = harness.elements.uiManagerOptionList.children[2];
-  const redOptionCheckbox = redOptionCard.children[0].children[2].children[0];
+  const redOptionCard = getUiManagerOptionCard(harness, "Options/Alt/Red");
+  const redOptionCheckbox = getUiManagerOptionToggle(redOptionCard);
   redOptionCheckbox.checked = true;
   redOptionCheckbox.closest = (selector) => selector === "input[data-option-toggle='true']" ? redOptionCheckbox : null;
   await harness.elements.uiManagerOptionList.dispatch("change", {
@@ -1176,7 +1198,7 @@ test("clicking a competing UI component variant only updates the review selectio
   await harness.elements.openUiManagerButton.dispatch("click");
   await flushAsyncWork();
 
-  const redOptionCard = harness.elements.uiManagerOptionList.children[2];
+  const redOptionCard = getUiManagerOptionCard(harness, "Options/Alt/Red");
   redOptionCard.closest = (selector) => selector === "[data-option-path]" ? redOptionCard : null;
   await harness.elements.uiManagerOptionList.dispatch("click", {
     target: redOptionCard
@@ -1188,7 +1210,7 @@ test("clicking a competing UI component variant only updates the review selectio
 
   assert.equal(harness.elements.uiManagerConfirmModal.classList.contains("hidden"), true);
   assert.equal(harness.calls.activateUiOption.length, 0);
-  assert.equal(harness.elements.uiManagerOptionList.children[2].classList.contains("is-selected"), true);
+  assert.equal(getUiManagerOptionCard(harness, "Options/Alt/Red").classList.contains("is-selected"), true);
 });
 
 test("checking a competing UI component variant replaces the flagged bundle for apply", async () => {
@@ -1201,8 +1223,8 @@ test("checking a competing UI component variant replaces the flagged bundle for 
   await harness.elements.openUiManagerButton.dispatch("click");
   await flushAsyncWork();
 
-  const redOptionCard = harness.elements.uiManagerOptionList.children[2];
-  const redOptionCheckbox = redOptionCard.children[0].children[2].children[0];
+  const redOptionCard = getUiManagerOptionCard(harness, "Options/Alt/Red");
+  const redOptionCheckbox = getUiManagerOptionToggle(redOptionCard);
   redOptionCheckbox.checked = true;
   redOptionCheckbox.closest = (selector) => selector === "input[data-option-toggle='true']" ? redOptionCheckbox : null;
   await harness.elements.uiManagerOptionList.dispatch("change", {
@@ -1248,8 +1270,8 @@ test("pending component changes are cleared when a UISkin/package switch becomes
   await harness.elements.openUiManagerButton.dispatch("click");
   await flushAsyncWork();
 
-  const redOptionCard = harness.elements.uiManagerOptionList.children[2];
-  const redOptionCheckbox = redOptionCard.children[0].children[2].children[0];
+  const redOptionCard = getUiManagerOptionCard(harness, "Options/Alt/Red");
+  const redOptionCheckbox = getUiManagerOptionToggle(redOptionCard);
   redOptionCheckbox.checked = true;
   redOptionCheckbox.closest = (selector) => selector === "input[data-option-toggle='true']" ? redOptionCheckbox : null;
   await harness.elements.uiManagerOptionList.dispatch("change", {
@@ -1276,6 +1298,88 @@ test("pending component changes are cleared when a UISkin/package switch becomes
   await flushAsyncWork();
 
   assert.equal(harness.elements.uiManagerApplyOptionButton.disabled, false);
+});
+
+test("ui manager locks mutating controls while prerequisites are installing", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    isInstallingPrerequisites: true
+  });
+
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+
+  const targetInput = harness.elements.uiManagerTargetList.children[0].children[0];
+  targetInput.checked = true;
+  await harness.elements.uiManagerTargetList.dispatch("change", {
+    target: targetInput
+  });
+  await flushAsyncWork();
+
+  const redOptionCard = getUiManagerOptionCard(harness, "Options/Alt/Red");
+  const redOptionCheckbox = getUiManagerOptionToggle(redOptionCard);
+  redOptionCheckbox.checked = true;
+  redOptionCheckbox.closest = (selector) => selector === "input[data-option-toggle='true']" ? redOptionCheckbox : null;
+  await harness.elements.uiManagerOptionList.dispatch("change", {
+    target: redOptionCheckbox
+  });
+  await flushAsyncWork();
+
+  const confirmStageButton = harness.document.getElementById("uiManagerStageConfirmButton");
+  confirmStageButton.dataset.uiManagerStage = "confirm";
+  await harness.elements.uiManagerStageTabs.dispatch("click", {
+    target: {
+      closest(selector) {
+        return selector === "button[data-ui-manager-stage]" ? confirmStageButton : null;
+      }
+    }
+  });
+  await flushAsyncWork();
+
+  const backupRestoreButton = harness.elements.uiManagerBackupList.children[0].children[3];
+  const overviewCalls = harness.calls.getUiManagerOverview;
+
+  assert.equal(harness.elements.uiManagerRefreshButton.disabled, true);
+  assert.equal(harness.elements.uiManagerModalRefreshButton.disabled, true);
+  assert.equal(harness.elements.uiManagerImportButton.disabled, true);
+  assert.equal(harness.elements.uiManagerRecoveryButton.disabled, true);
+  assert.equal(harness.elements.uiManagerApplyOptionButton.disabled, true);
+  assert.equal(harness.elements.uiManagerResetButton.disabled, true);
+  assert.equal(backupRestoreButton.disabled, true);
+
+  await harness.elements.uiManagerRefreshButton.dispatch("click");
+  await harness.elements.uiManagerModalRefreshButton.dispatch("click");
+  await harness.elements.uiManagerImportButton.dispatch("click");
+  await harness.elements.uiManagerApplyOptionButton.dispatch("click");
+  await harness.elements.uiManagerResetButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.calls.getUiManagerOverview, overviewCalls);
+  assert.equal(harness.calls.openUiManagerImportDialog, 0);
+  assert.equal(harness.elements.uiManagerConfirmModal.classList.contains("hidden"), true);
+  assert.match(harness.elements.uiManagerNotice.textContent, /unavailable while prerequisites are installing/i);
+});
+
+test("manual prerequisite fallback opens the Microsoft downloads", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    canInstallPrerequisites: true,
+    prerequisiteDirectXUrl: "https://download.microsoft.com/directx_Jun2010_redist.exe",
+    prerequisiteVcUrl: "https://aka.ms/vc14/vc_redist.x64.exe",
+    statusBadge: "Install Error"
+  });
+
+  assert.equal(harness.elements.manualPrerequisitesButton.classList.contains("hidden"), false);
+
+  await harness.elements.manualPrerequisitesButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.openExternal, [
+    "https://download.microsoft.com/directx_Jun2010_redist.exe",
+    "https://aka.ms/vc14/vc_redist.x64.exe"
+  ]);
 });
 
 test("apply handles pure UISkin/package changes without component diffs", async () => {
@@ -1375,8 +1479,8 @@ test("switching UI packages with pending component changes requires confirmation
   await harness.elements.openUiManagerButton.dispatch("click");
   await flushAsyncWork();
 
-  const redOptionCard = harness.elements.uiManagerOptionList.children[2];
-  const redOptionCheckbox = redOptionCard.children[0].children[2].children[0];
+  const redOptionCard = getUiManagerOptionCard(harness, "Options/Alt/Red");
+  const redOptionCheckbox = getUiManagerOptionToggle(redOptionCard);
   redOptionCheckbox.checked = true;
   redOptionCheckbox.closest = (selector) => selector === "input[data-option-toggle='true']" ? redOptionCheckbox : null;
   await harness.elements.uiManagerOptionList.dispatch("change", {

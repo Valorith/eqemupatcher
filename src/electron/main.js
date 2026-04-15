@@ -187,6 +187,7 @@ ipcMain.handle("launcher:restoreUiManagerBackup", async (_event, options) => bac
 ipcMain.handle("launcher:startPatch", async () => backend.startPatch());
 ipcMain.handle("launcher:cancelPatch", async () => backend.cancelPatch());
 ipcMain.handle("launcher:launchGame", async () => backend.launchGame());
+ipcMain.handle("launcher:installMissingPrerequisites", async () => backend.installMissingPrerequisites());
 ipcMain.handle("launcher:updateSettings", async (_event, patch) => backend.updateSettings(patch));
 ipcMain.handle("launcher:minimizeWindow", async () => {
   if (!mainWindow || mainWindow.isDestroyed()) {

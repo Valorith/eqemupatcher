@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld("launcher", {
   startPatch: () => ipcRenderer.invoke("launcher:startPatch"),
   cancelPatch: () => ipcRenderer.invoke("launcher:cancelPatch"),
   launchGame: () => ipcRenderer.invoke("launcher:launchGame"),
+  installMissingPrerequisites: () => ipcRenderer.invoke("launcher:installMissingPrerequisites"),
   updateSettings: (patch) => ipcRenderer.invoke("launcher:updateSettings", patch),
   minimizeWindow: () => ipcRenderer.invoke("launcher:minimizeWindow"),
   closeWindow: () => ipcRenderer.invoke("launcher:closeWindow"),

@@ -89,6 +89,7 @@ const elements = {
   patchButton: document.getElementById("patchButton"),
   actionStatus: document.getElementById("actionStatus"),
   launchButton: document.getElementById("launchButton"),
+  manualPrerequisitesButton: document.getElementById("manualPrerequisitesButton"),
   refreshButton: document.getElementById("refreshButton"),
   settingsButton: document.getElementById("settingsButton"),
   minimizeButton: document.getElementById("minimizeButton"),
@@ -459,6 +460,12 @@ function closeUiManagerConfirmModal() {
   state.uiManagerConfirmationAction = null;
   elements.uiManagerConfirmModal.classList.add("hidden");
   elements.uiManagerConfirmModal.setAttribute("aria-hidden", "true");
+}
+function isUiManagerActionLocked() {
+  return Boolean(state.current?.isInstallingPrerequisites);
+}
+function setUiManagerLockedNotice() {
+  setUiManagerNotice("UI Manager actions are unavailable while prerequisites are installing.", "info");
 }
 function clearUiManagerNoticeTimeout() {
   if (!uiManagerNoticeTimeoutId) {
@@ -1556,6 +1563,7 @@ function renderUiManagerPreviewAndBackups() {
   const bundle = getUiManagerSelectedBundle();
   const bundleGroups = getUiManagerBundleGroups();
   const selectedPackage = getUiManagerSelectedPackageSummary();
+  const uiManagerLocked = isUiManagerActionLocked();
   const backups = Array.isArray(state.uiManager.detail?.backups) ? state.uiManager.detail.backups : [];
   const backupSummary = state.uiManager.detail?.backupSummary || null;
   elements.uiManagerRecoveryPackageName.textContent = selectedPackage?.name || "No package selected.";
@@ -1706,6 +1714,7 @@ function renderUiManagerPreviewAndBackups() {
     restore.type = "button";
     restore.dataset.backupId = backup.id;
     restore.textContent = "Restore Backup";
+    restore.disabled = uiManagerLocked;
     card.appendChild(restore);
     elements.uiManagerBackupList.appendChild(card);
   }
@@ -1719,6 +1728,7 @@ function renderUiManagerActionState() {
     ? diff.componentChanges.filter((entry) => entry.toPath)
     : [];
   const pendingSkinChanges = Array.isArray(diff.skinChanges) ? diff.skinChanges : [];
+  const uiManagerLocked = isUiManagerActionLocked();
   const canApply = Boolean(
     selectedPackage
       && !selectedPackage.protected
@@ -1726,9 +1736,9 @@ function renderUiManagerActionState() {
   );
   const canReset = Boolean(selectedPackage && selectedPackage.prepared && !selectedPackage.protected);
 
-  elements.uiManagerRecoveryButton.disabled = !selectedPackage;
-  elements.uiManagerApplyOptionButton.disabled = !canApply || state.uiManager.actionLoading || !isConfirmStage;
-  elements.uiManagerResetButton.disabled = !canReset || state.uiManager.actionLoading || !isConfirmStage;
+  elements.uiManagerRecoveryButton.disabled = uiManagerLocked || !selectedPackage;
+  elements.uiManagerApplyOptionButton.disabled = uiManagerLocked || !canApply || state.uiManager.actionLoading || !isConfirmStage;
+  elements.uiManagerResetButton.disabled = uiManagerLocked || !canReset || state.uiManager.actionLoading || !isConfirmStage;
   elements.uiManagerNextStageButton.textContent = activeStage === "components" ? "Review" : "Next";
   elements.uiManagerActionMeta.textContent = activeStage === "targets"
     ? "Stage 1: choose one or more characters, or use All Characters to target every UI settings file."
@@ -1835,6 +1845,11 @@ async function loadUiManagerPackageDetails(packageName, options = {}) {
   }
 }
 async function runUiManagerAction(message, action) {
+  if (isUiManagerActionLocked()) {
+    setUiManagerLockedNotice();
+    renderUiManager();
+    return null;
+  }
   state.uiManager.actionLoading = true;
   setUiManagerNotice(message, "info", { persistent: true });
   renderUiManager();
@@ -1875,6 +1890,11 @@ async function runUiManagerAction(message, action) {
   }
 }
 async function promptUiManagerAction(message, action) {
+  if (isUiManagerActionLocked()) {
+    setUiManagerLockedNotice();
+    renderUiManager();
+    return;
+  }
   openUiManagerConfirmModal(message, async () => {
     closeUiManagerConfirmModal();
     await action();
@@ -2684,6 +2704,37 @@ function derivePresentation(nextState) {
     presentation.actionButtonTone = "patch";
     return presentation;
   }
+  if (nextState.isInstallingPrerequisites) {
+    presentation.chipText = "Installing";
+    presentation.chipTone = "active";
+    presentation.patchStateText = "Installing runtime";
+    presentation.showActionStatus = true;
+    presentation.actionStatusText = nextState.progressLabel || "Installing prerequisites";
+    presentation.actionButtonLabel = "Installing...";
+    presentation.actionButtonAction = "locked";
+    presentation.actionButtonTone = "install-prerequisites";
+    return presentation;
+  }
+  if (nextState.canInstallPrerequisites) {
+    presentation.chipText = nextState.statusBadge === "Install Error"
+      ? "Install Failed"
+      : nextState.statusBadge === "Install Incomplete"
+        ? "Install Incomplete"
+        : "Dependency Missing";
+    presentation.chipTone = "warning";
+    presentation.statusDetailTone = nextState.statusBadge === "Install Error" || nextState.statusBadge === "Install Incomplete" ? "danger" : "default";
+    presentation.patchStateText = nextState.statusBadge === "Install Error"
+      ? "Retry required"
+      : nextState.statusBadge === "Install Incomplete"
+        ? "Runtime unresolved"
+        : "Runtime missing";
+    presentation.actionButtonLabel = nextState.statusBadge === "Install Error" || nextState.statusBadge === "Install Incomplete"
+      ? "Retry Prerequisites"
+      : "Install Prerequisites";
+    presentation.actionButtonAction = "install-prerequisites";
+    presentation.actionButtonTone = "install-prerequisites";
+    return presentation;
+  }
   if (nextState.manifestVersion) {
     presentation.chipText = "Launch Ready";
     presentation.chipTone = "success";
@@ -2763,9 +2814,15 @@ function renderState(nextState) {
     });
   });
   const presentation = derivePresentation(nextState);
+  const prerequisiteInstallLocked = Boolean(nextState.isInstallingPrerequisites);
   const resolvedTitle = nextState.serverName || "Launcher";
-  if (nextState.isPatching) {
+  if (nextState.isPatching || nextState.isInstallingPrerequisites) {
     showConsole();
+  }
+  if (prerequisiteInstallLocked) {
+    closeSettingsModal();
+    closeUiManagerConfirmModal();
+    closeUiManagerPackageContextMenu();
   }
   elements.statusChip.textContent = presentation.chipText;
   elements.statusChip.dataset.tone = presentation.chipTone;
@@ -2780,7 +2837,7 @@ function renderState(nextState) {
   elements.patchButton.dataset.originalText = presentation.patchLabel;
   elements.patchButton.textContent = presentation.patchLabel;
   elements.patchButton.dataset.action = presentation.patchAction;
-  elements.patchButton.disabled = presentation.patchAction === "cancel" ? false : !nextState.canPatch;
+  elements.patchButton.disabled = prerequisiteInstallLocked || (presentation.patchAction === "cancel" ? false : !nextState.canPatch);
   const showStandalonePatchAction = presentation.actionButtonAction === "patch" && !presentation.showActionStatus;
   elements.patchButton.classList.toggle("hidden", showStandalonePatchAction);
   elements.actionsRow.classList.toggle("single-action", showStandalonePatchAction);
@@ -2792,17 +2849,31 @@ function renderState(nextState) {
   elements.launchButton.textContent = presentation.actionButtonLabel;
   elements.launchButton.classList.toggle("launch-button", presentation.actionButtonTone === "launch");
   elements.launchButton.classList.toggle("start-patch-button", presentation.actionButtonTone === "patch");
+  elements.launchButton.classList.toggle("install-prerequisites-button", presentation.actionButtonTone === "install-prerequisites");
   elements.launchButton.classList.toggle("unsupported-launch-button", presentation.actionButtonTone === "unsupported");
   elements.launchButton.classList.toggle("attention-pulse", showStandalonePatchAction);
   elements.launchButton.disabled =
     nextState.isPatching ||
     (presentation.actionButtonAction === "launch" && !nextState.canLaunch) ||
     (presentation.actionButtonAction === "patch" && !nextState.canPatch) ||
-    !["launch", "patch"].includes(presentation.actionButtonAction);
+    (presentation.actionButtonAction === "install-prerequisites" && nextState.isInstallingPrerequisites) ||
+    !["launch", "patch", "install-prerequisites"].includes(presentation.actionButtonAction);
   elements.autoPatchToggle.checked = nextState.autoPatch;
   elements.autoPlayToggle.checked = nextState.autoPlay;
+  elements.autoPatchToggle.disabled = prerequisiteInstallLocked;
+  elements.autoPlayToggle.disabled = prerequisiteInstallLocked;
   elements.onGameLaunchSelect.value = nextState.onGameLaunch === "close" ? "close" : "minimize";
-  elements.openGameDirectoryButton.disabled = !nextState.gameDirectory;
+  elements.onGameLaunchSelect.disabled = prerequisiteInstallLocked;
+  elements.refreshButton.disabled = prerequisiteInstallLocked;
+  elements.settingsButton.disabled = prerequisiteInstallLocked;
+  elements.openConfigButton.disabled = prerequisiteInstallLocked;
+  elements.openGameDirectoryButton.disabled = prerequisiteInstallLocked || !nextState.gameDirectory;
+  elements.uiManagerRefreshButton.disabled = prerequisiteInstallLocked;
+  elements.uiManagerModalRefreshButton.disabled = prerequisiteInstallLocked;
+  elements.uiManagerImportButton.disabled = prerequisiteInstallLocked;
+  const hasManualPrerequisiteFallback = Boolean(nextState.canInstallPrerequisites && nextState.prerequisiteDirectXUrl && nextState.prerequisiteVcUrl);
+  elements.manualPrerequisitesButton.classList.toggle("hidden", !hasManualPrerequisiteFallback);
+  elements.manualPrerequisitesButton.disabled = prerequisiteInstallLocked || !hasManualPrerequisiteFallback;
   if (nextState.reportUrl) {
     elements.reportLink.classList.remove("hidden");
     elements.reportLink.href = nextState.reportUrl;
@@ -2873,6 +2944,9 @@ function wireEvents() {
     await window.launcher.openExternal(link.href);
   });
   elements.refreshButton.addEventListener("click", async () => {
+    if (state.current?.isInstallingPrerequisites) {
+      return;
+    }
     setBusy(elements.refreshButton, "Syncing...", true);
     try {
       const [nextState] = await Promise.all([
@@ -2888,6 +2962,9 @@ function wireEvents() {
     }
   });
   elements.settingsButton.addEventListener("click", () => {
+    if (state.current?.isInstallingPrerequisites) {
+      return;
+    }
     openSettingsModal();
   });
   elements.settingsCloseButton.addEventListener("click", () => {
@@ -2963,9 +3040,19 @@ function wireEvents() {
     }
   });
   elements.uiManagerRefreshButton.addEventListener("click", async () => {
+    if (isUiManagerActionLocked()) {
+      setUiManagerLockedNotice();
+      renderUiManager();
+      return;
+    }
     await loadUiManagerOverview();
   });
   elements.uiManagerModalRefreshButton.addEventListener("click", async () => {
+    if (isUiManagerActionLocked()) {
+      setUiManagerLockedNotice();
+      renderUiManager();
+      return;
+    }
     await loadUiManagerOverview();
   });
   elements.uiManagerRecoveryButton.addEventListener("click", () => {
@@ -2987,6 +3074,11 @@ function wireEvents() {
     closeUiManagerRecoveryModal();
   });
   elements.uiManagerImportButton.addEventListener("click", async () => {
+    if (isUiManagerActionLocked()) {
+      setUiManagerLockedNotice();
+      renderUiManager();
+      return;
+    }
     const result = await window.launcher.openUiManagerImportDialog();
     if (result?.canceled || !result?.sourcePath) {
       return;
@@ -3003,6 +3095,11 @@ function wireEvents() {
   elements.uiManagerDropZone.addEventListener("drop", async (event) => {
     event.preventDefault();
     elements.uiManagerDropZone.classList.remove("is-dragging");
+    if (isUiManagerActionLocked()) {
+      setUiManagerLockedNotice();
+      renderUiManager();
+      return;
+    }
     const droppedPath = event.dataTransfer?.files?.[0]?.path;
     if (!droppedPath) {
       setUiManagerNotice("Drop a folder from your filesystem to import it.", "error");
@@ -3181,6 +3278,11 @@ function wireEvents() {
     if (!button || !state.uiManager.selectedPackageName) {
       return;
     }
+    if (isUiManagerActionLocked()) {
+      setUiManagerLockedNotice();
+      renderUiManager();
+      return;
+    }
     await promptUiManagerAction(
       `Restore backup ${button.dataset.backupId}? This will replace the current package files and restore any INI snapshots captured in that backup.`,
       async () => {
@@ -3221,6 +3323,11 @@ function wireEvents() {
     renderUiManager();
   });
   elements.uiManagerApplyOptionButton.addEventListener("click", async () => {
+    if (isUiManagerActionLocked()) {
+      setUiManagerLockedNotice();
+      renderUiManager();
+      return;
+    }
     const diff = buildUiManagerConfirmationDiff();
     const pendingComponentChanges = Array.isArray(diff.componentChanges)
       ? diff.componentChanges.filter((entry) => entry.toPath)
@@ -3270,6 +3377,11 @@ function wireEvents() {
     );
   });
   elements.uiManagerResetButton.addEventListener("click", async () => {
+    if (isUiManagerActionLocked()) {
+      setUiManagerLockedNotice();
+      renderUiManager();
+      return;
+    }
     if (!state.uiManager.selectedPackageName) {
       return;
     }
@@ -3340,6 +3452,9 @@ function wireEvents() {
     await window.launcher.openExternal(href);
   });
   elements.patchButton.addEventListener("click", async () => {
+    if (state.current?.isInstallingPrerequisites) {
+      return;
+    }
     const action = elements.patchButton.dataset.action;
     if (action === "cancel") {
       await window.launcher.cancelPatch();
@@ -3358,19 +3473,49 @@ function wireEvents() {
       await window.launcher.startPatch();
       return;
     }
+    if (action === "install-prerequisites") {
+      showConsole();
+      await window.launcher.installMissingPrerequisites();
+      return;
+    }
     if (action === "launch") {
       await window.launcher.launchGame();
     }
   });
+  elements.manualPrerequisitesButton.addEventListener("click", async () => {
+    const directxUrl = state.current?.prerequisiteDirectXUrl || "";
+    const vcUrl = state.current?.prerequisiteVcUrl || "";
+    if (!directxUrl || !vcUrl || state.current?.isInstallingPrerequisites) {
+      return;
+    }
+
+    showConsole();
+    pushLog({
+      text: "Opening Microsoft prerequisite downloads for manual installation.",
+      tone: "info",
+      timestamp: new Date().toISOString()
+    });
+    await window.launcher.openExternal(directxUrl);
+    await window.launcher.openExternal(vcUrl);
+  });
   elements.autoPatchToggle.addEventListener("change", async () => {
+    if (state.current?.isInstallingPrerequisites) {
+      return;
+    }
     const nextState = await window.launcher.updateSettings({ autoPatch: elements.autoPatchToggle.checked });
     renderState(nextState);
   });
   elements.autoPlayToggle.addEventListener("change", async () => {
+    if (state.current?.isInstallingPrerequisites) {
+      return;
+    }
     const nextState = await window.launcher.updateSettings({ autoPlay: elements.autoPlayToggle.checked });
     renderState(nextState);
   });
   elements.onGameLaunchSelect.addEventListener("change", async () => {
+    if (state.current?.isInstallingPrerequisites) {
+      return;
+    }
     const nextState = await window.launcher.updateSettings({ onGameLaunch: elements.onGameLaunchSelect.value });
     renderState(nextState);
   });
@@ -3381,6 +3526,9 @@ function wireEvents() {
     }
   });
   elements.openConfigButton.addEventListener("click", async () => {
+    if (state.current?.isInstallingPrerequisites) {
+      return;
+    }
     await runUtilityAction(
       () => window.launcher.openConfigFile(),
       "Opened launcher config:",
@@ -3388,6 +3536,9 @@ function wireEvents() {
     );
   });
   elements.openGameDirectoryButton.addEventListener("click", async () => {
+    if (state.current?.isInstallingPrerequisites) {
+      return;
+    }
     await runUtilityAction(
       () => window.launcher.openGameDirectory(),
       "Opened game directory:",
