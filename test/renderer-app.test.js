@@ -10,6 +10,10 @@ const {
 } = require("../src/electron/renderer/patch-notes-state");
 
 const APP_SOURCE = fs.readFileSync(path.join(__dirname, "..", "src", "electron", "renderer", "app.js"), "utf8");
+const RENDERER_INDEX_SOURCE = fs.readFileSync(
+  path.join(__dirname, "..", "src", "electron", "renderer", "index.html"),
+  "utf8"
+);
 const PATCH_NOTES_READ_STORAGE_KEY = "eqemu-launcher.patchNotesRead";
 const PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY = "eqemu-launcher.patchNotesReadInitialized";
 
@@ -724,6 +728,19 @@ test("renderer bootstrap defers patch notes loading until they are needed", asyn
   assert.equal(harness.calls.getPatchNotes.length, 0);
   assert.equal(harness.elements.notesTabButton.classList.contains("has-unread"), false);
   assert.equal(harness.elements.patchNotesPromptModal.classList.contains("hidden"), true);
+});
+
+test("launcher tools menu points Alla and Nexus at the expected URLs", () => {
+  assert.match(
+    RENDERER_INDEX_SOURCE,
+    /href="https:\/\/alla\.clumsysworld\.com\/"[\s\S]*?>\s*Alla\s*</
+  );
+  assert.match(
+    RENDERER_INDEX_SOURCE,
+    /href="https:\/\/nexus\.clumsysworld\.com\/"[\s\S]*?>\s*Nexus\s*</
+  );
+  assert.doesNotMatch(RENDERER_INDEX_SOURCE, />\s*Raid Manager\s*</);
+  assert.doesNotMatch(RENDERER_INDEX_SOURCE, /cw-raid-manager-server-production\.up\.railway\.app\/dashboard/);
 });
 
 test("opening the notes tab loads patch notes and stores the baseline read state", async () => {
