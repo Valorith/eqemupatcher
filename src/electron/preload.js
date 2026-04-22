@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld("launcher", {
   installMissingPrerequisites: () => ipcRenderer.invoke("launcher:installMissingPrerequisites"),
   updateSettings: (patch) => ipcRenderer.invoke("launcher:updateSettings", patch),
   minimizeWindow: () => ipcRenderer.invoke("launcher:minimizeWindow"),
+  toggleMaximizeWindow: () => ipcRenderer.invoke("launcher:toggleMaximizeWindow"),
   closeWindow: () => ipcRenderer.invoke("launcher:closeWindow"),
   openExternal: (url) => ipcRenderer.invoke("launcher:openExternal", url),
   openConfigFile: () => ipcRenderer.invoke("launcher:openConfigFile"),

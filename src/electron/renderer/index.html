@@ -20,7 +20,12 @@
       <header class="topbar">
         <div class="topbar-copy">
           <p class="eyebrow">An EverQuest Emulated Server</p>
-          <h1 id="titleValue" class="title">Resolving</h1>
+          <h1 id="titleValue" class="title title-wordmark">Resolving</h1>
+          <div class="title-divider" aria-hidden="true">
+            <span class="title-divider-line"></span>
+            <span class="title-divider-glyph"></span>
+            <span class="title-divider-line"></span>
+          </div>
           <div class="topbar-links">
             <a
               id="websiteLink"
@@ -85,10 +90,24 @@
         </div>
         <div class="topbar-side">
           <div class="window-controls" aria-label="Window controls">
-            <button id="minimizeButton" class="window-control" type="button" aria-label="Minimize window">-</button>
-            <button id="closeButton" class="window-control window-control-close" type="button" aria-label="Close window">×</button>
+            <button id="minimizeButton" class="window-control" type="button" aria-label="Minimize window">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M5 12.5H19" />
+              </svg>
+            </button>
+            <button id="maximizeButton" class="window-control" type="button" aria-label="Maximize or restore window">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M7 7.5H17V17.5H7Z" />
+              </svg>
+            </button>
+            <button id="closeButton" class="window-control window-control-close" type="button" aria-label="Close window">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M7 7L17 17" />
+                <path d="M17 7L7 17" />
+              </svg>
+            </button>
           </div>
-          <button id="discordButton" class="icon-button discord-button" type="button" aria-label="Open Discord server" title="Open Discord server">
+          <button id="discordButton" class="icon-button discord-button hidden" type="button" aria-label="Open Discord server" title="Open Discord server">
             <svg viewBox="0 0 127.14 96.36" aria-hidden="true" focusable="false">
               <path
                 d="M107.7 8.07A105.15 105.15 0 0 0 81.47 0a72.06 72.06 0 0 0-3.36 6.83 97.68 97.68 0 0 0-29.09 0A72.37 72.37 0 0 0 45.64 0a105.89 105.89 0 0 0-26.24 8.09C2.79 33.35-1.71 57.94.54 82.18a105.73 105.73 0 0 0 32.17 16.18 77.7 77.7 0 0 0 6.89-11.2 68.42 68.42 0 0 1-10.85-5.18c.91-.66 1.8-1.35 2.66-2.08a75.57 75.57 0 0 0 64.32 0c.87.73 1.76 1.42 2.66 2.08a68.68 68.68 0 0 1-10.87 5.19 77 77 0 0 0 6.89 11.19 105.25 105.25 0 0 0 32.19-16.18c2.64-28.07-4.5-52.44-18.9-74.11ZM42.45 65.69c-6.27 0-11.4-5.73-11.4-12.8s5-12.8 11.4-12.8c6.41 0 11.52 5.76 11.4 12.8 0 7.07-5.01 12.8-11.4 12.8Zm42.24 0c-6.27 0-11.4-5.73-11.4-12.8s5-12.8 11.4-12.8c6.41 0 11.52 5.76 11.4 12.8 0 7.07-5 12.8-11.4 12.8Z"
@@ -99,124 +118,126 @@
       </header>
 
       <main class="layout">
-        <section id="leftStage" class="left-stage">
-          <section class="hero-card panel">
-            <div class="hero-image-wrap">
-              <img id="heroImage" alt="Client artwork" />
-            </div>
-          </section>
-
-          <section class="console-card panel">
-            <div class="panel-heading">
-              <div>
-                <p class="eyebrow">Operations Console</p>
-                <h2 class="section-title">Patch Feed</h2>
-              </div>
-              <div class="progress-meta">
-                <span id="progressLabel">Waiting for input</span>
-                <strong id="progressValue">0 / 1</strong>
-              </div>
-            </div>
-            <div class="progress-rail">
-              <div id="progressBar" class="progress-fill"></div>
-            </div>
-            <div class="log-frame" id="logFrame">
-              <p class="log-placeholder" id="logPlaceholder">No activity yet. Manifest sync, hashing, downloads, and launch events will appear here.</p>
-              <div id="logList" class="log-list"></div>
-            </div>
-          </section>
-        </section>
-
         <section class="panel command-card">
-          <div class="panel-heading command-heading">
-            <div>
-              <div class="tab-strip" role="tablist" aria-label="Launcher panels">
-                <button id="patchTabButton" class="tab-button is-active" type="button" role="tab" aria-selected="true" aria-controls="patchTabPanel">Patch</button>
-                <button id="notesTabButton" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="notesTabPanel">Patch Notes</button>
-                <button id="uiManagerTabButton" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="uiManagerTabPanel">
-                  UI Manager
-                  <span class="ui-manager-beta-badge ui-manager-beta-badge-tab">Beta</span>
-                </button>
-              </div>
-            </div>
-            <div class="toolbar-actions">
-              <button id="refreshButton" class="ghost-button refresh-button" type="button" aria-label="Refresh patch state" title="Refresh patch state">
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <path d="M20 12a8 8 0 1 1-2.34-5.66" />
-                  <path d="M20 4v6h-6" />
-                </svg>
-              </button>
-              <button id="settingsButton" class="ghost-button icon-button" type="button" aria-label="Open settings" title="Open settings">
-                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                  <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.58.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.48a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.31.6.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54c.04.24.25.42.49.42h3.8c.24 0 .45-.18.49-.42l.36-2.54c.58-.23 1.12-.54 1.63-.94l2.39.96c.22.09.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z" />
-                </svg>
-              </button>
-            </div>
-          </div>
           <section id="patchTabPanel" class="tab-panel" role="tabpanel" aria-labelledby="patchTabButton">
-            <p class="eyebrow">Session State</p>
-            <div class="summary-grid">
-              <div class="summary-item">
-                <span class="summary-label">Server</span>
-                <strong id="serverValue">Resolving</strong>
-              </div>
-              <div class="summary-item">
-                <span class="summary-label">Client</span>
-                <strong id="clientValue">Unknown</strong>
-              </div>
-              <div class="summary-item">
-                <span class="summary-label">Patch State</span>
-                <strong id="patchStateValue">Idle</strong>
-              </div>
-            </div>
-            <div class="status-panel session-status">
-              <div class="session-status-copy">
-                <span class="status-caption">Current State</span>
-                <p id="statusDetail" class="status-detail">Checking the current patch state.</p>
-              </div>
-              <div class="status-chip" id="statusChip">Standby</div>
-            </div>
-            <div class="actions-cluster">
-              <div class="panel-heading compact-heading">
-                <p class="eyebrow">Patcher Controls</p>
-              </div>
-              <div id="actionsRow" class="actions-row">
-                <button id="patchButton" class="primary-button" disabled>Verify Integrity</button>
-                <div class="action-slot">
-                  <div id="actionStatus" class="action-status">Checking for patch</div>
-                  <button id="launchButton" class="secondary-button launch-button hidden">Launch Game</button>
+            <div id="leftStage" class="patch-panel">
+              <div class="patch-primary">
+                <div class="patch-section">
+                  <p class="eyebrow section-heading">Session Status</p>
+                  <div class="summary-stack">
+                    <article class="summary-item summary-item-rich">
+                      <div class="summary-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" focusable="false">
+                          <rect x="5" y="4" width="14" height="4" rx="1"></rect>
+                          <rect x="5" y="10" width="14" height="4" rx="1"></rect>
+                          <rect x="5" y="16" width="14" height="4" rx="1"></rect>
+                          <path d="M8 6h.01M8 12h.01M8 18h.01"></path>
+                        </svg>
+                      </div>
+                      <div class="summary-copy">
+                        <span class="summary-label">Server</span>
+                        <strong id="serverValue">Resolving</strong>
+                      </div>
+                    </article>
+                    <article class="summary-item summary-item-rich">
+                      <div class="summary-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" focusable="false">
+                          <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"></path>
+                          <path d="M5 20a7 7 0 0 1 14 0"></path>
+                        </svg>
+                      </div>
+                      <div class="summary-copy">
+                        <span class="summary-label">Client</span>
+                        <strong id="clientValue">Unknown</strong>
+                      </div>
+                    </article>
+                    <article class="summary-item summary-item-rich">
+                      <div class="summary-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" focusable="false">
+                          <path d="M12 3l7 3v5c0 5-2.9 8.7-7 10-4.1-1.3-7-5-7-10V6l7-3Z"></path>
+                          <path d="M9.5 12.25 11.25 14l3.5-3.75"></path>
+                        </svg>
+                      </div>
+                      <div class="summary-copy">
+                        <span class="summary-label">Patch State</span>
+                        <strong id="patchStateValue">Idle</strong>
+                      </div>
+                    </article>
+                  </div>
+                </div>
+
+                <div class="patch-section current-state-block">
+                  <div class="current-state-header">
+                    <div>
+                      <p class="eyebrow section-heading">Current State</p>
+                      <p id="statusDetail" class="status-detail">Checking the current patch state.</p>
+                    </div>
+                    <div class="status-chip" id="statusChip">Standby</div>
+                  </div>
+                  <div class="progress-shell">
+                    <div class="progress-meta progress-meta-inline">
+                      <span id="progressLabel">Waiting for input</span>
+                      <strong id="progressValue">0 / 1</strong>
+                    </div>
+                    <div class="progress-rail">
+                      <div id="progressBar" class="progress-fill"></div>
+                    </div>
+                  </div>
+                  <div class="activity-block">
+                    <div class="activity-heading-row">
+                      <span class="eyebrow eyebrow-subtle">Operations Feed</span>
+                    </div>
+                    <div class="log-frame" id="logFrame">
+                      <p class="log-placeholder" id="logPlaceholder">No activity yet. Manifest sync, hashing, downloads, and launch events will appear here.</p>
+                      <div id="logList" class="log-list"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="actions-cluster">
+                  <div class="panel-heading compact-heading">
+                    <p class="eyebrow">Launcher Controls</p>
+                  </div>
+                  <div id="actionsRow" class="actions-row">
+                    <button id="patchButton" class="secondary-button utility-button patch-utility-button" disabled>Verify Integrity</button>
+                    <div class="action-slot">
+                      <div id="actionStatus" class="action-status">Checking for patch</div>
+                      <button id="launchButton" class="primary-button launch-button hidden">Launch Game</button>
+                    </div>
+                  </div>
+                  <div class="toggle-row">
+                    <label class="toggle">
+                      <input id="autoPatchToggle" type="checkbox" />
+                      <span class="toggle-track"></span>
+                      <span class="toggle-label">Auto Patch</span>
+                    </label>
+                    <label class="toggle">
+                      <input id="autoPlayToggle" type="checkbox" />
+                      <span class="toggle-track"></span>
+                      <span class="toggle-label">Auto Play</span>
+                    </label>
+                  </div>
+                  <div class="support-links">
+                    <button id="manualPrerequisitesButton" class="secondary-button utility-button manual-prerequisites-button hidden" type="button">Manual Install</button>
+                    <a id="reportLink" class="report-link hidden" href="#">Report unknown client hash</a>
+                  </div>
                 </div>
               </div>
-              <div class="toggle-row">
-                <label class="toggle">
-                  <input id="autoPatchToggle" type="checkbox" />
-                  <span class="toggle-track"></span>
-                  <span class="toggle-label">Auto Patch</span>
-                </label>
-                <label class="toggle">
-                  <input id="autoPlayToggle" type="checkbox" />
-                  <span class="toggle-track"></span>
-                  <span class="toggle-label">Auto Play</span>
-                </label>
-              </div>
-              <button id="manualPrerequisitesButton" class="secondary-button utility-button manual-prerequisites-button hidden" type="button">Manual Install</button>
-              <a id="reportLink" class="report-link hidden" href="#">Report unknown client hash</a>
             </div>
           </section>
           <section id="notesTabPanel" class="tab-panel hidden" role="tabpanel" aria-labelledby="notesTabButton">
             <div class="notes-panel">
-              <div class="notes-header">
-                <p class="eyebrow">Patch Notes</p>
-                <div class="notes-tools">
-                  <input id="notesSearchInput" class="notes-search-input" type="search" placeholder="Search patch notes..." aria-label="Search patch notes">
-                  <div class="notes-search-nav" role="group" aria-label="Search match navigation">
-                    <button id="notesPrevMatchButton" class="notes-nav-button" type="button" aria-label="Previous search match" title="Previous match">↑</button>
-                    <button id="notesNextMatchButton" class="notes-nav-button" type="button" aria-label="Next search match" title="Next match">↓</button>
-                  </div>
-                  <span id="notesMeta" class="notes-meta">Loading...</span>
-                </div>
-              </div>
               <div id="notesCard" class="notes-card" tabindex="0">
+                <div class="notes-card-toolbar">
+                  <p class="eyebrow notes-card-label">Patch Notes</p>
+                  <div class="notes-tools">
+                    <input id="notesSearchInput" class="notes-search-input" type="search" placeholder="Search patch notes..." aria-label="Search patch notes">
+                    <div class="notes-search-nav" role="group" aria-label="Search match navigation">
+                      <button id="notesPrevMatchButton" class="notes-nav-button" type="button" aria-label="Previous search match" title="Previous match">↑</button>
+                      <button id="notesNextMatchButton" class="notes-nav-button" type="button" aria-label="Next search match" title="Next match">↓</button>
+                    </div>
+                  </div>
+                </div>
                 <div id="notesContent" class="notes-markdown"></div>
               </div>
             </div>
@@ -250,27 +271,72 @@
                   <strong id="uiManagerTargetCount">0</strong>
                 </div>
               </div>
-              <div class="ui-manager-preview-card">
-                <div class="ui-manager-preview-copy">
-                  <span class="status-caption">Current Focus</span>
-                  <p id="uiManagerPreviewName" class="ui-manager-preview-name">Load UI package data to begin.</p>
-                  <p id="uiManagerPreviewMeta" class="ui-manager-preview-meta">The launcher will scan `uifiles` and character UI settings from your current EQ directory.</p>
-                </div>
-                <div id="uiManagerStatusBadge" class="status-chip ui-manager-status-badge" data-tone="attention">Standby</div>
-              </div>
             </div>
           </section>
         </section>
-      </main>
-      <footer class="app-footer">
-        <div id="launcherUpdatePanel" class="launcher-update-panel hidden" aria-live="polite">
-          <div class="launcher-update-copy">
-            <span id="launcherUpdateMeta" class="launcher-update-meta">Launcher update</span>
-            <span id="launcherUpdateMessage" class="launcher-update-message">Checking for launcher updates...</span>
+
+        <section class="panel hero-stage" aria-label="Launcher artwork">
+          <div class="hero-stage-diagonal" aria-hidden="true">
+            <span class="hero-stage-diagonal-line hero-stage-diagonal-line-primary"></span>
+            <span class="hero-stage-diagonal-line hero-stage-diagonal-line-secondary"></span>
+            <span class="hero-stage-emblem"><span>C</span></span>
           </div>
-          <div class="launcher-update-actions">
-            <button id="launcherUpdateActionButton" class="secondary-button launcher-update-button hidden" type="button"></button>
-            <button id="launcherUpdateLinkButton" class="ghost-button launcher-update-link hidden" type="button">View Release</button>
+          <div class="hero-image-wrap">
+            <img class="hero-background-image" src="../assets/hero/generated/dragon-cavern-v1.png" alt="" aria-hidden="true" />
+            <img id="heroImage" class="hero-client-image" alt="Client artwork" />
+          </div>
+          <div class="hero-wordmark-panel">
+            <img
+              id="heroWordmarkImage"
+              class="hero-wordmark-image hidden"
+              src="../assets/branding/clumsys-world-wordmark-cwt.png"
+              alt="Clumsy's World Resurgence"
+            />
+            <div id="heroWordmark" class="hero-wordmark">Resolving</div>
+            <div class="hero-wordmark-rule" aria-hidden="true">
+              <span class="hero-wordmark-rule-line"></span>
+              <span class="hero-wordmark-rule-glyph"></span>
+              <span class="hero-wordmark-rule-line"></span>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <div class="footer-tab-shell">
+          <div class="tab-strip" role="tablist" aria-label="Launcher panels">
+            <button id="patchTabButton" class="tab-button is-active" type="button" role="tab" aria-selected="true" aria-controls="patchTabPanel">Patch</button>
+            <button id="notesTabButton" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="notesTabPanel">Patch Notes</button>
+            <button id="uiManagerTabButton" class="tab-button" type="button" role="tab" aria-selected="false" aria-controls="uiManagerTabPanel">
+              UI Manager
+              <span class="ui-manager-beta-badge ui-manager-beta-badge-tab">Beta</span>
+            </button>
+          </div>
+        </div>
+        <div class="footer-utility-shell">
+          <div id="launcherUpdatePanel" class="launcher-update-panel" aria-live="polite">
+            <div class="launcher-update-copy">
+              <span id="patcherVersionValue" class="patcher-version">Patcher v0.0.0</span>
+              <span id="launcherUpdateMeta" class="launcher-update-meta">Launcher update</span>
+              <span id="launcherUpdateMessage" class="launcher-update-message">Checking for launcher updates...</span>
+            </div>
+            <div class="launcher-update-actions">
+              <button id="launcherUpdateActionButton" class="secondary-button launcher-update-button hidden" type="button"></button>
+              <button id="launcherUpdateLinkButton" class="ghost-button launcher-update-link hidden" type="button">View Release</button>
+            </div>
+          </div>
+          <div class="footer-toolbar-actions">
+            <button id="settingsButton" class="ghost-button icon-button footer-icon-button" type="button" aria-label="Open settings" title="Open settings">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.58.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.48a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.31.6.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54c.04.24.25.42.49.42h3.8c.24 0 .45-.18.49-.42l.36-2.54c.58-.23 1.12-.54 1.63-.94l2.39.96c.22.09.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58ZM12 15.5A3.5 3.5 0 1 1 12 8a3.5 3.5 0 0 1 0 7.5Z" />
+              </svg>
+            </button>
+            <button id="refreshButton" class="ghost-button refresh-button footer-icon-button" type="button" aria-label="Refresh patch state" title="Refresh patch state">
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M20 12a8 8 0 1 1-2.34-5.66" />
+                <path d="M20 4v6h-6" />
+              </svg>
+            </button>
           </div>
         </div>
       </footer>
@@ -607,6 +673,7 @@
     </div>
 
     <script src="./patch-notes-state.js"></script>
+    <script src="./browser-preview.js"></script>
     <script src="./app.js"></script>
   </body>
 </html>

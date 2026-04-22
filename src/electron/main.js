@@ -1,12 +1,22 @@
 const path = require("path");
 const { BrowserWindow, app, dialog, ipcMain, shell } = require("electron");
 const { LauncherBackend } = require("./backend/launcher-backend");
+const packageMetadata = require("../../package.json");
 
 let mainWindow = null;
 let backend = null;
 const windowsIconPath = path.join(__dirname, "assets", "icons", "icon-app.ico");
 const defaultIconPath = path.join(__dirname, "assets", "icons", "icon-app.png");
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+function resolveAppVersion() {
+  const packageVersion = String(packageMetadata?.version || "").trim();
+  if (packageVersion) {
+    return packageVersion;
+  }
+
+  return app.getVersion();
+}
 
 function resolveLaunchDirectory() {
   if (process.env.EQEMU_LAUNCH_DIR) {
@@ -97,7 +107,7 @@ async function createBackend() {
     launchDirectory: resolveLaunchDirectory(),
     runtimeDirectory: path.dirname(runtimeExecutablePath),
     eventSink: emitToRenderer,
-    appVersion: app.getVersion(),
+    appVersion: resolveAppVersion(),
     executablePath: resolveLauncherExecutablePath(),
     processId: process.pid,
     relaunchArgs: process.argv.slice(1),
@@ -141,7 +151,7 @@ if (hasSingleInstanceLock) {
 }
 
 ipcMain.handle("launcher:initialize", async () => backend.initialize());
-ipcMain.handle("launcher:getVersion", async () => app.getVersion());
+ipcMain.handle("launcher:getVersion", async () => resolveAppVersion());
 ipcMain.handle("launcher:refreshState", async () => backend.refreshState());
 ipcMain.handle("launcher:getPatchNotes", async (_event, options) => backend.getPatchNotes(options || {}));
 ipcMain.handle("launcher:checkForLauncherUpdate", async (_event, options) => backend.checkForLauncherUpdate(options || {}));
@@ -195,6 +205,19 @@ ipcMain.handle("launcher:minimizeWindow", async () => {
   }
 
   mainWindow.minimize();
+  return true;
+});
+ipcMain.handle("launcher:toggleMaximizeWindow", async () => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return false;
+  }
+
+  if (mainWindow.isMaximized()) {
+    mainWindow.unmaximize();
+    return true;
+  }
+
+  mainWindow.maximize();
   return true;
 });
 ipcMain.handle("launcher:closeWindow", async () => {

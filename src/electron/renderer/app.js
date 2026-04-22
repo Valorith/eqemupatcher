@@ -53,6 +53,7 @@ const state = {
   }
 };
 let uiManagerNoticeTimeoutId = null;
+let processedHeroWordmarkSource = "";
 const PATCH_NOTES_READ_STORAGE_KEY = "eqemu-launcher.patchNotesRead";
 const PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY = "eqemu-launcher.patchNotesReadInitialized";
 const { createPatchNotesReadTracker, getPatchNotesSignature, shouldLoadPatchNotes } = window.PatchNotesState;
@@ -66,6 +67,8 @@ const elements = {
   statusChip: document.getElementById("statusChip"),
   statusDetail: document.getElementById("statusDetail"),
   heroImage: document.getElementById("heroImage"),
+  heroWordmark: document.getElementById("heroWordmark"),
+  heroWordmarkImage: document.getElementById("heroWordmarkImage"),
   titleValue: document.getElementById("titleValue"),
   websiteLink: document.getElementById("websiteLink"),
   toolsButton: document.getElementById("toolsButton"),
@@ -93,6 +96,7 @@ const elements = {
   refreshButton: document.getElementById("refreshButton"),
   settingsButton: document.getElementById("settingsButton"),
   minimizeButton: document.getElementById("minimizeButton"),
+  maximizeButton: document.getElementById("maximizeButton"),
   closeButton: document.getElementById("closeButton"),
   discordButton: document.getElementById("discordButton"),
   autoPatchToggle: document.getElementById("autoPatchToggle"),
@@ -124,6 +128,7 @@ const elements = {
   launcherUpdateLaterButton: document.getElementById("launcherUpdateLaterButton"),
   launcherUpdateNowButton: document.getElementById("launcherUpdateNowButton"),
   launcherUpdatePanel: document.getElementById("launcherUpdatePanel"),
+  patcherVersionValue: document.getElementById("patcherVersionValue"),
   launcherUpdateMeta: document.getElementById("launcherUpdateMeta"),
   launcherUpdateMessage: document.getElementById("launcherUpdateMessage"),
   launcherUpdateActionButton: document.getElementById("launcherUpdateActionButton"),
@@ -237,6 +242,115 @@ function clearElementContent(element) {
   if (Array.isArray(element.children)) {
     element.children.length = 0;
   }
+}
+function splitDisplayTitle(title) {
+  const normalized = String(title || "").trim() || "Launcher";
+  const colonMatch = normalized.match(/^(.+?:)\s*(.+)$/);
+  if (colonMatch) {
+    return {
+      primary: colonMatch[1],
+      secondary: colonMatch[2]
+    };
+  }
+
+  const words = normalized.split(/\s+/).filter(Boolean);
+  if (words.length <= 1) {
+    return {
+      primary: normalized,
+      secondary: ""
+    };
+  }
+
+  return {
+    primary: words.slice(0, -1).join(" "),
+    secondary: words.at(-1)
+  };
+}
+function renderDisplayTitle(element, title) {
+  if (!element) {
+    return;
+  }
+
+  clearElementContent(element);
+  const parts = splitDisplayTitle(title);
+  const primary = document.createElement("span");
+  primary.className = "wordmark-line wordmark-line-primary";
+  primary.textContent = parts.primary;
+  element.appendChild(primary);
+
+  if (parts.secondary) {
+    const secondary = document.createElement("span");
+    secondary.className = "wordmark-line wordmark-line-secondary";
+    secondary.textContent = parts.secondary;
+    element.appendChild(secondary);
+  }
+}
+function shouldUseBrandedHeroWordmark(title) {
+  const normalized = String(title || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[\s]+/g, " ");
+  return normalized === "clumsy's world: resurgence";
+}
+async function prepareBrandedHeroWordmark() {
+  if (!elements.heroWordmarkImage || processedHeroWordmarkSource) {
+    return processedHeroWordmarkSource;
+  }
+
+  const source = elements.heroWordmarkImage.getAttribute("src") || elements.heroWordmarkImage.src || "";
+  if (!source) {
+    return "";
+  }
+
+  const image = new Image();
+  image.decoding = "async";
+
+  const loaded = new Promise((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error("Unable to load branded hero wordmark."));
+  });
+
+  image.src = source;
+  await loaded;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = image.naturalWidth || image.width;
+  canvas.height = image.naturalHeight || image.height;
+
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) {
+    return source;
+  }
+
+  context.drawImage(image, 0, 0);
+  const frame = context.getImageData(0, 0, canvas.width, canvas.height);
+  const { data } = frame;
+
+  for (let index = 0; index < data.length; index += 4) {
+    const red = data[index];
+    const green = data[index + 1];
+    const blue = data[index + 2];
+    const alpha = data[index + 3];
+    const channelRange = Math.max(red, green, blue) - Math.min(red, green, blue);
+    const average = (red + green + blue) / 3;
+
+    if (alpha > 0 && average >= 222 && channelRange <= 22) {
+      data[index + 3] = 0;
+    }
+  }
+
+  context.putImageData(frame, 0, 0);
+  processedHeroWordmarkSource = canvas.toDataURL("image/png");
+  elements.heroWordmarkImage.src = processedHeroWordmarkSource;
+  return processedHeroWordmarkSource;
+}
+function renderPatcherVersion(version) {
+  if (!elements.patcherVersionValue) {
+    return;
+  }
+
+  const normalized = String(version || "").trim() || "0.0.0";
+  elements.patcherVersionValue.textContent = `Patcher v${normalized}`;
 }
 function applyHorizontalWheelDelta(rail, delta) {
   if (!rail || !delta || rail.scrollWidth <= rail.clientWidth) {
@@ -929,6 +1043,10 @@ function renderUiManagerLaunchSurface() {
   elements.uiManagerPackageCount.textContent = String(packages.length);
   elements.uiManagerPreparedCount.textContent = String(preparedCount);
   elements.uiManagerTargetCount.textContent = String(targets.length);
+
+  if (!elements.uiManagerPreviewName || !elements.uiManagerPreviewMeta || !elements.uiManagerStatusBadge) {
+    return;
+  }
 
   if (!state.current?.gameDirectory) {
     elements.uiManagerPreviewName.textContent = "No game directory selected.";
@@ -2141,7 +2259,9 @@ function escapeRegex(text) {
 }
 
 function updatePatchNotesMeta(text) {
-  elements.notesMeta.textContent = text;
+  if (elements.notesMeta) {
+    elements.notesMeta.textContent = text;
+  }
 }
 
 function getConfiguredPatchNotesUrl() {
@@ -2466,41 +2586,41 @@ function getLauncherUpdatePresentation(updateState) {
   switch (updateState.status) {
     case "checking":
       return {
-        meta: "Checking for Updates",
-        message: `Checking patcher updates for ${currentVersion}.`
+        meta: "Checking",
+        message: "Inspecting launcher updates."
       };
     case "available":
       return {
         meta: "Update Available",
-        message: `Current ${currentVersion}  Available ${latestVersion}`
+        message: `${latestVersion} is ready to download.`
       };
     case "downloading":
       return {
-        meta: "Updating Patcher",
-        message: `Downloading ${latestVersion}`
+        meta: "Downloading",
+        message: `${latestVersion} package in progress.`
       };
     case "ready":
       return {
-        meta: "Update Ready",
-        message: `${latestVersion} is ready to install.`
+        meta: "Ready To Install",
+        message: `${latestVersion} will apply on restart.`
       };
     case "applying":
       return {
-        meta: "Applying Update",
+        meta: "Applying",
         message: `Restarting into ${latestVersion}.`
       };
     case "helper-error":
     case "error":
       return {
-        meta: "Update Check Failed",
+        meta: "Update Error",
         message: updateState.message || "Unable to complete the patcher update check."
       };
     case "idle":
     case "up-to-date":
     default:
       return {
-        meta: "Patcher Up to Date",
-        message: `${currentVersion} is installed.`
+        meta: "Up To Date",
+        message: ""
       };
   }
 }
@@ -2558,18 +2678,27 @@ async function handleLauncherUpdateAutoApply(updateState) {
 }
 
 function renderLauncherUpdate(updateState) {
-  if (!updateState || updateState.status === "unsupported-platform") {
-    elements.launcherUpdatePanel.classList.add("hidden");
-    return;
-  }
-
+  const safeUpdateState = updateState && updateState.status !== "unsupported-platform"
+    ? updateState
+    : {
+      status: "up-to-date",
+      currentVersion: "",
+      latestVersion: "",
+      progressValue: 0,
+      progressMax: 0,
+      releaseUrl: "",
+      message: ""
+    };
   elements.launcherUpdatePanel.classList.remove("hidden");
-  const presentation = getLauncherUpdatePresentation(updateState);
+  if (safeUpdateState.currentVersion) {
+    renderPatcherVersion(safeUpdateState.currentVersion);
+  }
+  const presentation = getLauncherUpdatePresentation(safeUpdateState);
   elements.launcherUpdateMeta.textContent = presentation.meta;
 
   let message = presentation.message;
-  if (updateState.status === "downloading") {
-    message = `${message} ${formatByteValue(updateState.progressValue)} / ${formatByteValue(updateState.progressMax)}`;
+  if (safeUpdateState.status === "downloading") {
+    message = `${message} ${formatByteValue(safeUpdateState.progressValue)} / ${formatByteValue(safeUpdateState.progressMax)}`;
   }
   elements.launcherUpdateMessage.textContent = message;
 
@@ -2579,29 +2708,29 @@ function renderLauncherUpdate(updateState) {
   elements.launcherUpdateLinkButton.classList.add("hidden");
   elements.launcherUpdateLinkButton.disabled = false;
 
-  if (updateState.status === "available") {
+  if (safeUpdateState.status === "available") {
     elements.launcherUpdateActionButton.textContent = "Update Patcher";
     elements.launcherUpdateActionButton.dataset.action = "download";
     elements.launcherUpdateActionButton.classList.remove("hidden");
     return;
   }
 
-  if (updateState.status === "ready") {
+  if (safeUpdateState.status === "ready") {
     elements.launcherUpdateActionButton.textContent = "Restart To Update";
     elements.launcherUpdateActionButton.dataset.action = "apply";
     elements.launcherUpdateActionButton.classList.remove("hidden");
     return;
   }
 
-  if (updateState.status === "downloading" || updateState.status === "checking" || updateState.status === "applying") {
+  if (safeUpdateState.status === "downloading" || safeUpdateState.status === "checking" || safeUpdateState.status === "applying") {
     elements.launcherUpdateActionButton.textContent =
-      updateState.status === "checking" ? "Checking..." : updateState.status === "applying" ? "Restarting..." : "Downloading...";
+      safeUpdateState.status === "checking" ? "Checking..." : safeUpdateState.status === "applying" ? "Restarting..." : "Downloading...";
     elements.launcherUpdateActionButton.disabled = true;
     elements.launcherUpdateActionButton.classList.remove("hidden");
     return;
   }
 
-  if ((updateState.status === "helper-error" || updateState.status === "error") && updateState.releaseUrl) {
+  if ((safeUpdateState.status === "helper-error" || safeUpdateState.status === "error") && safeUpdateState.releaseUrl) {
     elements.launcherUpdateLinkButton.classList.remove("hidden");
   }
 }
@@ -2625,7 +2754,7 @@ function derivePresentation(nextState) {
     patchStateText: nextState.needsPatch ? "Update Ready" : nextState.manifestVersion ? "Ready" : "Idle",
     patchLabel: "Verify Integrity",
     patchAction: "verify",
-    actionButtonLabel: "Launch Game",
+    actionButtonLabel: "Launch Ready",
     actionButtonAction: "launch",
     actionButtonTone: "launch",
     blockedClient: false,
@@ -2740,6 +2869,7 @@ function derivePresentation(nextState) {
     presentation.chipTone = "success";
     presentation.patchStateText = "Ready";
     presentation.patchLabel = "Verify Integrity";
+    presentation.actionButtonLabel = "Launch Ready";
     return presentation;
   }
   return presentation;
@@ -2767,6 +2897,9 @@ function showConsole() {
 function renderLogs() {
   elements.logList.innerHTML = "";
   elements.logPlaceholder.style.display = state.logs.length ? "none" : "block";
+  if (elements.leftStage) {
+    elements.leftStage.classList.toggle("has-log-activity", state.logs.length > 0);
+  }
   for (const entry of state.logs) {
     const row = document.createElement("div");
     row.className = `log-entry ${entry.tone || "info"}`;
@@ -2829,7 +2962,13 @@ function renderState(nextState) {
   elements.statusDetail.textContent = presentation.statusDetail;
   elements.statusDetail.dataset.tone = presentation.statusDetailTone;
   elements.heroImage.src = nextState.heroImageUrl;
-  elements.titleValue.textContent = resolvedTitle;
+  renderDisplayTitle(elements.titleValue, resolvedTitle);
+  const useBrandedHeroWordmark = shouldUseBrandedHeroWordmark(resolvedTitle);
+  elements.heroWordmark.classList.toggle("hidden", useBrandedHeroWordmark);
+  elements.heroWordmarkImage.classList.toggle("hidden", !useBrandedHeroWordmark);
+  if (!useBrandedHeroWordmark) {
+    renderDisplayTitle(elements.heroWordmark, resolvedTitle);
+  }
   elements.serverValue.textContent = nextState.serverName;
   elements.clientValue.textContent = nextState.clientLabel;
   elements.patchStateValue.textContent = presentation.patchStateText;
@@ -2838,9 +2977,11 @@ function renderState(nextState) {
   elements.patchButton.textContent = presentation.patchLabel;
   elements.patchButton.dataset.action = presentation.patchAction;
   elements.patchButton.disabled = prerequisiteInstallLocked || (presentation.patchAction === "cancel" ? false : !nextState.canPatch);
-  const showStandalonePatchAction = presentation.actionButtonAction === "patch" && !presentation.showActionStatus;
-  elements.patchButton.classList.toggle("hidden", showStandalonePatchAction);
-  elements.actionsRow.classList.toggle("single-action", showStandalonePatchAction);
+  const showStandalonePrimaryAction = ["launch", "patch", "install-prerequisites"].includes(presentation.actionButtonAction) && !presentation.showActionStatus;
+  const isLaunchReadyState = presentation.actionButtonAction === "launch" && !presentation.showActionStatus && Boolean(nextState.manifestVersion);
+  elements.patchButton.classList.toggle("hidden", showStandalonePrimaryAction);
+  elements.actionsRow.classList.toggle("single-action", showStandalonePrimaryAction);
+  elements.leftStage.classList.toggle("is-launch-ready", isLaunchReadyState);
   elements.actionStatus.textContent = presentation.actionStatusText;
   elements.actionStatus.classList.toggle("hidden", !presentation.showActionStatus);
   elements.launchButton.classList.toggle("hidden", presentation.showActionStatus);
@@ -2851,7 +2992,7 @@ function renderState(nextState) {
   elements.launchButton.classList.toggle("start-patch-button", presentation.actionButtonTone === "patch");
   elements.launchButton.classList.toggle("install-prerequisites-button", presentation.actionButtonTone === "install-prerequisites");
   elements.launchButton.classList.toggle("unsupported-launch-button", presentation.actionButtonTone === "unsupported");
-  elements.launchButton.classList.toggle("attention-pulse", showStandalonePatchAction);
+  elements.launchButton.classList.toggle("attention-pulse", presentation.actionButtonAction === "patch" && showStandalonePrimaryAction);
   elements.launchButton.disabled =
     nextState.isPatching ||
     (presentation.actionButtonAction === "launch" && !nextState.canLaunch) ||
@@ -2919,6 +3060,9 @@ function wireEvents() {
 
   elements.minimizeButton.addEventListener("click", async () => {
     await window.launcher.minimizeWindow();
+  });
+  elements.maximizeButton.addEventListener("click", async () => {
+    await window.launcher.toggleMaximizeWindow();
   });
   elements.closeButton.addEventListener("click", async () => {
     await window.launcher.closeWindow();
@@ -3639,7 +3783,12 @@ async function bootstrap() {
   subscribe();
   updatePatchNotesAttention();
   setActiveTab("patch");
-  const nextState = await window.launcher.initialize();
+  await prepareBrandedHeroWordmark().catch(() => {});
+  const [nextState, version] = await Promise.all([
+    window.launcher.initialize(),
+    window.launcher.getVersion()
+  ]);
+  renderPatcherVersion(version);
   renderState(nextState);
 }
 bootstrap().catch((error) => {

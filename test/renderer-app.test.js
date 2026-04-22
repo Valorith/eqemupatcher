@@ -486,6 +486,7 @@ async function createRendererHarness(options = {}) {
     launchGame: 0,
     updateSettings: [],
     minimizeWindow: 0,
+    toggleMaximizeWindow: 0,
     closeWindow: 0
   };
   let uiManagerOverview = options.uiManagerOverview || createUiManagerOverviewResponse();
@@ -495,6 +496,9 @@ async function createRendererHarness(options = {}) {
   const launcher = {
     async initialize() {
       return launcherState;
+    },
+    async getVersion() {
+      return "2.1.0";
     },
     async getPatchNotes(requestOptions = {}) {
       calls.getPatchNotes.push({ ...requestOptions });
@@ -533,6 +537,10 @@ async function createRendererHarness(options = {}) {
     },
     async minimizeWindow() {
       calls.minimizeWindow += 1;
+      return true;
+    },
+    async toggleMaximizeWindow() {
+      calls.toggleMaximizeWindow += 1;
       return true;
     },
     async closeWindow() {
