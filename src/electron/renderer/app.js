@@ -2977,8 +2977,11 @@ function renderState(nextState) {
   elements.patchButton.textContent = presentation.patchLabel;
   elements.patchButton.dataset.action = presentation.patchAction;
   elements.patchButton.disabled = prerequisiteInstallLocked || (presentation.patchAction === "cancel" ? false : !nextState.canPatch);
-  const showStandalonePrimaryAction = ["launch", "patch", "install-prerequisites"].includes(presentation.actionButtonAction) && !presentation.showActionStatus;
   const isLaunchReadyState = presentation.actionButtonAction === "launch" && !presentation.showActionStatus && Boolean(nextState.manifestVersion);
+  const showStandalonePrimaryAction =
+    ["launch", "patch", "install-prerequisites"].includes(presentation.actionButtonAction) &&
+    !presentation.showActionStatus &&
+    !isLaunchReadyState;
   elements.patchButton.classList.toggle("hidden", showStandalonePrimaryAction);
   elements.actionsRow.classList.toggle("single-action", showStandalonePrimaryAction);
   elements.leftStage.classList.toggle("is-launch-ready", isLaunchReadyState);

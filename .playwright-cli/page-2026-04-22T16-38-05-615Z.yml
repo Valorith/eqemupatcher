@@ -1,0 +1,74 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - paragraph [ref=e5]: An EverQuest Emulated Server
+      - 'heading "Clumsy''s World: Resurgence" [level=1] [ref=e6]':
+        - generic [ref=e7]: "Clumsy's World:"
+        - generic [ref=e8]: Resurgence
+      - generic [ref=e13]:
+        - link "www.clumsysworld.com" [ref=e14] [cursor=pointer]:
+          - /url: https://www.clumsysworld.com
+        - generic [ref=e15]:
+          - button "Tools" [expanded] [active] [ref=e16] [cursor=pointer]
+          - menu "Clumsy's World tools" [ref=e108]:
+            - menuitem "Wiki" [ref=e109] [cursor=pointer]
+            - menuitem "Alla" [ref=e110] [cursor=pointer]
+            - menuitem "Magelo" [ref=e111] [cursor=pointer]
+            - menuitem "Nexus" [ref=e112] [cursor=pointer]
+    - generic "Window controls" [ref=e18]:
+      - button "Minimize window" [ref=e19] [cursor=pointer]:
+        - img [ref=e20]
+      - button "Maximize or restore window" [ref=e21] [cursor=pointer]:
+        - img [ref=e22]
+      - button "Close window" [ref=e24] [cursor=pointer]:
+        - img [ref=e25]
+  - main [ref=e28]:
+    - tabpanel "Patch" [ref=e30]:
+      - generic [ref=e32]:
+        - generic [ref=e33]:
+          - paragraph [ref=e34]: Session Status
+          - generic [ref=e35]:
+            - article [ref=e36]:
+              - img [ref=e38]
+              - generic [ref=e43]:
+                - generic [ref=e44]: Server
+                - strong [ref=e45]: "Clumsy's World: Resurgence"
+            - article [ref=e46]:
+              - img [ref=e48]
+              - generic [ref=e51]:
+                - generic [ref=e52]: Client
+                - strong [ref=e53]: Rain of Fear 2 (4GB)
+            - article [ref=e54]:
+              - img [ref=e56]
+              - generic [ref=e59]:
+                - generic [ref=e60]: Patch State
+                - strong [ref=e61]: Ready
+        - generic [ref=e64]:
+          - paragraph [ref=e65]: Current State
+          - paragraph [ref=e66]: EverQuest was started.
+        - generic [ref=e67]:
+          - generic [ref=e68]:
+            - button "Verify Integrity" [ref=e69] [cursor=pointer]
+            - button "Launch Ready ↗" [ref=e71] [cursor=pointer]
+          - generic [ref=e72]:
+            - generic [ref=e75]: Auto Patch
+            - generic [ref=e78]: Auto Play
+    - region "Launcher artwork" [ref=e79]:
+      - img [ref=e81]
+      - img "Clumsy's World Resurgence" [ref=e83]
+  - contentinfo [ref=e88]:
+    - tablist "Launcher panels" [ref=e90]:
+      - tab "Patch" [selected] [ref=e91] [cursor=pointer]
+      - tab "Patch Notes" [ref=e92] [cursor=pointer]
+      - tab "UI Manager Beta" [ref=e93] [cursor=pointer]:
+        - text: UI Manager
+        - generic [ref=e94]: Beta
+    - generic [ref=e95]:
+      - generic [ref=e97]:
+        - generic [ref=e98]: Patcher v2.1.0
+        - generic [ref=e99]: Up To Date
+      - generic [ref=e100]:
+        - button "Open settings" [ref=e101] [cursor=pointer]:
+          - img [ref=e102]
+        - button "Refresh patch state" [ref=e104] [cursor=pointer]:
+          - img [ref=e105]

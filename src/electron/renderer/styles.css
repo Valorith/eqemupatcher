@@ -2466,6 +2466,17 @@ body {
   border-radius: 6px;
 }
 
+#launcherUpdateTitle {
+  margin-top: 0.18rem;
+  font-family: "Baskerville", "Iowan Old Style", "Palatino Linotype", serif;
+  font-size: 1.9rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  line-height: 1.04;
+  color: #f0dfc1;
+  text-transform: uppercase;
+}
+
 .danger-button {
   color: #fff1f5;
   background: linear-gradient(135deg, #b02f54 0%, #851f3d 58%, #601328 100%);
@@ -2839,6 +2850,41 @@ body {
   font-family: "Menlo", "Consolas", monospace;
   font-size: 0.9rem;
   line-height: 1.55;
+  scrollbar-color: rgba(106, 155, 221, 0.72) rgba(8, 14, 22, 0.86);
+  scrollbar-width: thin;
+}
+
+.log-list::-webkit-scrollbar {
+  width: 16px;
+}
+
+.log-list::-webkit-scrollbar-track {
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(8, 14, 22, 0.82), rgba(13, 23, 36, 0.94));
+  box-shadow:
+    inset 0 0 0 1px rgba(112, 145, 194, 0.12),
+    inset 0 10px 16px rgba(0, 0, 0, 0.28);
+}
+
+.log-list::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(129, 182, 248, 0.96), rgba(61, 106, 175, 0.96)) padding-box;
+  box-shadow:
+    inset 0 1px 0 rgba(232, 245, 255, 0.28),
+    0 0 0 1px rgba(84, 129, 196, 0.16);
+}
+
+.log-list::-webkit-scrollbar-thumb:hover {
+  background:
+    linear-gradient(180deg, rgba(162, 207, 255, 0.98), rgba(79, 130, 205, 0.98)) padding-box;
+}
+
+.log-list::-webkit-scrollbar-thumb:active {
+  background:
+    linear-gradient(180deg, rgba(187, 223, 255, 0.98), rgba(96, 149, 225, 0.98)) padding-box;
 }
 
 .log-entry {
@@ -5183,6 +5229,22 @@ body .tools-button {
   text-decoration: none;
 }
 
+body .tools-menu-link {
+  color: #e6c890;
+  font-family: "Baskerville", "Iowan Old Style", "Palatino Linotype", serif;
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-shadow: 0 1px 0 rgba(255, 247, 232, 0.04);
+}
+
+body .tools-menu-link:hover,
+body .tools-menu-link:focus-visible {
+  background: rgba(186, 141, 72, 0.1);
+  color: #f3dfb3;
+}
+
 body .window-control {
   width: 3.35rem;
   height: 2.86rem;
@@ -5551,6 +5613,16 @@ body .launcher-update-meta {
   color: var(--gold-bright);
 }
 
+body #launcherUpdateTitle {
+  margin-top: 0.1rem;
+  font-size: 1.74rem;
+  letter-spacing: 0.14em;
+  color: #f3e4cb;
+  text-shadow:
+    0 1px 0 rgba(255, 247, 232, 0.06),
+    0 10px 24px rgba(0, 0, 0, 0.26);
+}
+
 body .launcher-update-message {
   color: rgba(197, 180, 157, 0.74);
   font-size: 0.72rem;
@@ -5659,6 +5731,19 @@ body #uiManagerTabPanel .ui-manager-tab-shell {
   margin-top: 0;
   padding-top: 0.9rem;
   padding-bottom: 0;
+}
+
+body #uiManagerTabPanel .ui-manager-hero-copy .section-title {
+  margin-top: 0.08rem;
+  font-family: "Baskerville", "Iowan Old Style", "Palatino Linotype", serif;
+  font-size: 1.72rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  line-height: 0.96;
+  color: #f1e1c6;
+  text-shadow:
+    0 1px 0 rgba(255, 246, 230, 0.05),
+    0 10px 24px rgba(0, 0, 0, 0.24);
 }
 
 body .patch-section {
@@ -5782,6 +5867,36 @@ body .patch-panel.has-log-activity .activity-block {
   max-height: 11rem;
 }
 
+body .log-list {
+  scrollbar-color: rgba(211, 172, 96, 0.9) rgba(12, 11, 13, 0.92);
+}
+
+body .log-list::-webkit-scrollbar-track {
+  background:
+    linear-gradient(180deg, rgba(12, 11, 13, 0.88), rgba(25, 21, 18, 0.96));
+  box-shadow:
+    inset 0 0 0 1px rgba(186, 141, 72, 0.12),
+    inset 0 10px 16px rgba(0, 0, 0, 0.32);
+}
+
+body .log-list::-webkit-scrollbar-thumb {
+  background:
+    linear-gradient(180deg, rgba(232, 197, 127, 0.96), rgba(163, 115, 48, 0.96)) padding-box;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 241, 208, 0.28),
+    0 0 0 1px rgba(186, 141, 72, 0.18);
+}
+
+body .log-list::-webkit-scrollbar-thumb:hover {
+  background:
+    linear-gradient(180deg, rgba(244, 212, 146, 0.98), rgba(183, 133, 61, 0.98)) padding-box;
+}
+
+body .log-list::-webkit-scrollbar-thumb:active {
+  background:
+    linear-gradient(180deg, rgba(255, 225, 165, 0.98), rgba(198, 145, 69, 0.98)) padding-box;
+}
+
 body .actions-cluster {
   padding-top: 0;
   padding-bottom: 0.1rem;
@@ -5791,20 +5906,36 @@ body .panel-heading.compact-heading {
   display: none;
 }
 
-body .actions-row {
-  display: block;
-}
-
+body .actions-row,
 body .actions-row.single-action {
-  display: block;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 0.5rem;
 }
 
 body .action-slot {
+  display: flex;
   min-height: 0;
 }
 
 body .patch-utility-button {
-  margin-bottom: 0.5rem;
+  min-height: 2.85rem;
+  margin-bottom: 0;
+  border-color: rgba(207, 171, 104, 0.32);
+  background:
+    linear-gradient(180deg, rgba(31, 29, 24, 0.96), rgba(15, 14, 12, 0.98)),
+    linear-gradient(90deg, rgba(229, 195, 126, 0.08), rgba(185, 141, 79, 0.04));
+  box-shadow:
+    inset 0 1px 0 rgba(245, 219, 168, 0.06),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.015);
+}
+
+body .patch-utility-button:hover:not(:disabled) {
+  border-color: rgba(229, 195, 126, 0.44);
+  color: #f0dfc1;
+  background:
+    linear-gradient(180deg, rgba(37, 34, 27, 0.98), rgba(18, 17, 14, 0.98)),
+    linear-gradient(90deg, rgba(229, 195, 126, 0.12), rgba(185, 141, 79, 0.06));
 }
 
 body .launch-button,
@@ -5855,15 +5986,21 @@ body .unsupported-launch-button::after {
 }
 
 body .toggle-row {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
   min-height: 5rem;
   margin-top: 0.82rem;
-  gap: 0.2rem;
-  justify-content: center;
+  gap: 1.35rem;
+  justify-content: flex-start;
 }
 
 body .toggle {
   grid-template-columns: 54px auto;
   gap: 0.7rem;
+  width: auto;
+  min-width: 11.5rem;
   padding: 0.18rem 0;
   border: 0;
   border-radius: 0;
@@ -5891,11 +6028,16 @@ body .toggle-label {
 }
 
 body .hero-stage {
+  --hero-divider-angle: 15deg;
+  --hero-divider-top-x: 41.25cqw;
+  --hero-divider-bottom-x: calc(var(--hero-divider-top-x) - (tan(var(--hero-divider-angle)) * 100cqh));
+  --hero-divider-secondary-offset: 0.9cqw;
   position: relative;
   margin-top: 0;
   min-height: 100%;
   border: 0;
   background: transparent;
+  container-type: size;
 }
 
 body .hero-stage::after {
@@ -5908,7 +6050,7 @@ body .hero-image-wrap {
   inset: 0;
   left: 0;
   right: 0;
-  clip-path: polygon(39.2% 0, 100% 0, 100% 100%, 16.1% 100%);
+  clip-path: polygon(var(--hero-divider-top-x) 0, 100% 0, 100% 100%, var(--hero-divider-bottom-x) 100%);
 }
 
 body .hero-background-image {
@@ -5918,12 +6060,13 @@ body .hero-background-image {
 }
 
 body .hero-stage-diagonal-line {
-  left: 27.55%;
-  transform: rotate(15deg);
+  left: var(--hero-divider-top-x);
+  transform: rotate(var(--hero-divider-angle));
+  transform-origin: top center;
 }
 
 body .hero-stage-diagonal-line-secondary {
-  left: 28.45%;
+  left: calc(var(--hero-divider-top-x) + var(--hero-divider-secondary-offset));
   opacity: 0.36;
 }
 
@@ -6149,16 +6292,8 @@ body .ui-manager-beta-badge-tab {
     inset: 84px 0 60px;
   }
 
-  body .hero-image-wrap {
-    clip-path: polygon(36.8% 0, 100% 0, 100% 100%, 16.8% 100%);
-  }
-
-  body .hero-stage-diagonal-line {
-    left: 25.9%;
-  }
-
-  body .hero-stage-diagonal-line-secondary {
-    left: 26.8%;
+  body .hero-stage {
+    --hero-divider-top-x: 38.75cqw;
   }
 
   body .hero-wordmark-panel {

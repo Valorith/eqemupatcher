@@ -483,6 +483,7 @@ async function createRendererHarness(options = {}) {
     resetUiPackage: [],
     restoreUiManagerBackup: [],
     importUiPackageFolder: [],
+    startPatch: 0,
     launchGame: 0,
     updateSettings: [],
     minimizeWindow: 0,
@@ -521,6 +522,7 @@ async function createRendererHarness(options = {}) {
       return launcherState;
     },
     async startPatch() {
+      calls.startPatch += 1;
       return launcherState;
     },
     async cancelPatch() {
@@ -705,6 +707,8 @@ async function createRendererHarness(options = {}) {
       uiManagerConfirmModal: document.getElementById("uiManagerConfirmModal"),
       uiManagerConfirmAcceptButton: document.getElementById("uiManagerConfirmAcceptButton"),
       uiManagerNotice: document.getElementById("uiManagerNotice"),
+      actionsRow: document.getElementById("actionsRow"),
+      patchButton: document.getElementById("patchButton"),
       launchButton: document.getElementById("launchButton"),
       manualPrerequisitesButton: document.getElementById("manualPrerequisitesButton"),
       onGameLaunchSelect: document.getElementById("onGameLaunchSelect"),
@@ -727,6 +731,47 @@ async function createRendererHarness(options = {}) {
     }
   };
 }
+
+test("launch-ready state keeps Verify Integrity visible alongside Launch Ready", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    statusDetail: "Manifest and local patch version are aligned.",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true
+  });
+
+  assert.equal(harness.elements.patchButton.classList.contains("hidden"), false);
+  assert.equal(harness.elements.launchButton.classList.contains("hidden"), false);
+  assert.equal(harness.elements.actionsRow.classList.contains("single-action"), false);
+  assert.equal(harness.elements.patchButton.textContent, "Verify Integrity");
+  assert.equal(harness.elements.launchButton.textContent, "Launch Ready");
+});
+
+test("clicking Verify Integrity in the ready state reuses the existing verification flow", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    statusDetail: "Manifest and local patch version are aligned.",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true
+  });
+
+  await harness.elements.patchButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.calls.startPatch, 1);
+});
 
 test("renderer bootstrap defers patch notes loading until they are needed", async () => {
   const harness = await createRendererHarness({

@@ -478,6 +478,125 @@ test("startPatch downloads changed files, writes settings, and clears needsPatch
   assert.match(savedSettings, /lastPatchedVersion: 42/);
 });
 
+test("Verify Integrity emits scan progress and a success summary when files are already current", async (t) => {
+  const { backend, projectRoot, events } = await createBackendHarness(t);
+  const gameDirectory = await createTempDir("eqemu-game-");
+  const currentContent = "current content";
+  const currentHash = md5(currentContent);
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  const { server, baseUrl } = await startFixtureServer({
+    "/rof/filelist_rof.yml": (_req, res) => {
+      res.writeHead(200, { "content-type": "text/yaml" });
+      res.end(
+        [
+          "version: 42",
+          `downloadprefix: ${baseUrl}/files/`,
+          "downloads:",
+          "  - name: target.txt",
+          `    md5: ${currentHash}`,
+          `    size: ${Buffer.byteLength(currentContent)}`,
+          "deletes: []",
+          ""
+        ].join("\n")
+      );
+    }
+  });
+
+  t.after(() => server.close());
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    `serverName: Test Realm\nfilelistUrl: ${baseUrl}/\ndefaultAutoPatch: false\ndefaultAutoPlay: false\nsupportedClients:\n  - Rain_Of_Fear\n`,
+    "utf8"
+  );
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+  await fsp.writeFile(path.join(gameDirectory, "target.txt"), currentContent, "utf8");
+
+  await backend.initialize();
+  backend.detectClientVersion = async () => ({
+    found: true,
+    hash: "KNOWN",
+    version: "Rain_Of_Fear"
+  });
+
+  await backend.setGameDirectory(gameDirectory);
+  backend.state.needsPatch = false;
+  backend.state.lastPatchedVersion = "42";
+  await backend.startPatch();
+
+  const logMessages = events.filter((event) => event.type === "log").map((event) => event.payload.text);
+
+  assert(logMessages.some((entry) => /Verify Integrity started\. Checking 1 manifest file\(s\)\./.test(entry)));
+  assert(logMessages.some((entry) => /Verified 1 \/ 1 manifest file\(s\)\.\.\./.test(entry)));
+  assert(logMessages.some((entry) => /Verified 1 manifest file\(s\); patch 42 is already installed\./.test(entry)));
+});
+
+test("Verify Integrity reports detected repair candidates before downloading replacements", async (t) => {
+  const { backend, projectRoot, events } = await createBackendHarness(t);
+  const gameDirectory = await createTempDir("eqemu-game-");
+  const downloadContent = "patched content";
+  const downloadHash = md5(downloadContent);
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  const { server, baseUrl } = await startFixtureServer({
+    "/rof/filelist_rof.yml": (_req, res) => {
+      res.writeHead(200, { "content-type": "text/yaml" });
+      res.end(
+        [
+          "version: 42",
+          `downloadprefix: ${baseUrl}/files/`,
+          "downloads:",
+          "  - name: target.txt",
+          `    md5: ${downloadHash}`,
+          `    size: ${Buffer.byteLength(downloadContent)}`,
+          "deletes: []",
+          ""
+        ].join("\n")
+      );
+    },
+    "/files/target.txt": (_req, res) => {
+      res.writeHead(200, { "content-type": "application/octet-stream" });
+      res.end(downloadContent);
+    }
+  });
+
+  t.after(() => server.close());
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    `serverName: Test Realm\nfilelistUrl: ${baseUrl}/\ndefaultAutoPatch: false\ndefaultAutoPlay: false\nsupportedClients:\n  - Rain_Of_Fear\n`,
+    "utf8"
+  );
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+  await fsp.writeFile(path.join(gameDirectory, "target.txt"), "stale content", "utf8");
+
+  await backend.initialize();
+  backend.detectClientVersion = async () => ({
+    found: true,
+    hash: "KNOWN",
+    version: "Rain_Of_Fear"
+  });
+
+  await backend.setGameDirectory(gameDirectory);
+  backend.state.needsPatch = false;
+  backend.state.lastPatchedVersion = "42";
+  await backend.startPatch();
+
+  const logMessages = events.filter((event) => event.type === "log").map((event) => event.payload.text);
+
+  assert(logMessages.some((entry) => /Integrity mismatch detected: target\.txt/.test(entry)));
+  assert(logMessages.some((entry) => /Verify Integrity found 1 file\(s\) requiring repair\./.test(entry)));
+});
+
 test("startPatch rejects downloaded files that fail hash verification", async (t) => {
   const { backend, projectRoot, events } = await createBackendHarness(t);
   const gameDirectory = await createTempDir("eqemu-game-");

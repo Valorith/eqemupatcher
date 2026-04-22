@@ -1999,6 +1999,9 @@ class LauncherBackend {
 
   async startPatch(options = {}) {
     const { autoTriggered = false } = options;
+    const verifyIntegrityRequested = !this.state.needsPatch;
+    const scanVerb = verifyIntegrityRequested ? "Verifying" : "Scanning";
+    const scanCompleteVerb = verifyIntegrityRequested ? "Verified" : "Scanned";
 
     if (this.state.isPatching) {
       return this.getState();
@@ -2059,11 +2062,22 @@ class LauncherBackend {
     this.state.launchActionLabel = "Start Patch";
     this.state.progressValue = 0;
     this.state.progressMax = Math.max(downloads.length, 1);
-    this.state.progressLabel = downloads.length ? `Scanning 0 / ${downloads.length} files` : "Scanning local files";
-    this.setStatus("Patching", autoTriggered ? "Auto patch is running." : "Scanning local files against the manifest.");
+    this.state.progressLabel = downloads.length ? `${scanVerb} 0 / ${downloads.length} files` : `${scanVerb} local files`;
+    this.setStatus(
+      "Patching",
+      verifyIntegrityRequested
+        ? "Verifying local files against the manifest."
+        : autoTriggered
+          ? "Auto patch is running."
+          : "Scanning local files against the manifest."
+    );
     this.emitState();
     this.emitProgress();
-    this.emitLog(autoTriggered ? "Auto patch triggered." : "Patch operation started.");
+    if (verifyIntegrityRequested) {
+      this.emitLog(`Verify Integrity started. Checking ${downloads.length} manifest file(s).`);
+    } else {
+      this.emitLog(autoTriggered ? "Auto patch triggered." : "Patch operation started.");
+    }
 
     try {
       const filesToDownload = [];
@@ -2073,16 +2087,33 @@ class LauncherBackend {
       for (const entry of downloads) {
         this.throwIfCanceled();
         const targetPath = this.resolveGamePath(entry.name);
-        const shouldDownload = !(await exists(targetPath)) || (await this.getFileHash(targetPath)) !== String(entry.md5 || "").toUpperCase();
+        const expectedHash = String(entry.md5 || "").toUpperCase();
+        const targetExists = await exists(targetPath);
+        const shouldDownload = !targetExists || (await this.getFileHash(targetPath)) !== expectedHash;
         scannedFiles += 1;
         this.state.progressValue = scannedFiles;
         this.state.progressMax = Math.max(downloads.length, 1);
-        this.state.progressLabel = `Scanning ${scannedFiles} / ${downloads.length} files`;
+        this.state.progressLabel = `${scanVerb} ${scannedFiles} / ${downloads.length} files`;
         this.emitProgress();
+
+        const shouldLogScanProgress =
+          downloads.length <= 12 || scannedFiles === 1 || scannedFiles === downloads.length || scannedFiles % 25 === 0;
+        if (shouldLogScanProgress) {
+          this.emitLog(`${scanCompleteVerb} ${scannedFiles} / ${downloads.length} manifest file(s)...`);
+        }
+
         if (shouldDownload) {
           filesToDownload.push(entry);
           totalBytes += Math.max(1, Number(entry.size) || 0);
+          this.emitLog(
+            targetExists ? `Integrity mismatch detected: ${entry.name}` : `Missing file detected: ${entry.name}`,
+            "warning"
+          );
         }
+      }
+
+      if (verifyIntegrityRequested && filesToDownload.length > 0) {
+        this.emitLog(`Verify Integrity found ${filesToDownload.length} file(s) requiring repair.`, "warning");
       }
 
       for (const entry of deletes) {
@@ -2105,7 +2136,7 @@ class LauncherBackend {
         this.state.patchActionLabel = "Verify Integrity";
         this.state.launchActionLabel = "Launch Game";
         this.setStatus("Ready", `Patch ${manifest.version || "current"} is already installed.`);
-        this.emitLog(`Up to date with patch ${manifest.version || "current"}.`);
+        this.emitLog(`Verified ${downloads.length} manifest file(s); patch ${manifest.version || "current"} is already installed.`, "success");
         this.finishPatch();
         return this.getState();
       }

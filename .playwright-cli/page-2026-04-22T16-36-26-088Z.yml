@@ -1,0 +1,60 @@
+- generic [ref=e2]:
+  - banner [ref=e3]:
+    - generic [ref=e4]:
+      - paragraph [ref=e5]: An EverQuest Emulated Server
+      - 'heading "Clumsy''s World: Resurgence" [level=1] [ref=e6]':
+        - generic [ref=e7]: "Clumsy's World:"
+        - generic [ref=e8]: Resurgence
+      - generic [ref=e13]:
+        - link "www.clumsysworld.com" [ref=e14] [cursor=pointer]:
+          - /url: https://www.clumsysworld.com
+        - button "Tools" [ref=e16] [cursor=pointer]
+    - generic "Window controls" [ref=e18]:
+      - button "Minimize window" [ref=e19] [cursor=pointer]:
+        - img [ref=e20]
+      - button "Maximize or restore window" [ref=e21] [cursor=pointer]:
+        - img [ref=e22]
+      - button "Close window" [ref=e24] [cursor=pointer]:
+        - img [ref=e25]
+  - main [ref=e28]:
+    - generic [ref=e29]:
+      - text: ↗
+      - tabpanel "UI Manager Beta" [ref=e108]:
+        - generic [ref=e109]:
+          - generic [ref=e110]:
+            - generic [ref=e111]:
+              - paragraph [ref=e112]: UI Manager
+              - heading "Customize EverQuest UI Packages" [level=2] [ref=e113]
+              - paragraph [ref=e114]: Import packages, prepare option libraries, preview alternate components, and assign the active UI skin to your characters without touching the raw folder structure by hand.
+            - generic [ref=e115]:
+              - button "Open UI Manager" [ref=e116] [cursor=pointer]
+              - button "Refresh UI Data" [ref=e117] [cursor=pointer]
+          - generic [ref=e118]:
+            - generic [ref=e119]:
+              - generic [ref=e120]: Packages
+              - strong [ref=e121]: "2"
+            - generic [ref=e122]:
+              - generic [ref=e123]: Prepared
+              - strong [ref=e124]: "1"
+            - generic [ref=e125]:
+              - generic [ref=e126]: Characters
+              - strong [ref=e127]: "2"
+    - region "Launcher artwork" [ref=e79]:
+      - img [ref=e81]
+      - img "Clumsy's World Resurgence" [ref=e83]
+  - contentinfo [ref=e88]:
+    - tablist "Launcher panels" [ref=e90]:
+      - tab "Patch" [ref=e91] [cursor=pointer]
+      - tab "Patch Notes" [ref=e92] [cursor=pointer]
+      - tab "UI Manager Beta" [active] [selected] [ref=e93] [cursor=pointer]:
+        - text: UI Manager
+        - generic [ref=e94]: Beta
+    - generic [ref=e95]:
+      - generic [ref=e97]:
+        - generic [ref=e98]: Patcher v2.1.0
+        - generic [ref=e99]: Up To Date
+      - generic [ref=e100]:
+        - button "Open settings" [ref=e101] [cursor=pointer]:
+          - img [ref=e102]
+        - button "Refresh patch state" [ref=e104] [cursor=pointer]:
+          - img [ref=e105]
