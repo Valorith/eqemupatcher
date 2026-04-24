@@ -8,6 +8,7 @@ const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
 const { Readable } = require("node:stream");
+const { pathToFileURL } = require("node:url");
 
 const { LauncherBackend } = require("../src/electron/backend/launcher-backend");
 
@@ -910,6 +911,79 @@ test("custom eqemupatcher.png overrides the default hero image", async (t) => {
   const state = await backend.setGameDirectory(gameDirectory);
 
   assert.match(state.heroImageUrl, /eqemupatcher\.png$/);
+});
+
+test("branding config resolves custom artwork and links relative to the config file", async (t) => {
+  const { backend, projectRoot } = await createBackendHarness(t);
+  const brandDirectory = path.join(projectRoot, "branding");
+  const primaryImagePath = path.join(brandDirectory, "primary.png");
+  const wordmarkImagePath = path.join(brandDirectory, "wordmark.png");
+
+  await fsp.mkdir(brandDirectory, { recursive: true });
+  await fsp.writeFile(primaryImagePath, "primary", "utf8");
+  await fsp.writeFile(wordmarkImagePath, "wordmark", "utf8");
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    [
+      "serverName: Brand Realm",
+      "filelistUrl: https://brand.invalid/",
+      "tagline: A Custom EQ Server",
+      "primaryImage: branding/primary.png",
+      "wordmarkImage: branding/wordmark.png",
+      "wordmarkImageAlt: Brand Realm Wordmark",
+      "wordmarkRemoveLightBackground: true",
+      "emblemText: BR",
+      "websiteUrl: https://brand.invalid",
+      "websiteLabel: brand.invalid",
+      "discordUrl: https://discord.gg/brand",
+      "tools:",
+      "  - label: Wiki",
+      "    url: https://wiki.brand.invalid/",
+      "supportedClients:",
+      "  - Rain_Of_Fear",
+      ""
+    ].join("\n"),
+    "utf8"
+  );
+
+  const state = await backend.initialize();
+
+  assert.equal(state.branding.serverName, "Brand Realm");
+  assert.equal(state.branding.tagline, "A Custom EQ Server");
+  assert.equal(state.branding.primaryImageUrl, pathToFileURL(primaryImagePath).toString());
+  assert.equal(state.branding.wordmarkImageUrl, pathToFileURL(wordmarkImagePath).toString());
+  assert.equal(state.branding.wordmarkImageAlt, "Brand Realm Wordmark");
+  assert.equal(state.branding.wordmarkRemoveLightBackground, true);
+  assert.equal(state.branding.emblemText, "BR");
+  assert.equal(state.branding.websiteUrl, "https://brand.invalid");
+  assert.equal(state.branding.websiteLabel, "brand.invalid");
+  assert.equal(state.branding.discordUrl, "https://discord.gg/brand");
+  assert.deepEqual(state.branding.tools, [{ label: "Wiki", url: "https://wiki.brand.invalid/" }]);
+});
+
+test("configured primary image takes precedence over legacy eqemupatcher splash art", async (t) => {
+  const { backend, projectRoot } = await createBackendHarness(t);
+  const gameDirectory = await createTempDir("eqemu-game-");
+  const primaryImagePath = path.join(projectRoot, "primary.png");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(primaryImagePath, "primary", "utf8");
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\nprimaryImage: primary.png\nsupportedClients:\n  - Rain_Of_Fear\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+  await fsp.writeFile(path.join(gameDirectory, "eqemupatcher.png"), "legacy", "utf8");
+
+  await backend.initialize();
+  const state = await backend.setGameDirectory(gameDirectory);
+
+  assert.equal(state.heroImageUrl, pathToFileURL(path.join(gameDirectory, "eqemupatcher.png")).toString());
+  assert.equal(state.branding.primaryImageUrl, pathToFileURL(primaryImagePath).toString());
 });
 
 test("patch completion does not auto-launch even when autoPlay is enabled", async (t) => {

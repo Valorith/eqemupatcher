@@ -54,6 +54,7 @@ const state = {
 };
 let uiManagerNoticeTimeoutId = null;
 let processedHeroWordmarkSource = "";
+let processedHeroWordmarkSourceKey = "";
 const PATCH_NOTES_READ_STORAGE_KEY = "eqemu-launcher.patchNotesRead";
 const PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY = "eqemu-launcher.patchNotesReadInitialized";
 const { createPatchNotesReadTracker, getPatchNotesSignature, shouldLoadPatchNotes } = window.PatchNotesState;
@@ -66,9 +67,12 @@ const elements = {
   leftStage: document.getElementById("leftStage"),
   statusChip: document.getElementById("statusChip"),
   statusDetail: document.getElementById("statusDetail"),
+  taglineValue: document.getElementById("taglineValue"),
+  heroBackgroundImage: document.getElementById("heroBackgroundImage"),
   heroImage: document.getElementById("heroImage"),
   heroWordmark: document.getElementById("heroWordmark"),
   heroWordmarkImage: document.getElementById("heroWordmarkImage"),
+  heroEmblemText: document.getElementById("heroEmblemText"),
   titleValue: document.getElementById("titleValue"),
   websiteLink: document.getElementById("websiteLink"),
   toolsButton: document.getElementById("toolsButton"),
@@ -285,21 +289,73 @@ function renderDisplayTitle(element, title) {
     element.appendChild(secondary);
   }
 }
-function shouldUseBrandedHeroWordmark(title) {
-  const normalized = String(title || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s]+/g, " ");
-  return normalized === "clumsy's world: resurgence";
+function getBranding(nextState = state.current) {
+  return nextState?.branding && typeof nextState.branding === "object" ? nextState.branding : {};
 }
-async function prepareBrandedHeroWordmark() {
-  if (!elements.heroWordmarkImage || processedHeroWordmarkSource) {
-    return processedHeroWordmarkSource;
+function isExternalHttpUrl(value) {
+  return /^https?:\/\//i.test(String(value || "").trim());
+}
+function setOptionalExternalLink(element, url, label) {
+  if (!element) {
+    return;
   }
 
-  const source = elements.heroWordmarkImage.getAttribute("src") || elements.heroWordmarkImage.src || "";
-  if (!source) {
+  const normalizedUrl = String(url || "").trim();
+  const normalizedLabel = String(label || "").trim();
+  if (!isExternalHttpUrl(normalizedUrl)) {
+    element.classList.add("hidden");
+    element.href = "#";
+    element.textContent = "";
+    return;
+  }
+
+  element.classList.remove("hidden");
+  element.href = normalizedUrl;
+  element.textContent = normalizedLabel || normalizedUrl.replace(/^https?:\/\//i, "").replace(/\/$/, "");
+}
+function renderToolsMenu(branding) {
+  const tools = Array.isArray(branding.tools) ? branding.tools : [];
+  const validTools = tools
+    .map((tool) => ({
+      label: String(tool?.label || "").trim(),
+      url: String(tool?.url || "").trim()
+    }))
+    .filter((tool) => tool.label && isExternalHttpUrl(tool.url));
+
+  clearElementContent(elements.toolsMenu);
+  elements.toolsButton.classList.toggle("hidden", validTools.length === 0);
+  elements.toolsButton.disabled = validTools.length === 0;
+  elements.toolsMenu.setAttribute("aria-label", `${branding.serverName || "Server"} tools`);
+
+  for (const tool of validTools) {
+    const link = document.createElement("a");
+    link.className = "tools-menu-link";
+    link.href = tool.url;
+    link.setAttribute("href", tool.url);
+    link.setAttribute("target", "_blank");
+    link.setAttribute("rel", "noreferrer");
+    link.setAttribute("role", "menuitem");
+    link.textContent = tool.label;
+    elements.toolsMenu.appendChild(link);
+  }
+
+  if (!validTools.length) {
+    closeToolsMenu();
+  }
+}
+async function prepareBrandedHeroWordmark(source, removeLightBackground) {
+  if (!elements.heroWordmarkImage || !source) {
     return "";
+  }
+
+  if (!removeLightBackground) {
+    processedHeroWordmarkSource = "";
+    processedHeroWordmarkSourceKey = "";
+    return source;
+  }
+
+  if (processedHeroWordmarkSource && processedHeroWordmarkSourceKey === source) {
+    return processedHeroWordmarkSource;
   }
 
   const image = new Image();
@@ -341,7 +397,7 @@ async function prepareBrandedHeroWordmark() {
 
   context.putImageData(frame, 0, 0);
   processedHeroWordmarkSource = canvas.toDataURL("image/png");
-  elements.heroWordmarkImage.src = processedHeroWordmarkSource;
+  processedHeroWordmarkSourceKey = source;
   return processedHeroWordmarkSource;
 }
 function renderPatcherVersion(version) {
@@ -2961,14 +3017,45 @@ function renderState(nextState) {
   elements.statusChip.dataset.tone = presentation.chipTone;
   elements.statusDetail.textContent = presentation.statusDetail;
   elements.statusDetail.dataset.tone = presentation.statusDetailTone;
+  const branding = getBranding(nextState);
+  const primaryImageUrl = branding.primaryImageUrl || nextState.heroImageUrl || "";
+  if (elements.taglineValue) {
+    elements.taglineValue.textContent = branding.tagline || "An EverQuest Emulated Server";
+  }
+  if (elements.heroBackgroundImage && primaryImageUrl) {
+    elements.heroBackgroundImage.src = primaryImageUrl;
+  }
   elements.heroImage.src = nextState.heroImageUrl;
   renderDisplayTitle(elements.titleValue, resolvedTitle);
-  const useBrandedHeroWordmark = shouldUseBrandedHeroWordmark(resolvedTitle);
+  const wordmarkImageUrl = String(branding.wordmarkImageUrl || "").trim();
+  const useBrandedHeroWordmark = Boolean(wordmarkImageUrl);
   elements.heroWordmark.classList.toggle("hidden", useBrandedHeroWordmark);
   elements.heroWordmarkImage.classList.toggle("hidden", !useBrandedHeroWordmark);
-  if (!useBrandedHeroWordmark) {
+  if (useBrandedHeroWordmark) {
+    elements.heroWordmarkImage.alt = branding.wordmarkImageAlt || resolvedTitle;
+    elements.heroWordmarkImage.src = wordmarkImageUrl;
+    prepareBrandedHeroWordmark(wordmarkImageUrl, Boolean(branding.wordmarkRemoveLightBackground))
+      .then((source) => {
+        if (source && state.current === nextState) {
+          elements.heroWordmarkImage.src = source;
+        }
+      })
+      .catch(() => {
+        elements.heroWordmark.classList.remove("hidden");
+        elements.heroWordmarkImage.classList.add("hidden");
+        renderDisplayTitle(elements.heroWordmark, resolvedTitle);
+      });
+  } else {
     renderDisplayTitle(elements.heroWordmark, resolvedTitle);
+    elements.heroWordmarkImage.src = "";
   }
+  if (elements.heroEmblemText) {
+    elements.heroEmblemText.textContent = branding.emblemText || resolvedTitle.charAt(0) || "";
+  }
+  setOptionalExternalLink(elements.websiteLink, branding.websiteUrl, branding.websiteLabel);
+  elements.discordButton.classList.toggle("hidden", !isExternalHttpUrl(branding.discordUrl));
+  elements.discordButton.dataset.url = isExternalHttpUrl(branding.discordUrl) ? branding.discordUrl : "";
+  renderToolsMenu({ ...branding, serverName: resolvedTitle });
   elements.serverValue.textContent = nextState.serverName;
   elements.clientValue.textContent = nextState.clientLabel;
   elements.patchStateValue.textContent = presentation.patchStateText;
@@ -3071,7 +3158,10 @@ function wireEvents() {
     await window.launcher.closeWindow();
   });
   elements.discordButton.addEventListener("click", async () => {
-    await window.launcher.openExternal("https://discord.com/invite/3wkzwwc");
+    const discordUrl = elements.discordButton.dataset.url || "";
+    if (discordUrl) {
+      await window.launcher.openExternal(discordUrl);
+    }
   });
   elements.websiteLink.addEventListener("click", async (event) => {
     event.preventDefault();
@@ -3786,7 +3876,6 @@ async function bootstrap() {
   subscribe();
   updatePatchNotesAttention();
   setActiveTab("patch");
-  await prepareBrandedHeroWordmark().catch(() => {});
   const [nextState, version] = await Promise.all([
     window.launcher.initialize(),
     window.launcher.getVersion()

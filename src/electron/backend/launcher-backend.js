@@ -14,10 +14,37 @@ const DEFAULTS = {
   filelistUrl: "https://patch.clumsysworld.com/",
   patchNotesUrl: "",
   launcherReleaseApiUrl: DEFAULT_RELEASE_API_URL,
+  tagline: "An EverQuest Emulated Server",
+  primaryImage: "",
+  backgroundImage: "",
+  heroImage: "",
+  wordmarkImage: "",
+  wordmarkImageAlt: "",
+  wordmarkRemoveLightBackground: false,
+  emblemText: "",
+  websiteUrl: "",
+  websiteLabel: "",
+  discordUrl: "",
+  tools: [],
   defaultAutoPatch: false,
   defaultAutoPlay: false,
   defaultOnGameLaunch: "minimize",
   supportedClients: ["Rain_Of_Fear_2", "Rain_Of_Fear_2_4GB"]
+};
+
+const LEGACY_BRANDING = {
+  normalizedServerName: "clumsy's world: resurgence",
+  websiteUrl: "https://www.clumsysworld.com",
+  websiteLabel: "www.clumsysworld.com",
+  wordmarkImage: path.join("src", "electron", "assets", "branding", "clumsys-world-wordmark-cwt.png"),
+  wordmarkImageAlt: "Clumsy's World Resurgence",
+  wordmarkRemoveLightBackground: true,
+  tools: [
+    { label: "Wiki", url: "https://wiki.clumsysworld.com/" },
+    { label: "Alla", url: "https://alla.clumsysworld.com/" },
+    { label: "Magelo", url: "https://magelo.clumsysworld.com/" },
+    { label: "Nexus", url: "https://nexus.clumsysworld.com/" }
+  ]
 };
 
 const LEGACY_SERVER_NAMES = new Set(["Rebuild EQ"]);
@@ -488,6 +515,37 @@ function normalizeServerName(value) {
   }
 
   return String(value).trim();
+}
+
+function normalizeConfigText(value) {
+  return String(value == null ? "" : value).trim();
+}
+
+function normalizeBrandingServerName(value) {
+  return normalizeServerName(value)
+    .toLowerCase()
+    .replace(/[\s]+/g, " ");
+}
+
+function isHttpUrl(value) {
+  return /^https?:\/\//i.test(normalizeConfigText(value));
+}
+
+function isFileUrl(value) {
+  return /^file:\/\//i.test(normalizeConfigText(value));
+}
+
+function normalizeBrandingTools(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => ({
+      label: normalizeConfigText(entry?.label),
+      url: normalizeConfigText(entry?.url)
+    }))
+    .filter((entry) => entry.label && entry.url);
 }
 
 function looksLikeLegacyServerName(value) {
@@ -977,6 +1035,7 @@ class LauncherBackend {
       statusBadge: "Standby",
       statusDetail: "Select your EverQuest directory to begin.",
       heroImageUrl: this.getHeroImageUrl("Unknown"),
+      branding: this.getBrandingState("Unknown"),
       autoPatch: this.config.defaultAutoPatch,
       autoPlay: this.config.defaultAutoPlay,
       onGameLaunch: normalizeOnGameLaunch(this.config.defaultOnGameLaunch),
@@ -1056,7 +1115,15 @@ class LauncherBackend {
     return cloneState(this.state);
   }
 
-  getHeroImageUrl(version) {
+  getBundledAssetUrl(...segments) {
+    return pathToFileURL(path.join(this.projectRoot, ...segments)).toString();
+  }
+
+  getDefaultPrimaryImageUrl() {
+    return this.getBundledAssetUrl("src", "electron", "assets", "hero", "generated", "dragon-cavern-v1.png");
+  }
+
+  getLegacySplashImageUrl() {
     const gameDirectory = this.state?.gameDirectory || "";
     if (gameDirectory) {
       const customSplashPath = path.join(gameDirectory, "eqemupatcher.png");
@@ -1065,9 +1132,92 @@ class LauncherBackend {
       }
     }
 
+    return "";
+  }
+
+  resolveConfigAssetUrl(value, fallbackUrl = "") {
+    const normalized = normalizeConfigText(value);
+    if (!normalized) {
+      return fallbackUrl;
+    }
+
+    if (isHttpUrl(normalized) || isFileUrl(normalized)) {
+      return normalized;
+    }
+
+    const configDirectory = this.resolvedConfigPath ? path.dirname(this.resolvedConfigPath) : this.projectRoot;
+    const candidates = path.isAbsolute(normalized)
+      ? [normalized]
+      : [
+          path.resolve(configDirectory, normalized),
+          path.resolve(this.projectRoot, normalized)
+        ];
+
+    for (const candidate of candidates) {
+      if (fs.existsSync(candidate)) {
+        return pathToFileURL(candidate).toString();
+      }
+    }
+
+    return fallbackUrl;
+  }
+
+  getConfiguredPrimaryImageUrl() {
+    const configuredImage = (
+      normalizeConfigText(this.config.primaryImage) ||
+      normalizeConfigText(this.config.backgroundImage) ||
+      normalizeConfigText(this.config.heroImage)
+    );
+
+    if (configuredImage) {
+      return this.resolveConfigAssetUrl(configuredImage, this.getDefaultPrimaryImageUrl());
+    }
+
+    return this.getLegacySplashImageUrl() || this.getDefaultPrimaryImageUrl();
+  }
+
+  getHeroImageUrl(version) {
+    const legacySplashUrl = this.getLegacySplashImageUrl();
+    if (legacySplashUrl) {
+      return legacySplashUrl;
+    }
+
     const imageName = (CLIENTS[version] || CLIENTS.Unknown).image;
     const imagePath = path.join(this.projectRoot, "src", "electron", "assets", "hero", imageName);
     return pathToFileURL(imagePath).toString();
+  }
+
+  getBrandingState(version = "Unknown") {
+    const serverName = normalizeServerName(this.state?.serverName) || this.resolveServerName();
+    const normalizedServerName = normalizeBrandingServerName(serverName);
+    const useLegacyBranding = normalizedServerName === LEGACY_BRANDING.normalizedServerName;
+    const configuredWordmarkImage = normalizeConfigText(this.config.wordmarkImage);
+    const configuredTools = normalizeBrandingTools(this.config.tools);
+    const fallbackWordmarkImage = useLegacyBranding ? LEGACY_BRANDING.wordmarkImage : "";
+    const wordmarkImageUrl = this.resolveConfigAssetUrl(configuredWordmarkImage || fallbackWordmarkImage, "");
+    const websiteUrl = normalizeConfigText(this.config.websiteUrl) || (useLegacyBranding ? LEGACY_BRANDING.websiteUrl : "");
+    const websiteLabel = normalizeConfigText(this.config.websiteLabel) || (websiteUrl ? websiteUrl.replace(/^https?:\/\//i, "").replace(/\/$/, "") : "");
+    const tools = configuredTools.length ? configuredTools : (useLegacyBranding ? LEGACY_BRANDING.tools : []);
+
+    return {
+      serverName,
+      tagline: normalizeConfigText(this.config.tagline) || DEFAULTS.tagline,
+      primaryImageUrl: this.getConfiguredPrimaryImageUrl(version),
+      wordmarkImageUrl,
+      wordmarkImageAlt: normalizeConfigText(this.config.wordmarkImageAlt) || (useLegacyBranding ? LEGACY_BRANDING.wordmarkImageAlt : serverName),
+      wordmarkRemoveLightBackground: configuredWordmarkImage
+        ? this.config.wordmarkRemoveLightBackground === true
+        : Boolean(useLegacyBranding && LEGACY_BRANDING.wordmarkRemoveLightBackground),
+      emblemText: normalizeConfigText(this.config.emblemText || serverName.charAt(0)).slice(0, 3),
+      websiteUrl,
+      websiteLabel,
+      discordUrl: normalizeConfigText(this.config.discordUrl),
+      tools
+    };
+  }
+
+  syncBrandingState(version = this.state.clientVersion || "Unknown") {
+    this.state.branding = this.getBrandingState(version);
   }
 
   setStatus(badge, detail, error = "") {
@@ -1492,6 +1642,7 @@ class LauncherBackend {
       this.state.filelistUrl = this.config.filelistUrl;
       this.state.patchNotesUrl = this.config.patchNotesUrl;
       this.state.launcherReleaseApiUrl = this.config.launcherReleaseApiUrl;
+      this.syncBrandingState();
       return;
     }
 
@@ -1509,10 +1660,15 @@ class LauncherBackend {
       this.config.supportedClients = [...DEFAULTS.supportedClients];
     }
 
+    if (!Array.isArray(this.config.tools)) {
+      this.config.tools = [];
+    }
+
     this.state.serverName = this.resolveServerName();
     this.state.filelistUrl = this.config.filelistUrl;
     this.state.patchNotesUrl = this.config.patchNotesUrl;
     this.state.launcherReleaseApiUrl = this.config.launcherReleaseApiUrl;
+    this.syncBrandingState();
   }
 
 
@@ -1856,6 +2012,7 @@ class LauncherBackend {
 
     this.state.eqGamePath = this.getEqGamePath();
     this.state.heroImageUrl = this.getHeroImageUrl(this.state.clientVersion);
+    this.syncBrandingState(this.state.clientVersion);
     this.state.reportUrl = "";
     this.state.canPatch = false;
     this.state.canLaunch = false;
@@ -1874,12 +2031,14 @@ class LauncherBackend {
       this.state.patchActionLabel = "Deploy Patch";
       this.setStatus("Run In Folder", "Run this launcher from the EverQuest directory that contains eqgame.exe.");
       this.state.heroImageUrl = this.getHeroImageUrl("Unknown");
+      this.syncBrandingState("Unknown");
       this.emitState();
       return this.getState();
     }
 
     this.state.serverName = this.resolveServerName();
     this.state.filelistUrl = this.config.filelistUrl;
+    this.syncBrandingState(this.state.clientVersion);
 
     const detectResult = await this.detectClientVersion();
     this.state.clientVersion = detectResult.version;
@@ -1887,6 +2046,7 @@ class LauncherBackend {
       this.state.clientHash = detectResult.hash;
       this.state.clientSupported = this.config.supportedClients.includes(detectResult.version);
       this.state.heroImageUrl = this.getHeroImageUrl(detectResult.version);
+      this.syncBrandingState(detectResult.version);
       this.state.canLaunch = false;
 
       await this.saveGameSettings();
@@ -1928,6 +2088,7 @@ class LauncherBackend {
     try {
       const manifest = await this.fetchManifest();
       this.state.serverName = this.resolveServerName({ manifest });
+      this.syncBrandingState(detectResult.version);
       this.state.manifestVersion = normalizeVersion(manifest.version);
       this.state.lastPatchedVersion = normalizeVersion(this.gameSettings.lastPatchedVersion);
       this.state.needsPatch = this.state.manifestVersion !== this.state.lastPatchedVersion;

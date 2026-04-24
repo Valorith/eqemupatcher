@@ -38,6 +38,20 @@ Current fields:
 ```yaml
 serverName: Clumsy's World
 filelistUrl: https://patch.clumsysworld.com/
+patchNotesUrl: https://patch.clumsysworld.com/patch-notes.md
+launcherReleaseApiUrl: https://api.github.com/repos/your-org/your-patcher/releases/latest
+tagline: An EverQuest Emulated Server
+primaryImage: assets/branding/hero.png
+wordmarkImage: assets/branding/wordmark.png
+wordmarkImageAlt: Your Server Name
+wordmarkRemoveLightBackground: false
+emblemText: YS
+websiteUrl: https://www.example.com
+websiteLabel: www.example.com
+discordUrl: https://discord.gg/example
+tools:
+  - label: Wiki
+    url: https://wiki.example.com/
 defaultAutoPatch: false
 defaultAutoPlay: false
 supportedClients:
@@ -45,7 +59,7 @@ supportedClients:
   - Rain_Of_Fear_2_4GB
 ```
 
-Update this file before packaging if you are shipping a launcher for a different server.
+Update this file before packaging if you are shipping a launcher for a different server. Branding image paths can be `https://` URLs, `file://` URLs, absolute local paths, or paths relative to the active `launcher-config.yml`. If `primaryImage` is not set, the launcher still supports the legacy `eqemupatcher.png` splash image in the player's game directory.
 
 ## Local Development
 
@@ -105,6 +119,7 @@ Notes:
 * building the Windows portable executable is best done on Windows
 * packaged output is written under `dist/electron/`
 * the package includes the launcher config and built-in hero art used by the Electron app
+* custom branding assets referenced by relative paths should be shipped beside the active `launcher-config.yml`
 
 Build the portable Windows file list builder:
 
@@ -177,7 +192,7 @@ https://example.com/patch/rof/filelist_rof.yml
 
 ## Custom Splash Art
 
-Servers can still provide a custom splash image by placing `eqemupatcher.png` in the player's game directory. The Electron launcher will prefer that file over its built-in hero art when present.
+Servers can configure the primary launcher artwork with `primaryImage` in `launcher-config.yml`. Servers can still provide a legacy custom splash image by placing `eqemupatcher.png` in the player's game directory; the Electron launcher will prefer that file over its built-in hero art when `primaryImage` is not configured.
 
 ## Validation In This Fork
 

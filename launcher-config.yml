@@ -2,6 +2,24 @@ serverName: Clumsy's World: Resurgence
 filelistUrl: https://patch.clumsysworld.com/
 patchNotesUrl: https://patch.clumsysworld.com/patch-notes.md
 launcherReleaseApiUrl: https://api.github.com/repos/Valorith/eqemupatcher/releases/latest
+tagline: An EverQuest Emulated Server
+primaryImage: src/electron/assets/hero/generated/dragon-cavern-v1.png
+wordmarkImage: src/electron/assets/branding/clumsys-world-wordmark-cwt.png
+wordmarkImageAlt: Clumsy's World Resurgence
+wordmarkRemoveLightBackground: true
+emblemText: C
+websiteUrl: https://www.clumsysworld.com
+websiteLabel: www.clumsysworld.com
+discordUrl: ""
+tools:
+  - label: Wiki
+    url: https://wiki.clumsysworld.com/
+  - label: Alla
+    url: https://alla.clumsysworld.com/
+  - label: Magelo
+    url: https://magelo.clumsysworld.com/
+  - label: Nexus
+    url: https://nexus.clumsysworld.com/
 defaultAutoPatch: false
 defaultAutoPlay: false
 supportedClients:

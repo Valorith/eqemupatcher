@@ -36,6 +36,24 @@
       statusBadge: "Launch Ready",
       statusDetail: "EverQuest was started.",
       heroImageUrl: "/src/electron/assets/hero/rof.png",
+      branding: {
+        serverName: "Clumsy's World: Resurgence",
+        tagline: "An EverQuest Emulated Server",
+        primaryImageUrl: "/src/electron/assets/hero/generated/dragon-cavern-v1.png",
+        wordmarkImageUrl: "/src/electron/assets/branding/clumsys-world-wordmark-cwt.png",
+        wordmarkImageAlt: "Clumsy's World Resurgence",
+        wordmarkRemoveLightBackground: true,
+        emblemText: "C",
+        websiteUrl: "https://www.clumsysworld.com",
+        websiteLabel: "www.clumsysworld.com",
+        discordUrl: "",
+        tools: [
+          { label: "Wiki", url: "https://wiki.clumsysworld.com/" },
+          { label: "Alla", url: "https://alla.clumsysworld.com/" },
+          { label: "Magelo", url: "https://magelo.clumsysworld.com/" },
+          { label: "Nexus", url: "https://nexus.clumsysworld.com/" }
+        ]
+      },
       canPatch: true,
       canLaunch: true,
       autoPatch: true,

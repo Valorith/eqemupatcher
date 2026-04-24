@@ -19,7 +19,7 @@
 
       <header class="topbar">
         <div class="topbar-copy">
-          <p class="eyebrow">An EverQuest Emulated Server</p>
+          <p id="taglineValue" class="eyebrow">An EverQuest Emulated Server</p>
           <h1 id="titleValue" class="title title-wordmark">Resolving</h1>
           <div class="title-divider" aria-hidden="true">
             <span class="title-divider-line"></span>
@@ -29,12 +29,11 @@
           <div class="topbar-links">
             <a
               id="websiteLink"
-              class="website-link"
-              href="https://www.clumsysworld.com"
+              class="website-link hidden"
+              href="#"
               target="_blank"
               rel="noreferrer"
             >
-              www.clumsysworld.com
             </a>
             <div class="tools-menu">
               <button
@@ -47,44 +46,7 @@
               >
                 Tools
               </button>
-              <div id="toolsMenu" class="tools-menu-panel hidden" role="menu" aria-label="Clumsy's World tools">
-                <a
-                  class="tools-menu-link"
-                  href="https://wiki.clumsysworld.com/"
-                  target="_blank"
-                  rel="noreferrer"
-                  role="menuitem"
-                >
-                  Wiki
-                </a>
-                <a
-                  class="tools-menu-link"
-                  href="https://alla.clumsysworld.com/"
-                  target="_blank"
-                  rel="noreferrer"
-                  role="menuitem"
-                >
-                  Alla
-                </a>
-                <a
-                  class="tools-menu-link"
-                  href="https://magelo.clumsysworld.com/"
-                  target="_blank"
-                  rel="noreferrer"
-                  role="menuitem"
-                >
-                  Magelo
-                </a>
-                <a
-                  class="tools-menu-link"
-                  href="https://nexus.clumsysworld.com/"
-                  target="_blank"
-                  rel="noreferrer"
-                  role="menuitem"
-                >
-                  Nexus
-                </a>
-              </div>
+              <div id="toolsMenu" class="tools-menu-panel hidden" role="menu" aria-label="Server tools"></div>
             </div>
           </div>
         </div>
@@ -279,18 +241,17 @@
           <div class="hero-stage-diagonal" aria-hidden="true">
             <span class="hero-stage-diagonal-line hero-stage-diagonal-line-primary"></span>
             <span class="hero-stage-diagonal-line hero-stage-diagonal-line-secondary"></span>
-            <span class="hero-stage-emblem"><span>C</span></span>
+            <span class="hero-stage-emblem"><span id="heroEmblemText">C</span></span>
           </div>
           <div class="hero-image-wrap">
-            <img class="hero-background-image" src="../assets/hero/generated/dragon-cavern-v1.png" alt="" aria-hidden="true" />
+            <img id="heroBackgroundImage" class="hero-background-image" src="../assets/hero/generated/dragon-cavern-v1.png" alt="" aria-hidden="true" />
             <img id="heroImage" class="hero-client-image" alt="Client artwork" />
           </div>
           <div class="hero-wordmark-panel">
             <img
               id="heroWordmarkImage"
               class="hero-wordmark-image hidden"
-              src="../assets/branding/clumsys-world-wordmark-cwt.png"
-              alt="Clumsy's World Resurgence"
+              alt=""
             />
             <div id="heroWordmark" class="hero-wordmark">Resolving</div>
             <div class="hero-wordmark-rule" aria-hidden="true">

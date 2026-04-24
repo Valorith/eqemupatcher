@@ -10,10 +10,6 @@ const {
 } = require("../src/electron/renderer/patch-notes-state");
 
 const APP_SOURCE = fs.readFileSync(path.join(__dirname, "..", "src", "electron", "renderer", "app.js"), "utf8");
-const RENDERER_INDEX_SOURCE = fs.readFileSync(
-  path.join(__dirname, "..", "src", "electron", "renderer", "index.html"),
-  "utf8"
-);
 const PATCH_NOTES_READ_STORAGE_KEY = "eqemu-launcher.patchNotesRead";
 const PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY = "eqemu-launcher.patchNotesReadInitialized";
 
@@ -91,6 +87,7 @@ class FakeElement extends FakeNode {
     this.disabled = false;
     this.href = "#";
     this.src = "";
+    this.alt = "";
     this.textContent = "";
     this.innerHTML = "";
     this.className = "";
@@ -102,6 +99,12 @@ class FakeElement extends FakeNode {
     this.attributes[name] = String(value);
     if (name === "href") {
       this.href = String(value);
+    }
+    if (name === "src") {
+      this.src = String(value);
+    }
+    if (name === "alt") {
+      this.alt = String(value);
     }
   }
 
@@ -711,6 +714,15 @@ async function createRendererHarness(options = {}) {
       patchButton: document.getElementById("patchButton"),
       launchButton: document.getElementById("launchButton"),
       manualPrerequisitesButton: document.getElementById("manualPrerequisitesButton"),
+      taglineValue: document.getElementById("taglineValue"),
+      heroBackgroundImage: document.getElementById("heroBackgroundImage"),
+      heroWordmark: document.getElementById("heroWordmark"),
+      heroWordmarkImage: document.getElementById("heroWordmarkImage"),
+      heroEmblemText: document.getElementById("heroEmblemText"),
+      websiteLink: document.getElementById("websiteLink"),
+      toolsButton: document.getElementById("toolsButton"),
+      toolsMenu: document.getElementById("toolsMenu"),
+      discordButton: document.getElementById("discordButton"),
       onGameLaunchSelect: document.getElementById("onGameLaunchSelect"),
       patchNotesPromptModal: document.getElementById("patchNotesPromptModal"),
       patchNotesPromptLaterButton: document.getElementById("patchNotesPromptLaterButton"),
@@ -783,17 +795,62 @@ test("renderer bootstrap defers patch notes loading until they are needed", asyn
   assert.equal(harness.elements.patchNotesPromptModal.classList.contains("hidden"), true);
 });
 
-test("launcher tools menu points Alla and Nexus at the expected URLs", () => {
-  assert.match(
-    RENDERER_INDEX_SOURCE,
-    /href="https:\/\/alla\.clumsysworld\.com\/"[\s\S]*?>\s*Alla\s*</
+test("renderer applies configurable branding assets and links from launcher state", async () => {
+  const harness = await createRendererHarness({
+    serverName: "Brand Realm",
+    heroImageUrl: "file:///legacy-client.png",
+    branding: {
+      serverName: "Brand Realm",
+      tagline: "A Custom EQ Server",
+      primaryImageUrl: "file:///brand-primary.png",
+      wordmarkImageUrl: "file:///brand-wordmark.png",
+      wordmarkImageAlt: "Brand Realm Wordmark",
+      wordmarkRemoveLightBackground: false,
+      emblemText: "BR",
+      websiteUrl: "https://brand.invalid",
+      websiteLabel: "brand.invalid",
+      discordUrl: "https://discord.gg/brand",
+      tools: [
+        { label: "Wiki", url: "https://wiki.brand.invalid/" },
+        { label: "Alla", url: "https://alla.brand.invalid/" }
+      ]
+    }
+  });
+
+  assert.equal(harness.elements.taglineValue.textContent, "A Custom EQ Server");
+  assert.equal(harness.elements.heroBackgroundImage.src, "file:///brand-primary.png");
+  assert.equal(harness.elements.heroWordmark.classList.contains("hidden"), true);
+  assert.equal(harness.elements.heroWordmarkImage.classList.contains("hidden"), false);
+  assert.equal(harness.elements.heroWordmarkImage.src, "file:///brand-wordmark.png");
+  assert.equal(harness.elements.heroWordmarkImage.alt, "Brand Realm Wordmark");
+  assert.equal(harness.elements.heroEmblemText.textContent, "BR");
+  assert.equal(harness.elements.websiteLink.href, "https://brand.invalid");
+  assert.equal(harness.elements.websiteLink.textContent, "brand.invalid");
+  assert.equal(harness.elements.discordButton.classList.contains("hidden"), false);
+  assert.equal(harness.elements.discordButton.dataset.url, "https://discord.gg/brand");
+  assert.equal(harness.elements.toolsButton.classList.contains("hidden"), false);
+  assert.deepEqual(
+    harness.elements.toolsMenu.children.map((link) => ({ label: link.textContent, url: link.href })),
+    [
+      { label: "Wiki", url: "https://wiki.brand.invalid/" },
+      { label: "Alla", url: "https://alla.brand.invalid/" }
+    ]
   );
-  assert.match(
-    RENDERER_INDEX_SOURCE,
-    /href="https:\/\/nexus\.clumsysworld\.com\/"[\s\S]*?>\s*Nexus\s*</
-  );
-  assert.doesNotMatch(RENDERER_INDEX_SOURCE, />\s*Raid Manager\s*</);
-  assert.doesNotMatch(RENDERER_INDEX_SOURCE, /cw-raid-manager-server-production\.up\.railway\.app\/dashboard/);
+});
+
+test("renderer hides optional branding links when URLs are not configured", async () => {
+  const harness = await createRendererHarness({
+    branding: {
+      primaryImageUrl: "file:///brand-primary.png",
+      tools: []
+    }
+  });
+
+  assert.equal(harness.elements.heroBackgroundImage.src, "file:///brand-primary.png");
+  assert.equal(harness.elements.websiteLink.classList.contains("hidden"), true);
+  assert.equal(harness.elements.discordButton.classList.contains("hidden"), true);
+  assert.equal(harness.elements.toolsButton.classList.contains("hidden"), true);
+  assert.equal(harness.elements.toolsMenu.children.length, 0);
 });
 
 test("opening the notes tab loads patch notes and stores the baseline read state", async () => {
