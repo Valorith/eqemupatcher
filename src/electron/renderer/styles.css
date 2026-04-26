@@ -1371,6 +1371,18 @@ body {
   padding: 4px 0 8px;
   user-select: none;
   z-index: 8;
+  -webkit-app-region: drag;
+}
+
+.topbar a,
+.topbar button,
+.topbar input,
+.topbar select,
+.topbar textarea,
+.topbar [role="button"],
+.topbar [role="menu"],
+.topbar [role="menuitem"] {
+  -webkit-app-region: no-drag;
 }
 
 @keyframes shell-edge-shine-top {
