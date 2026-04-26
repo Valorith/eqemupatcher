@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld("launcher", {
   minimizeWindow: () => ipcRenderer.invoke("launcher:minimizeWindow"),
   toggleMaximizeWindow: () => ipcRenderer.invoke("launcher:toggleMaximizeWindow"),
   closeWindow: () => ipcRenderer.invoke("launcher:closeWindow"),
+  moveWindowForDrag: (dragState) => ipcRenderer.invoke("launcher:moveWindowForDrag", dragState),
+  endWindowDrag: () => ipcRenderer.invoke("launcher:endWindowDrag"),
   openExternal: (url) => ipcRenderer.invoke("launcher:openExternal", url),
   openConfigFile: () => ipcRenderer.invoke("launcher:openConfigFile"),
   openGameDirectory: () => ipcRenderer.invoke("launcher:openGameDirectory"),

@@ -57,6 +57,21 @@ let processedHeroWordmarkSource = "";
 let processedHeroWordmarkSourceKey = "";
 const PATCH_NOTES_READ_STORAGE_KEY = "eqemu-launcher.patchNotesRead";
 const PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY = "eqemu-launcher.patchNotesReadInitialized";
+const WINDOW_DRAG_TOP_RATIO = 0.2;
+const WINDOW_DRAG_INTERACTIVE_SELECTOR = [
+  "a",
+  "button",
+  "input",
+  "select",
+  "textarea",
+  "[contenteditable='true']",
+  "[role='button']",
+  "[role='menu']",
+  "[role='menuitem']",
+  ".window-controls",
+  ".tools-menu",
+  ".modal-shell:not(.hidden)"
+].join(",");
 const { createPatchNotesReadTracker, getPatchNotesSignature, shouldLoadPatchNotes } = window.PatchNotesState;
 const patchNotesReadTracker = createPatchNotesReadTracker({
   storage: window.localStorage,
@@ -211,6 +226,7 @@ const elements = {
   uiManagerConfirmCancelButton: document.getElementById("uiManagerConfirmCancelButton"),
   uiManagerConfirmAcceptButton: document.getElementById("uiManagerConfirmAcceptButton")
 };
+let windowDragState = null;
 function resetPatchNotesState() {
   closePatchNotesPromptModal();
   state.patchNotesPromptDismissedSignature = "";
@@ -3142,7 +3158,76 @@ function pushLog(entry) {
   }
   renderLogs();
 }
+function isWindowDragInteractiveTarget(target) {
+  return Boolean(
+    target
+    && typeof target.closest === "function"
+    && target.closest(WINDOW_DRAG_INTERACTIVE_SELECTOR)
+  );
+}
+function isInWindowDragBand(event) {
+  const viewportHeight = Number(window.innerHeight) || document.documentElement?.clientHeight || document.body?.clientHeight || 0;
+  if (!viewportHeight || !Number.isFinite(event.clientY)) {
+    return false;
+  }
+
+  return event.clientY >= 0 && event.clientY <= viewportHeight * WINDOW_DRAG_TOP_RATIO;
+}
+function beginWindowDrag(event) {
+  if (event.button !== 0 || !window.launcher?.moveWindowForDrag) {
+    return;
+  }
+
+  if (!isInWindowDragBand(event) || isWindowDragInteractiveTarget(event.target)) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  windowDragState = {
+    startScreenX: Number(event.screenX) || 0,
+    startScreenY: Number(event.screenY) || 0
+  };
+  document.body?.classList?.add("is-window-dragging");
+}
+function updateWindowDrag(event) {
+  if (!windowDragState || !window.launcher?.moveWindowForDrag) {
+    return;
+  }
+
+  event.preventDefault();
+  window.launcher.moveWindowForDrag({
+    ...windowDragState,
+    currentScreenX: Number(event.screenX) || windowDragState.startScreenX,
+    currentScreenY: Number(event.screenY) || windowDragState.startScreenY
+  });
+}
+function endWindowDrag() {
+  if (!windowDragState) {
+    return;
+  }
+
+  windowDragState = null;
+  document.body?.classList?.remove("is-window-dragging");
+  if (window.launcher?.endWindowDrag) {
+    window.launcher.endWindowDrag();
+  }
+}
+function preventNativeDragDuringWindowMove(event) {
+  if (!windowDragState || !isInWindowDragBand(event)) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+}
 function wireEvents() {
+  document.addEventListener("mousedown", beginWindowDrag, true);
+  document.addEventListener("mousemove", updateWindowDrag, true);
+  document.addEventListener("mouseup", endWindowDrag, true);
+  document.addEventListener("mouseleave", endWindowDrag, true);
+  document.addEventListener("dragstart", preventNativeDragDuringWindowMove, true);
+
   bindHorizontalWheelScroll(elements.uiManagerPackageList);
   bindHorizontalWheelScroll(elements.uiManagerTargetList);
   bindHorizontalWheelScroll(elements.uiManagerOptionList);

@@ -1356,6 +1356,19 @@ body {
   background: rgba(255, 188, 78, 0.12);
 }
 
+.window-drag-region {
+  position: fixed;
+  inset: 0 0 auto 0;
+  width: 100vw;
+  height: 20vh;
+  min-height: 9rem;
+  z-index: 11;
+  pointer-events: auto;
+  background: rgba(0, 0, 0, 0.001);
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+
 .topbar,
 .layout {
   position: relative;
@@ -1371,6 +1384,7 @@ body {
   padding: 4px 0 8px;
   user-select: none;
   z-index: 8;
+  app-region: drag;
   -webkit-app-region: drag;
 }
 
@@ -1382,6 +1396,7 @@ body {
 .topbar [role="button"],
 .topbar [role="menu"],
 .topbar [role="menuitem"] {
+  app-region: no-drag;
   -webkit-app-region: no-drag;
 }
 
@@ -4988,10 +5003,6 @@ body {
   .shell {
     height: auto;
     min-height: 100vh;
-  }
-
-  .topbar {
-    -webkit-app-region: no-drag;
   }
 
   .layout {

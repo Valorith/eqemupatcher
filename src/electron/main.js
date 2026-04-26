@@ -5,6 +5,7 @@ const packageMetadata = require("../../package.json");
 
 let mainWindow = null;
 let backend = null;
+let activeWindowDrag = null;
 const windowsIconPath = path.join(__dirname, "assets", "icons", "icon-app.ico");
 const defaultIconPath = path.join(__dirname, "assets", "icons", "icon-app.png");
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -53,7 +54,7 @@ function createWindow() {
     show: false,
     frame: false,
     autoHideMenuBar: true,
-    titleBarStyle: process.platform === "darwin" ? "hiddenInset" : "hidden",
+    ...(process.platform === "darwin" ? { titleBarStyle: "hiddenInset" } : {}),
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -229,6 +230,37 @@ ipcMain.handle("launcher:closeWindow", async () => {
   }
 
   mainWindow.close();
+  return true;
+});
+ipcMain.handle("launcher:moveWindowForDrag", async (_event, dragState = {}) => {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    activeWindowDrag = null;
+    return false;
+  }
+
+  const startScreenX = Number(dragState.startScreenX);
+  const startScreenY = Number(dragState.startScreenY);
+  const currentScreenX = Number(dragState.currentScreenX);
+  const currentScreenY = Number(dragState.currentScreenY);
+  if (![startScreenX, startScreenY, currentScreenX, currentScreenY].every(Number.isFinite)) {
+    return false;
+  }
+
+  if (!activeWindowDrag) {
+    const bounds = mainWindow.getBounds();
+    activeWindowDrag = {
+      startX: bounds.x,
+      startY: bounds.y
+    };
+  }
+
+  const nextX = Math.round(activeWindowDrag.startX + currentScreenX - startScreenX);
+  const nextY = Math.round(activeWindowDrag.startY + currentScreenY - startScreenY);
+  mainWindow.setPosition(nextX, nextY, false);
+  return true;
+});
+ipcMain.handle("launcher:endWindowDrag", async () => {
+  activeWindowDrag = null;
   return true;
 });
 ipcMain.handle("launcher:openExternal", async (_event, url) => {
