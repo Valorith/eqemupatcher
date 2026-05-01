@@ -16,6 +16,40 @@ function normalizeVersion(value) {
   return String(value || "").trim().replace(/^v/i, "");
 }
 
+function normalizeElectronArchitecture(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (["ia32", "x86", "i386", "i686"].includes(normalized)) {
+    return "ia32";
+  }
+  if (["x64", "amd64", "x86_64", "x86-64"].includes(normalized)) {
+    return "x64";
+  }
+  if (["arm64", "aarch64"].includes(normalized)) {
+    return "arm64";
+  }
+  return "";
+}
+
+function getArchitectureAssetPatterns(architecture) {
+  const normalized = normalizeElectronArchitecture(architecture);
+  const aliases = {
+    ia32: ["ia32", "x86", "32bit", "32-bit"],
+    x64: ["x64", "amd64", "64bit", "64-bit"],
+    arm64: ["arm64", "aarch64"]
+  }[normalized] || [];
+
+  return aliases.map((alias) => new RegExp(`(^|[^a-z0-9])${alias}([^a-z0-9]|$)`, "i"));
+}
+
+function hasArchitectureAssetToken(name) {
+  const patterns = [
+    ...getArchitectureAssetPatterns("ia32"),
+    ...getArchitectureAssetPatterns("x64"),
+    ...getArchitectureAssetPatterns("arm64")
+  ];
+  return patterns.some((pattern) => pattern.test(String(name || "")));
+}
+
 function compareVersions(leftValue, rightValue) {
   const left = normalizeVersion(leftValue);
   const right = normalizeVersion(rightValue);
@@ -98,7 +132,8 @@ class LauncherUpdater {
     executablePath,
     processId,
     relaunchArgs,
-    isPackaged
+    isPackaged,
+    processArch
   }) {
     this.appUserDataPath = appUserDataPath;
     this.projectRoot = projectRoot;
@@ -110,6 +145,7 @@ class LauncherUpdater {
     this.appVersion = normalizeVersion(appVersion) || "0.0.0";
     this.executablePath = executablePath || "";
     this.executableName = path.basename(this.executablePath || "");
+    this.processArch = normalizeElectronArchitecture(processArch || process.arch);
     this.processId = processId || process.pid;
     this.relaunchArgs = Array.isArray(relaunchArgs) ? [...relaunchArgs] : [];
     this.isPackaged = Boolean(isPackaged);
@@ -708,7 +744,7 @@ class LauncherUpdater {
   selectReleaseAsset(assets) {
     const executableAssets = assets.filter((candidate) => {
       const name = String(candidate?.name || "").trim();
-      return Boolean(name) && /\.exe$/i.test(name) && !/\.blockmap$/i.test(name);
+      return Boolean(name) && /\.exe$/i.test(name) && !/\.blockmap$/i.test(name) && !/(setup|installer|install)/i.test(name);
     });
 
     if (this.executableName) {
@@ -718,6 +754,25 @@ class LauncherUpdater {
       if (exactMatch) {
         return exactMatch;
       }
+    }
+
+    const architecturePatterns = getArchitectureAssetPatterns(this.processArch);
+    if (architecturePatterns.length > 0) {
+      const architectureMatches = executableAssets.filter((candidate) => {
+        const name = String(candidate?.name || "").trim();
+        return architecturePatterns.some((pattern) => pattern.test(name));
+      });
+      const portableArchitectureMatch = architectureMatches.find((candidate) => /portable/i.test(String(candidate?.name || "")));
+      if (portableArchitectureMatch) {
+        return portableArchitectureMatch;
+      }
+      if (architectureMatches.length === 1) {
+        return architectureMatches[0];
+      }
+    }
+
+    if (executableAssets.some((candidate) => hasArchitectureAssetToken(String(candidate?.name || "").trim()))) {
+      return null;
     }
 
     const legacyPortableMatch = executableAssets.find((candidate) => PORTABLE_ASSET_PATTERN.test(String(candidate?.name || "")));

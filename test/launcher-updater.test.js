@@ -80,7 +80,8 @@ async function createUpdaterHarness(t, options = {}) {
     executablePath,
     processId: 4242,
     relaunchArgs: ["--portable"],
-    isPackaged: options.isPackaged ?? true
+    isPackaged: options.isPackaged ?? true,
+    processArch: options.processArch
   });
 
   return {
@@ -288,6 +289,90 @@ test("parseReleasePayload prefers the current packaged executable name", async (
   assert.equal(release.latestVersion, "0.3.1");
   assert.equal(release.assetName, "CW.Patcher.2.exe");
   assert.equal(release.downloadUrl, "https://example.invalid/CW.Patcher.2.exe");
+});
+
+test("parseReleasePayload selects the matching architecture asset when release assets are split by arch", async (t) => {
+  const cases = [
+    {
+      processArch: "x64",
+      expectedName: "CWPatcher-x64-portable.exe",
+      expectedUrl: "https://example.invalid/CWPatcher-x64-portable.exe"
+    },
+    {
+      processArch: "ia32",
+      expectedName: "CWPatcher-ia32-portable.exe",
+      expectedUrl: "https://example.invalid/CWPatcher-ia32-portable.exe"
+    }
+  ];
+  const digest = `sha256:${sha256("portable")}`;
+
+  for (const testCase of cases) {
+    await t.test(testCase.processArch, async (subtest) => {
+      const { updater } = await createUpdaterHarness(subtest, {
+        executableName: "CWPatcher.exe",
+        processArch: testCase.processArch
+      });
+      const release = updater.parseReleasePayload({
+        tag_name: "V0.3.2",
+        html_url: "https://example.invalid/release",
+        assets: [
+          {
+            name: "CWPatcher-x64-Setup.exe",
+            browser_download_url: "https://example.invalid/CWPatcher-x64-Setup.exe",
+            size: 16,
+            digest
+          },
+          {
+            name: "CWPatcher-ia32-portable.exe",
+            browser_download_url: "https://example.invalid/CWPatcher-ia32-portable.exe",
+            size: 16,
+            digest
+          },
+          {
+            name: "CWPatcher-x64-portable.exe",
+            browser_download_url: "https://example.invalid/CWPatcher-x64-portable.exe",
+            size: 16,
+            digest
+          }
+        ]
+      });
+
+      assert.equal(release.latestVersion, "0.3.2");
+      assert.equal(release.assetName, testCase.expectedName);
+      assert.equal(release.downloadUrl, testCase.expectedUrl);
+    });
+  }
+});
+
+test("parseReleasePayload ignores installer assets when selecting a portable update", async (t) => {
+  const { updater } = await createUpdaterHarness(t, {
+    executableName: "CWPatcher.exe",
+    processArch: "x64"
+  });
+  const digest = `sha256:${sha256("portable")}`;
+  const release = updater.parseReleasePayload({
+    tag_name: "V0.3.2",
+    html_url: "https://example.invalid/release",
+    assets: [
+      {
+        name: "CWPatcher-x64-Setup.exe",
+        browser_download_url: "https://example.invalid/CWPatcher-x64-Setup.exe",
+        size: 16,
+        digest
+      },
+      {
+        name: "CWPatcher-ia32-portable.exe",
+        browser_download_url: "https://example.invalid/CWPatcher-ia32-portable.exe",
+        size: 16,
+        digest
+      }
+    ]
+  });
+
+  assert.equal(release.latestVersion, "0.3.2");
+  assert.equal(release.assetName, "");
+  assert.equal(release.downloadUrl, "");
+  assert.match(release.error, /missing the Windows portable launcher asset/);
 });
 
 test("checkForUpdate uses ETag caching after the TTL expires", async (t) => {

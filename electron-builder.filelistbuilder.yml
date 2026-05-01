@@ -19,5 +19,6 @@ win:
     - target: portable
       arch:
         - x64
+        - ia32
 portable:
-  artifactName: ${productName}-${version}-windows-portable.${ext}
+  artifactName: ${productName}-${version}-windows-${arch}-portable.${ext}

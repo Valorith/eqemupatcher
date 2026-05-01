@@ -116,8 +116,9 @@ npm run dist:win:installer
 Notes:
 
 * `npm run dist:win` targets Electron Builder's `portable` output
+* Windows portable builds include separate `x64` and `ia32` folders, each containing `CWPatcher.exe`
 * building the Windows portable executable is best done on Windows
-* packaged output is written under `dist/electron/`
+* packaged output is written under `dist/electron/x64/` and `dist/electron/ia32/`
 * the package includes the launcher config and built-in hero art used by the Electron app
 * custom branding assets referenced by relative paths should be shipped beside the active `launcher-config.yml`
 
