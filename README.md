@@ -16,7 +16,7 @@ This fork replaces the old desktop client with a lightweight Electron launcher w
 * persist `eqemupatcher.yml` in the game directory
 * launch `eqgame.exe patchme` on Windows
 
-The main client application in this fork is the Electron app under [src/electron](/Users/robg/Documents/GitHub/eqemupatcher/src/electron).
+The main client application in this fork is the Electron app under [src/electron](src/electron).
 
 ## Compatibility
 
@@ -31,7 +31,7 @@ The preserved server-side contract is:
 
 ## Configuration
 
-Runtime defaults for the Electron launcher live in [launcher-config.yml](/Users/robg/Documents/GitHub/eqemupatcher/launcher-config.yml).
+Runtime defaults for the Electron launcher live in [launcher-config.yml](launcher-config.yml).
 
 Current fields:
 
@@ -153,7 +153,7 @@ If the EverQuest directory is inside `Program Files`, patching or launch behavio
 
 ## Server Setup
 
-This repository still includes the original Go `filelistbuilder` source under [filelistbuilder](/Users/robg/Documents/GitHub/eqemupatcher/filelistbuilder).
+This repository still includes the original Go `filelistbuilder` source under [filelistbuilder](filelistbuilder).
 
 This fork now also includes an Electron-based File List Builder app that preserves the legacy output contract while providing a GUI for editing `filelistbuilder.yml`, `ignore.txt`, and `delete.txt`.
 
@@ -163,7 +163,7 @@ Build it with Go:
 go build -o filelistbuilder/filelistbuilder ./filelistbuilder
 ```
 
-The builder is configured by [filelistbuilder.yml](/Users/robg/Documents/GitHub/eqemupatcher/filelistbuilder.yml):
+The builder is configured by [filelistbuilder.yml](filelistbuilder.yml):
 
 ```yaml
 client: rof
@@ -197,4 +197,4 @@ Servers can configure the primary launcher artwork with `primaryImage` in `launc
 
 ## Validation In This Fork
 
-The Electron backend is covered by automated tests in [test/electron-backend.test.js](/Users/robg/Documents/GitHub/eqemupatcher/test/electron-backend.test.js), including compatibility coverage for legacy `filelistbuilder` manifest output.
+The Electron backend is covered by automated tests in [test/electron-backend.test.js](test/electron-backend.test.js), including compatibility coverage for legacy `filelistbuilder` manifest output.

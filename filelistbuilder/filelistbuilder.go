@@ -73,7 +73,7 @@ func main() {
 	}
 
 	h := md5.New()
-	io.WriteString(h, fmt.Sprintf("%i", time.Now().Nanosecond()))
+	io.WriteString(h, fmt.Sprintf("%d", time.Now().Nanosecond()))
 	for _, d := range fileList.Downloads {
 		io.WriteString(h, d.Name)
 	}
