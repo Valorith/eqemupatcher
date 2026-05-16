@@ -5719,6 +5719,9 @@ body .layout {
 
 body .command-card {
   padding: 226px 1.9rem 0 0.45rem;
+  position: relative;
+  z-index: 4;
+  overflow: visible;
 }
 
 body .patch-primary {
@@ -5728,6 +5731,8 @@ body .patch-primary {
 
 body #patchTabPanel .patch-primary {
   flex: 1;
+  width: 38rem;
+  max-width: none;
   margin-top: 0;
 }
 
@@ -6236,6 +6241,10 @@ body .ui-manager-beta-badge-tab {
     padding-right: 1.45rem;
   }
 
+  body #patchTabPanel .patch-primary {
+    width: 35rem;
+  }
+
   body .hero-wordmark-panel {
     left: 65.3%;
     bottom: 8.2%;
@@ -6282,6 +6291,10 @@ body .ui-manager-beta-badge-tab {
 
   body .command-card {
     padding: 210px 1.05rem 0 0.35rem;
+  }
+
+  body #patchTabPanel .patch-primary {
+    width: auto;
   }
 
   body .status-detail {
