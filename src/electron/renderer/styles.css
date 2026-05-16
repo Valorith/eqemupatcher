@@ -5749,9 +5749,12 @@ body #notesTabPanel {
 
 body #notesTabPanel .notes-panel {
   margin-top: auto;
+  width: 38.75rem;
+  max-width: none;
   padding-top: 1.38rem;
   padding-bottom: 0.38rem;
   box-sizing: border-box;
+  overflow: visible;
 }
 
 body #uiManagerTabPanel .ui-manager-tab-shell {
@@ -6294,6 +6297,10 @@ body .ui-manager-beta-badge-tab {
   }
 
   body #patchTabPanel .patch-primary {
+    width: auto;
+  }
+
+  body #notesTabPanel .notes-panel {
     width: auto;
   }
 
