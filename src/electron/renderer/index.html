@@ -98,8 +98,55 @@
                         </svg>
                       </div>
                       <div class="summary-copy">
-                        <span class="summary-label">Server</span>
-                        <strong id="serverValue">Resolving</strong>
+                        <div class="summary-status-layout">
+                          <div class="summary-status-text">
+                            <span class="summary-label">Server</span>
+                            <strong id="serverValue">Resolving</strong>
+                          </div>
+                          <span id="gameServerStatusBadge" class="server-status-badge" data-state="unconfigured" title="Game server status not configured">
+                            <span id="gameServerStatusLabel" class="server-status-label">Not configured</span>
+                            <button id="gameServerStatusRefreshButton" class="server-status-refresh-button" type="button" aria-label="Refresh game server status">
+                              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                                <path d="M20 6v5h-5"></path>
+                                <path d="M4 18v-5h5"></path>
+                                <path d="M18.1 9A7 7 0 0 0 6.7 6.7L4 9"></path>
+                                <path d="M5.9 15a7 7 0 0 0 11.4 2.3L20 15"></path>
+                              </svg>
+                            </button>
+                          </span>
+                        </div>
+                        <small id="gameServerStatusDetail" class="server-status-detail">Set gameServerHost in launcher-config.yml.</small>
+                      </div>
+                    </article>
+                    <article class="summary-item summary-item-rich">
+                      <div class="summary-icon" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" focusable="false">
+                          <circle cx="12" cy="12" r="8"></circle>
+                          <path d="M3.5 9h17"></path>
+                          <path d="M3.5 15h17"></path>
+                          <path d="M12 4a12 12 0 0 1 0 16"></path>
+                          <path d="M12 4a12 12 0 0 0 0 16"></path>
+                        </svg>
+                      </div>
+                      <div class="summary-copy">
+                        <div class="summary-status-layout">
+                          <div class="summary-status-text">
+                            <span class="summary-label">Login Server</span>
+                            <strong id="loginServerValue" class="hidden">Login server status</strong>
+                          </div>
+                          <span id="loginServerStatusBadge" class="server-status-badge" data-state="unconfigured" title="Login server status not configured">
+                            <span id="loginServerStatusLabel" class="server-status-label">Not configured</span>
+                            <button id="loginServerStatusRefreshButton" class="server-status-refresh-button" type="button" aria-label="Refresh login server status">
+                              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                                <path d="M20 6v5h-5"></path>
+                                <path d="M4 18v-5h5"></path>
+                                <path d="M18.1 9A7 7 0 0 0 6.7 6.7L4 9"></path>
+                                <path d="M5.9 15a7 7 0 0 0 11.4 2.3L20 15"></path>
+                              </svg>
+                            </button>
+                          </span>
+                        </div>
+                        <small id="loginServerStatusDetail" class="server-status-detail">Read from eqhost.txt.</small>
                       </div>
                     </article>
                     <article class="summary-item summary-item-rich">

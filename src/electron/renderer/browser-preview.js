@@ -28,6 +28,30 @@
   function createState(mode) {
     const base = {
       serverName: "Clumsy's World: Resurgence",
+      gameServerHost: "76.251.85.36",
+      gameServerPort: 9000,
+      gameServerStatus: {
+        state: "online",
+        label: "Online",
+        detail: "Connected to 76.251.85.36:9000 in 24ms.",
+        host: "76.251.85.36",
+        port: 9000,
+        checkedAt: new Date().toISOString(),
+        latencyMs: 24,
+        error: ""
+      },
+      loginServerHost: "login.eqemulator.net",
+      loginServerPort: 5999,
+      loginServerStatus: {
+        state: "online",
+        label: "Online",
+        detail: "Connected to login.eqemulator.net:5999 in 31ms.",
+        host: "login.eqemulator.net",
+        port: 5999,
+        checkedAt: new Date().toISOString(),
+        latencyMs: 31,
+        error: ""
+      },
       patchNotesUrl,
       clientLabel: "Rain of Fear 2 (4GB)",
       clientVersion: "Rain_Of_Fear_2_4GB",
@@ -282,6 +306,23 @@
       return appVersion;
     },
     async refreshState() {
+      return clone(currentState);
+    },
+    async refreshServerStatus() {
+      currentState = {
+        ...currentState,
+        gameServerStatus: {
+          ...currentState.gameServerStatus,
+          checkedAt: new Date().toISOString(),
+          latencyMs: 24
+        },
+        loginServerStatus: {
+          ...currentState.loginServerStatus,
+          checkedAt: new Date().toISOString(),
+          latencyMs: 31
+        }
+      };
+      emitState();
       return clone(currentState);
     },
     async getPatchNotes() {

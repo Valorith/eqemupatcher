@@ -53,7 +53,17 @@ function Write-Result {
     writtenAt = [DateTime]::UtcNow.ToString("o")
   } | ConvertTo-Json -Depth 5
 
-  Set-Content -LiteralPath $ResultPath -Value $payload -Encoding UTF8
+  $tempPath = "{0}.tmp-{1}-{2}" -f $ResultPath, $PID, ([Guid]::NewGuid().ToString("N"))
+
+  try {
+    $utf8NoBom = New-Object System.Text.UTF8Encoding -ArgumentList $false
+    [System.IO.File]::WriteAllText($tempPath, $payload, $utf8NoBom)
+    Move-Item -LiteralPath $tempPath -Destination $ResultPath -Force
+  } finally {
+    if (Test-Path -LiteralPath $tempPath) {
+      Remove-Item -LiteralPath $tempPath -Force
+    }
+  }
 }
 
 function Wait-ForParentExit {

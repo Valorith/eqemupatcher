@@ -305,6 +305,30 @@ function createLauncherState(patchNotesUrl, options = {}) {
 
   return {
     serverName: "Test Realm",
+    gameServerHost: "",
+    gameServerPort: 0,
+    gameServerStatus: {
+      state: "unconfigured",
+      label: "Not configured",
+      detail: "Set gameServerHost in launcher-config.yml.",
+      host: "",
+      port: 0,
+      checkedAt: "",
+      latencyMs: 0,
+      error: ""
+    },
+    loginServerHost: "",
+    loginServerPort: 0,
+    loginServerStatus: {
+      state: "unconfigured",
+      label: "Not configured",
+      detail: "Read from eqhost.txt after selecting a game directory.",
+      host: "",
+      port: 0,
+      checkedAt: "",
+      latencyMs: 0,
+      error: ""
+    },
     patchNotesUrl,
     clientLabel: "Unknown",
     clientVersion: "Unknown",
@@ -473,6 +497,7 @@ async function createRendererHarness(options = {}) {
   const calls = {
     getPatchNotes: [],
     refreshState: 0,
+    refreshServerStatus: 0,
     checkForLauncherUpdate: 0,
     openExternal: [],
     getUiManagerOverview: 0,
@@ -493,6 +518,23 @@ async function createRendererHarness(options = {}) {
     toggleMaximizeWindow: 0,
     closeWindow: 0
   };
+  const intervals = [];
+  const fakeSetInterval = (callback, milliseconds) => {
+    const id = intervals.length + 1;
+    intervals.push({
+      id,
+      callback,
+      milliseconds,
+      cleared: false
+    });
+    return id;
+  };
+  const fakeClearInterval = (id) => {
+    const interval = intervals.find((candidate) => candidate.id === id);
+    if (interval) {
+      interval.cleared = true;
+    }
+  };
   let uiManagerOverview = options.uiManagerOverview || createUiManagerOverviewResponse();
   let uiManagerDetail = options.uiManagerDetail || createUiManagerDetailResponse();
 
@@ -510,6 +552,13 @@ async function createRendererHarness(options = {}) {
     },
     async refreshState() {
       calls.refreshState += 1;
+      return launcherState;
+    },
+    async refreshServerStatus() {
+      calls.refreshServerStatus += 1;
+      if (options.polledServerStatusState) {
+        Object.assign(launcherState, options.polledServerStatusState);
+      }
       return launcherState;
     },
     async checkForLauncherUpdate() {
@@ -656,6 +705,8 @@ async function createRendererHarness(options = {}) {
     },
     setTimeout,
     clearTimeout,
+    setInterval: fakeSetInterval,
+    clearInterval: fakeClearInterval,
     setImmediate,
     Promise,
     Date
@@ -683,6 +734,13 @@ async function createRendererHarness(options = {}) {
   return {
     calls,
     document,
+    intervals,
+    async runInterval(index = 0) {
+      const interval = intervals[index];
+      assert.ok(interval, `Expected interval ${index} to be registered`);
+      await interval.callback();
+      await flushAsyncWork();
+    },
     elements: {
       notesTabButton: document.getElementById("notesTabButton"),
       patchTabButton: document.getElementById("patchTabButton"),
@@ -714,6 +772,16 @@ async function createRendererHarness(options = {}) {
       patchButton: document.getElementById("patchButton"),
       launchButton: document.getElementById("launchButton"),
       manualPrerequisitesButton: document.getElementById("manualPrerequisitesButton"),
+      serverValue: document.getElementById("serverValue"),
+      gameServerStatusBadge: document.getElementById("gameServerStatusBadge"),
+      gameServerStatusLabel: document.getElementById("gameServerStatusLabel"),
+      gameServerStatusRefreshButton: document.getElementById("gameServerStatusRefreshButton"),
+      gameServerStatusDetail: document.getElementById("gameServerStatusDetail"),
+      loginServerValue: document.getElementById("loginServerValue"),
+      loginServerStatusBadge: document.getElementById("loginServerStatusBadge"),
+      loginServerStatusLabel: document.getElementById("loginServerStatusLabel"),
+      loginServerStatusRefreshButton: document.getElementById("loginServerStatusRefreshButton"),
+      loginServerStatusDetail: document.getElementById("loginServerStatusDetail"),
       taglineValue: document.getElementById("taglineValue"),
       heroBackgroundImage: document.getElementById("heroBackgroundImage"),
       heroWordmark: document.getElementById("heroWordmark"),
@@ -836,6 +904,168 @@ test("renderer applies configurable branding assets and links from launcher stat
       { label: "Alla", url: "https://alla.brand.invalid/" }
     ]
   );
+});
+
+test("renderer displays configured game server status", async () => {
+  const harness = await createRendererHarness({
+    gameServerHost: "game.example.invalid",
+    gameServerPort: 9000,
+    gameServerStatus: {
+      state: "online",
+      label: "Online",
+      detail: "Connected to game.example.invalid:9000 in 18ms.",
+      host: "game.example.invalid",
+      port: 9000,
+      checkedAt: "2026-05-17T00:00:00.000Z",
+      latencyMs: 18,
+      error: ""
+    }
+  });
+
+  assert.equal(harness.elements.serverValue.textContent, "Test Realm");
+  assert.equal(harness.elements.gameServerStatusLabel.textContent, "Online");
+  assert.equal(harness.elements.gameServerStatusBadge.dataset.state, "online");
+  assert.equal(harness.elements.gameServerStatusDetail.textContent, "Game server reachable in 18ms.");
+  assert.equal(harness.elements.gameServerStatusBadge.attributes["aria-label"], "Game server status: Online");
+});
+
+test("renderer surfaces offline game server status details", async () => {
+  const harness = await createRendererHarness({
+    gameServerHost: "game.example.invalid",
+    gameServerPort: 9000,
+    gameServerStatus: {
+      state: "offline",
+      label: "Offline",
+      detail: "Unable to reach game.example.invalid:9000.",
+      host: "game.example.invalid",
+      port: 9000,
+      checkedAt: "2026-05-17T00:00:00.000Z",
+      latencyMs: 0,
+      error: "connection refused"
+    }
+  });
+
+  assert.equal(harness.elements.gameServerStatusLabel.textContent, "Offline");
+  assert.equal(harness.elements.gameServerStatusBadge.dataset.state, "offline");
+  assert.equal(harness.elements.gameServerStatusDetail.textContent, "Game server is unreachable: connection refused");
+});
+
+test("renderer displays login server status from launcher state", async () => {
+  const harness = await createRendererHarness({
+    loginServerHost: "login.eqemulator.net",
+    loginServerPort: 5999,
+    loginServerStatus: {
+      state: "online",
+      label: "Online",
+      detail: "Connected to login.eqemulator.net:5999 in 22ms.",
+      host: "login.eqemulator.net",
+      port: 5999,
+      checkedAt: "2026-05-17T00:00:00.000Z",
+      latencyMs: 22,
+      error: ""
+    }
+  });
+
+  assert.equal(harness.elements.loginServerValue.textContent, "Login server status");
+  assert.equal(harness.elements.loginServerStatusLabel.textContent, "Online");
+  assert.equal(harness.elements.loginServerStatusBadge.dataset.state, "online");
+  assert.equal(harness.elements.loginServerStatusDetail.textContent, "Login server reachable in 22ms.");
+  assert.equal(harness.elements.loginServerStatusBadge.attributes["aria-label"], "Login server status: Online");
+});
+
+test("renderer polls server status every 30 seconds", async () => {
+  const harness = await createRendererHarness({
+    polledServerStatusState: {
+      gameServerHost: "game.example.invalid",
+      gameServerPort: 9000,
+      gameServerStatus: {
+        state: "offline",
+        label: "Offline",
+        detail: "Unable to reach game.example.invalid:9000.",
+        host: "game.example.invalid",
+        port: 9000,
+        checkedAt: new Date().toISOString(),
+        latencyMs: 0,
+        error: "connection refused"
+      }
+    }
+  });
+
+  assert.equal(harness.intervals.length, 1);
+  assert.equal(harness.intervals[0].milliseconds, 30000);
+
+  await harness.runInterval(0);
+
+  assert.equal(harness.calls.refreshServerStatus, 1);
+  assert.equal(harness.elements.gameServerStatusLabel.textContent, "Offline");
+  assert.equal(harness.elements.gameServerStatusBadge.dataset.state, "offline");
+});
+
+test("status badge tooltip includes seconds since last check", async () => {
+  const checkedAt = new Date(Date.now() - 12500).toISOString();
+  const harness = await createRendererHarness({
+    gameServerHost: "game.example.invalid",
+    gameServerPort: 9000,
+    gameServerStatus: {
+      state: "online",
+      label: "Online",
+      detail: "Connected to game.example.invalid:9000 in 18ms.",
+      host: "game.example.invalid",
+      port: 9000,
+      checkedAt,
+      latencyMs: 18,
+      error: ""
+    },
+    loginServerHost: "login.eqemulator.net",
+    loginServerPort: 5999,
+    loginServerStatus: {
+      state: "online",
+      label: "Online",
+      detail: "Connected to login.eqemulator.net:5999 in 22ms.",
+      host: "login.eqemulator.net",
+      port: 5999,
+      checkedAt,
+      latencyMs: 22,
+      error: ""
+    }
+  });
+
+  await harness.elements.gameServerStatusBadge.dispatch("mouseenter");
+  await harness.elements.loginServerStatusBadge.dispatch("mouseenter");
+
+  assert.match(harness.elements.gameServerStatusBadge.title, /Last checked \d+ seconds ago\./);
+  assert.match(harness.elements.loginServerStatusBadge.title, /Last checked \d+ seconds ago\./);
+  assert.doesNotMatch(harness.elements.gameServerStatusBadge.title, /game\.example\.invalid/);
+  assert.doesNotMatch(harness.elements.loginServerStatusBadge.title, /login\.eqemulator\.net/);
+});
+
+test("status badge refresh buttons trigger one manual check per minute", async () => {
+  const harness = await createRendererHarness({
+    gameServerHost: "game.example.invalid",
+    gameServerPort: 9000,
+    gameServerStatus: {
+      state: "online",
+      label: "Online",
+      detail: "Connected to game.example.invalid:9000 in 18ms.",
+      host: "game.example.invalid",
+      port: 9000,
+      checkedAt: new Date().toISOString(),
+      latencyMs: 18,
+      error: ""
+    }
+  });
+
+  assert.equal(harness.elements.gameServerStatusRefreshButton.disabled, false);
+
+  await harness.elements.gameServerStatusRefreshButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.loginServerStatusRefreshButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.calls.refreshServerStatus, 1);
+  assert.equal(harness.elements.gameServerStatusRefreshButton.disabled, true);
+  assert.equal(harness.elements.loginServerStatusRefreshButton.disabled, true);
+  assert.match(harness.elements.gameServerStatusRefreshButton.title, /Manual refresh available in \d+ seconds\./);
 });
 
 test("renderer hides optional branding links when URLs are not configured", async () => {

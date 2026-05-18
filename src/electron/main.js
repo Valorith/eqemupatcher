@@ -157,6 +157,7 @@ if (hasSingleInstanceLock) {
 ipcMain.handle("launcher:initialize", async () => backend.initialize());
 ipcMain.handle("launcher:getVersion", async () => resolveAppVersion());
 ipcMain.handle("launcher:refreshState", async () => backend.refreshState());
+ipcMain.handle("launcher:refreshServerStatus", async () => backend.refreshServerStatus());
 ipcMain.handle("launcher:getPatchNotes", async (_event, options) => backend.getPatchNotes(options || {}));
 ipcMain.handle("launcher:checkForLauncherUpdate", async (_event, options) => backend.checkForLauncherUpdate(options || {}));
 ipcMain.handle("launcher:startLauncherUpdateDownload", async () => backend.startLauncherUpdateDownload());

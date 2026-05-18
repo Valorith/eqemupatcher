@@ -165,6 +165,10 @@ bower_components/
 .DS_Store
 .cache/
 dist/
+!dist/
+dist/*
+!dist/NewRelease.cmd
+!dist/NewRelease.ps1
 
 # RIA/Silverlight projects
 Generated_Code/

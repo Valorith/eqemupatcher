@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const fs = require("fs");
 const fsp = require("fs/promises");
+const net = require("net");
 const os = require("os");
 const path = require("path");
 const { spawn } = require("child_process");
@@ -14,6 +15,9 @@ const DEFAULTS = {
   filelistUrl: "https://patch.clumsysworld.com/",
   patchNotesUrl: "",
   launcherReleaseApiUrl: DEFAULT_RELEASE_API_URL,
+  gameServerHost: "",
+  gameServerPort: 0,
+  gameServerStatusTimeoutMs: 1500,
   tagline: "An EverQuest Emulated Server",
   primaryImage: "",
   backgroundImage: "",
@@ -521,6 +525,128 @@ function normalizeConfigText(value) {
   return String(value == null ? "" : value).trim();
 }
 
+function normalizeNetworkPort(value, fallbackPort = 0) {
+  const port = Number.parseInt(String(value ?? "").trim(), 10);
+  if (Number.isInteger(port) && port > 0 && port <= 65535) {
+    return port;
+  }
+
+  const fallback = Number.parseInt(String(fallbackPort ?? ""), 10);
+  return Number.isInteger(fallback) && fallback > 0 && fallback <= 65535 ? fallback : 0;
+}
+
+function inferPortFromScheme(scheme) {
+  const normalized = String(scheme || "").trim().toLowerCase().replace(/:$/, "");
+  if (normalized === "https") {
+    return 443;
+  }
+
+  if (normalized === "http") {
+    return 80;
+  }
+
+  return 0;
+}
+
+function parseEndpointSource(value, defaultPort = 0) {
+  const source = normalizeConfigText(value);
+  if (!source) {
+    return { host: "", port: 0 };
+  }
+
+  const parseUrl = (candidate) => {
+    try {
+      const parsed = new URL(candidate);
+      return {
+        host: normalizeConfigText(parsed.hostname),
+        port: normalizeNetworkPort(parsed.port, inferPortFromScheme(parsed.protocol) || defaultPort)
+      };
+    } catch (_error) {
+      return null;
+    }
+  };
+
+  const parsedWithScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(source) ? parseUrl(source) : null;
+  if (parsedWithScheme?.host) {
+    return parsedWithScheme;
+  }
+
+  const parsedAsHost = parseUrl(`tcp://${source}`);
+  if (parsedAsHost?.host) {
+    return {
+      host: parsedAsHost.host,
+      port: normalizeNetworkPort(parsedAsHost.port, defaultPort)
+    };
+  }
+
+  return {
+    host: source.split(/[\/\s]/)[0].replace(/:\d+$/, ""),
+    port: defaultPort
+  };
+}
+
+function resolveEndpoint(value, configuredPort, defaultPort = 0) {
+  const parsed = parseEndpointSource(value, defaultPort);
+  return {
+    host: parsed.host,
+    port: normalizeNetworkPort(configuredPort, parsed.port || defaultPort)
+  };
+}
+
+function parseEqhostLoginServer(content) {
+  const lines = String(content || "").split(/\r?\n/);
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#") || line.startsWith(";")) {
+      continue;
+    }
+
+    const match = line.match(/^Host\s*=\s*(.+)$/i);
+    if (match) {
+      return normalizeConfigText(match[1]);
+    }
+  }
+
+  return "";
+}
+
+function normalizeGameServerStatusTimeoutMs(value) {
+  const timeoutMs = Number.parseInt(String(value ?? "").trim(), 10);
+  if (!Number.isInteger(timeoutMs) || timeoutMs <= 0) {
+    return DEFAULTS.gameServerStatusTimeoutMs;
+  }
+
+  return Math.min(Math.max(timeoutMs, 250), 10000);
+}
+
+function createGameServerStatus(overrides = {}) {
+  return {
+    state: "unconfigured",
+    label: "Not configured",
+    detail: "Set gameServerHost in launcher-config.yml to show game server status.",
+    host: "",
+    port: 0,
+    checkedAt: "",
+    latencyMs: 0,
+    error: "",
+    ...overrides
+  };
+}
+
+function createLoginServerStatus(overrides = {}) {
+  return {
+    state: "unconfigured",
+    label: "Not configured",
+    detail: "Select a game directory with eqhost.txt to show login server status.",
+    host: "",
+    port: 0,
+    checkedAt: "",
+    latencyMs: 0,
+    error: "",
+    ...overrides
+  };
+}
+
 function normalizeBrandingServerName(value) {
   return normalizeServerName(value)
     .toLowerCase()
@@ -968,6 +1094,7 @@ class LauncherBackend {
     runtimeDirectory,
     eventSink,
     fetchImpl,
+    netConnectImpl,
     spawnImpl,
     platform,
     appVersion,
@@ -985,6 +1112,7 @@ class LauncherBackend {
     this.runtimeDirectory = runtimeDirectory || "";
     this.eventSink = eventSink;
     this.fetchImpl = fetchImpl || fetch;
+    this.netConnectImpl = netConnectImpl || net.createConnection;
     this.spawnImpl = spawnImpl || spawn;
     this.platform = platform || process.platform;
     this.appVersion = normalizeVersion(appVersion) || "0.0.0";
@@ -1021,6 +1149,12 @@ class LauncherBackend {
       filelistUrl: this.config.filelistUrl,
       patchNotesUrl: this.config.patchNotesUrl,
       launcherReleaseApiUrl: this.config.launcherReleaseApiUrl,
+      gameServerHost: normalizeConfigText(this.config.gameServerHost),
+      gameServerPort: 0,
+      gameServerStatus: createGameServerStatus(),
+      loginServerHost: "",
+      loginServerPort: 0,
+      loginServerStatus: createLoginServerStatus(),
       gameDirectory: "",
       eqGamePath: "",
       clientVersion: "Unknown",
@@ -1218,6 +1352,207 @@ class LauncherBackend {
 
   syncBrandingState(version = this.state.clientVersion || "Unknown") {
     this.state.branding = this.getBrandingState(version);
+  }
+
+  getConfiguredGameServerEndpoint() {
+    const endpoint = resolveEndpoint(this.config.gameServerHost, this.config.gameServerPort, 9000);
+    return {
+      ...endpoint,
+      timeoutMs: normalizeGameServerStatusTimeoutMs(this.config.gameServerStatusTimeoutMs)
+    };
+  }
+
+  syncGameServerConfigState() {
+    const endpoint = this.getConfiguredGameServerEndpoint();
+    this.state.gameServerHost = endpoint.host;
+    this.state.gameServerPort = endpoint.host ? endpoint.port : 0;
+    if (!endpoint.host) {
+      this.state.gameServerStatus = createGameServerStatus();
+    }
+  }
+
+  async getConfiguredLoginServerEndpoint() {
+    if (!this.state.gameDirectory) {
+      return {
+        host: "",
+        port: 0,
+        timeoutMs: normalizeGameServerStatusTimeoutMs(this.config.gameServerStatusTimeoutMs),
+        detail: "Select a game directory with eqhost.txt to show login server status."
+      };
+    }
+
+    const eqhostPath = path.join(this.state.gameDirectory, "eqhost.txt");
+    if (!(await exists(eqhostPath))) {
+      return {
+        host: "",
+        port: 0,
+        timeoutMs: normalizeGameServerStatusTimeoutMs(this.config.gameServerStatusTimeoutMs),
+        detail: "eqhost.txt was not found in the selected game directory."
+      };
+    }
+
+    const configuredHost = parseEqhostLoginServer(await fsp.readFile(eqhostPath, "utf8"));
+    if (!configuredHost) {
+      return {
+        host: "",
+        port: 0,
+        timeoutMs: normalizeGameServerStatusTimeoutMs(this.config.gameServerStatusTimeoutMs),
+        detail: "eqhost.txt does not contain an active Host entry."
+      };
+    }
+
+    const endpoint = resolveEndpoint(configuredHost, 0, 5999);
+    return {
+      ...endpoint,
+      timeoutMs: normalizeGameServerStatusTimeoutMs(this.config.gameServerStatusTimeoutMs),
+      detail: ""
+    };
+  }
+
+  async testGameServerConnection({ host, port, timeoutMs }) {
+    await new Promise((resolve, reject) => {
+      let socket = null;
+      let settled = false;
+
+      const finish = (error = null) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        if (socket) {
+          socket.removeAllListeners("connect");
+          socket.removeAllListeners("error");
+          socket.removeAllListeners("timeout");
+          if (typeof socket.destroy === "function") {
+            socket.destroy();
+          }
+        }
+
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      };
+
+      try {
+        socket = this.netConnectImpl({ host, port });
+      } catch (error) {
+        finish(error);
+        return;
+      }
+
+      if (!socket || typeof socket.once !== "function") {
+        finish(new Error("Game server connection check did not return a socket."));
+        return;
+      }
+
+      socket.once("connect", () => finish());
+      socket.once("error", (error) => finish(error));
+      if (typeof socket.setTimeout === "function") {
+        socket.setTimeout(timeoutMs, () => {
+          const error = new Error(`Connection timed out after ${timeoutMs}ms.`);
+          error.code = "ETIMEDOUT";
+          finish(error);
+        });
+      }
+    });
+  }
+
+  async refreshGameServerStatus() {
+    const endpoint = this.getConfiguredGameServerEndpoint();
+    this.state.gameServerHost = endpoint.host;
+    this.state.gameServerPort = endpoint.host ? endpoint.port : 0;
+
+    if (!endpoint.host) {
+      this.state.gameServerStatus = createGameServerStatus();
+      return;
+    }
+
+    const startedAt = Date.now();
+    const checkedAt = new Date().toISOString();
+    const target = `${endpoint.host}:${endpoint.port}`;
+
+    try {
+      await this.testGameServerConnection(endpoint);
+      const latencyMs = Math.max(1, Date.now() - startedAt);
+      this.state.gameServerStatus = createGameServerStatus({
+        state: "online",
+        label: "Online",
+        detail: `Connected to ${target} in ${latencyMs}ms.`,
+        host: endpoint.host,
+        port: endpoint.port,
+        checkedAt,
+        latencyMs,
+        error: ""
+      });
+    } catch (error) {
+      const message = String(error?.message || "Connection failed.").trim();
+      this.state.gameServerStatus = createGameServerStatus({
+        state: "offline",
+        label: "Offline",
+        detail: `Unable to reach ${target}.`,
+        host: endpoint.host,
+        port: endpoint.port,
+        checkedAt,
+        latencyMs: 0,
+        error: message
+      });
+    }
+  }
+
+  async refreshLoginServerStatus() {
+    const endpoint = await this.getConfiguredLoginServerEndpoint();
+    this.state.loginServerHost = endpoint.host;
+    this.state.loginServerPort = endpoint.host ? endpoint.port : 0;
+
+    if (!endpoint.host) {
+      this.state.loginServerStatus = createLoginServerStatus({
+        detail: endpoint.detail || "Select a game directory with eqhost.txt to show login server status."
+      });
+      return;
+    }
+
+    const startedAt = Date.now();
+    const checkedAt = new Date().toISOString();
+    const target = `${endpoint.host}:${endpoint.port}`;
+
+    try {
+      await this.testGameServerConnection(endpoint);
+      const latencyMs = Math.max(1, Date.now() - startedAt);
+      this.state.loginServerStatus = createLoginServerStatus({
+        state: "online",
+        label: "Online",
+        detail: `Connected to ${target} in ${latencyMs}ms.`,
+        host: endpoint.host,
+        port: endpoint.port,
+        checkedAt,
+        latencyMs,
+        error: ""
+      });
+    } catch (error) {
+      const message = String(error?.message || "Connection failed.").trim();
+      this.state.loginServerStatus = createLoginServerStatus({
+        state: "offline",
+        label: "Offline",
+        detail: `Unable to reach ${target}.`,
+        host: endpoint.host,
+        port: endpoint.port,
+        checkedAt,
+        latencyMs: 0,
+        error: message
+      });
+    }
+  }
+
+  async refreshServerStatus() {
+    await Promise.all([
+      this.refreshGameServerStatus(),
+      this.refreshLoginServerStatus()
+    ]);
+    return this.getState();
   }
 
   setStatus(badge, detail, error = "") {
@@ -1642,6 +1977,7 @@ class LauncherBackend {
       this.state.filelistUrl = this.config.filelistUrl;
       this.state.patchNotesUrl = this.config.patchNotesUrl;
       this.state.launcherReleaseApiUrl = this.config.launcherReleaseApiUrl;
+      this.syncGameServerConfigState();
       this.syncBrandingState();
       return;
     }
@@ -1668,6 +2004,7 @@ class LauncherBackend {
     this.state.filelistUrl = this.config.filelistUrl;
     this.state.patchNotesUrl = this.config.patchNotesUrl;
     this.state.launcherReleaseApiUrl = this.config.launcherReleaseApiUrl;
+    this.syncGameServerConfigState();
     this.syncBrandingState();
   }
 
@@ -2022,9 +2359,18 @@ class LauncherBackend {
     this.state.progressValue = 0;
     this.state.progressMax = 1;
     this.state.progressLabel = "Waiting for input";
+    this.state.serverName = this.resolveServerName();
+    this.state.filelistUrl = this.config.filelistUrl;
+    this.state.patchNotesUrl = this.config.patchNotesUrl;
+    this.state.launcherReleaseApiUrl = this.config.launcherReleaseApiUrl;
+    this.syncBrandingState(this.state.clientVersion);
+    await Promise.all([
+      this.refreshGameServerStatus(),
+      this.refreshLoginServerStatus()
+    ]);
     this.emitProgress();
 
-      if (!this.state.gameDirectory) {
+    if (!this.state.gameDirectory) {
       this.state.clientVersion = "Unknown";
       this.state.clientLabel = CLIENTS.Unknown.label;
       this.state.clientHash = "";
@@ -2036,20 +2382,18 @@ class LauncherBackend {
       return this.getState();
     }
 
-    this.state.serverName = this.resolveServerName();
-    this.state.filelistUrl = this.config.filelistUrl;
     this.syncBrandingState(this.state.clientVersion);
 
     const detectResult = await this.detectClientVersion();
     this.state.clientVersion = detectResult.version;
     this.state.clientLabel = (CLIENTS[detectResult.version] || CLIENTS.Unknown).label;
-      this.state.clientHash = detectResult.hash;
-      this.state.clientSupported = this.config.supportedClients.includes(detectResult.version);
-      this.state.heroImageUrl = this.getHeroImageUrl(detectResult.version);
-      this.syncBrandingState(detectResult.version);
-      this.state.canLaunch = false;
+    this.state.clientHash = detectResult.hash;
+    this.state.clientSupported = this.config.supportedClients.includes(detectResult.version);
+    this.state.heroImageUrl = this.getHeroImageUrl(detectResult.version);
+    this.syncBrandingState(detectResult.version);
+    this.state.canLaunch = false;
 
-      await this.saveGameSettings();
+    await this.saveGameSettings();
 
     if (!detectResult.found) {
       this.state.patchActionLabel = "Deploy Patch";

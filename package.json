@@ -1,6 +1,6 @@
 {
   "name": "eqemupatcher-electron",
-  "version": "3.0.2",
+  "version": "3.0.5",
   "private": true,
   "author": "Valorith",
   "description": "Cross-platform Electron launcher for EQEmu patching",

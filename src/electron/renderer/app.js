@@ -52,11 +52,10 @@ const state = {
     optionFilterMode: "all"
   }
 };
-let uiManagerNoticeTimeoutId = null;
-let processedHeroWordmarkSource = "";
-let processedHeroWordmarkSourceKey = "";
 const PATCH_NOTES_READ_STORAGE_KEY = "eqemu-launcher.patchNotesRead";
 const PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY = "eqemu-launcher.patchNotesReadInitialized";
+const SERVER_STATUS_POLL_INTERVAL_MS = 30000;
+const SERVER_STATUS_MANUAL_COOLDOWN_MS = 60000;
 const WINDOW_DRAG_TOP_RATIO = 0.2;
 const WINDOW_DRAG_INTERACTIVE_SELECTOR = [
   "a",
@@ -78,6 +77,12 @@ const patchNotesReadTracker = createPatchNotesReadTracker({
   storageKey: PATCH_NOTES_READ_STORAGE_KEY,
   initializedStorageKey: PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY
 });
+let uiManagerNoticeTimeoutId = null;
+let serverStatusPollTimerId = null;
+let serverStatusPollPromise = null;
+let serverStatusManualRefreshAvailableAt = 0;
+let processedHeroWordmarkSource = "";
+let processedHeroWordmarkSourceKey = "";
 const elements = {
   leftStage: document.getElementById("leftStage"),
   statusChip: document.getElementById("statusChip"),
@@ -105,6 +110,15 @@ const elements = {
   notesCard: document.getElementById("notesCard"),
   notesContent: document.getElementById("notesContent"),
   serverValue: document.getElementById("serverValue"),
+  gameServerStatusBadge: document.getElementById("gameServerStatusBadge"),
+  gameServerStatusLabel: document.getElementById("gameServerStatusLabel"),
+  gameServerStatusRefreshButton: document.getElementById("gameServerStatusRefreshButton"),
+  gameServerStatusDetail: document.getElementById("gameServerStatusDetail"),
+  loginServerValue: document.getElementById("loginServerValue"),
+  loginServerStatusBadge: document.getElementById("loginServerStatusBadge"),
+  loginServerStatusLabel: document.getElementById("loginServerStatusLabel"),
+  loginServerStatusRefreshButton: document.getElementById("loginServerStatusRefreshButton"),
+  loginServerStatusDetail: document.getElementById("loginServerStatusDetail"),
   clientValue: document.getElementById("clientValue"),
   patchStateValue: document.getElementById("patchStateValue"),
   actionsRow: document.getElementById("actionsRow"),
@@ -2946,6 +2960,206 @@ function derivePresentation(nextState) {
   }
   return presentation;
 }
+function formatSecondsSinceCheck(checkedAt) {
+  const checkedAtMs = Date.parse(String(checkedAt || ""));
+  if (!Number.isFinite(checkedAtMs)) {
+    return "";
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - checkedAtMs) / 1000));
+  return `${elapsedSeconds} second${elapsedSeconds === 1 ? "" : "s"} ago`;
+}
+function setStatusBadgeTitle(badge) {
+  if (!badge) {
+    return;
+  }
+
+  const titleBase = String(badge.dataset.statusTitleBase || "").trim();
+  const secondsSinceCheck = formatSecondsSinceCheck(badge.dataset.checkedAt);
+  badge.title = secondsSinceCheck ? `${titleBase} Last checked ${secondsSinceCheck}.` : titleBase;
+}
+function getManualStatusRefreshCooldownMs() {
+  return Math.max(0, serverStatusManualRefreshAvailableAt - Date.now());
+}
+function setStatusBadgeLabel(badge, labelElement, label) {
+  if (labelElement) {
+    labelElement.textContent = label;
+    return;
+  }
+
+  if (badge) {
+    badge.textContent = label;
+  }
+}
+function updateStatusRefreshControls() {
+  const cooldownMs = getManualStatusRefreshCooldownMs();
+  const cooldownSeconds = Math.ceil(cooldownMs / 1000);
+  const isChecking = Boolean(serverStatusPollPromise);
+  const controls = [
+    {
+      button: elements.gameServerStatusRefreshButton,
+      badge: elements.gameServerStatusBadge,
+      label: "game server"
+    },
+    {
+      button: elements.loginServerStatusRefreshButton,
+      badge: elements.loginServerStatusBadge,
+      label: "login server"
+    }
+  ];
+
+  for (const { button, badge, label } of controls) {
+    if (!button) {
+      continue;
+    }
+
+    const statusTitle = badge ? String(badge.title || badge.dataset.statusTitleBase || "").trim() : "";
+    button.disabled = cooldownMs > 0 || isChecking;
+    if (cooldownMs > 0) {
+      button.title = `Manual refresh available in ${cooldownSeconds} second${cooldownSeconds === 1 ? "" : "s"}. ${statusTitle}`.trim();
+      button.setAttribute("aria-label", `Refresh ${label} status available in ${cooldownSeconds} second${cooldownSeconds === 1 ? "" : "s"}`);
+    } else if (isChecking) {
+      button.title = `Status check is already running. ${statusTitle}`.trim();
+      button.setAttribute("aria-label", `Refresh ${label} status running`);
+    } else {
+      button.title = `Refresh status now. ${statusTitle}`.trim();
+      button.setAttribute("aria-label", `Refresh ${label} status now`);
+    }
+  }
+}
+function deriveGameServerStatusPresentation(nextState) {
+  const safeStatus = nextState?.gameServerStatus && typeof nextState.gameServerStatus === "object"
+    ? nextState.gameServerStatus
+    : {};
+  const statusState = String(safeStatus.state || "").trim().toLowerCase();
+
+  if (statusState === "online") {
+    const latency = Number.parseInt(String(safeStatus.latencyMs || ""), 10);
+    const detail = Number.isInteger(latency) && latency > 0
+      ? `Game server reachable in ${latency}ms.`
+      : "Game server is reachable.";
+    return {
+      state: "online",
+      label: "Online",
+      detail,
+      title: detail
+    };
+  }
+
+  if (statusState === "offline") {
+    const error = String(safeStatus.error || "").trim();
+    const detail = error
+      ? `Game server is unreachable: ${error}`
+      : "Game server is unreachable.";
+    return {
+      state: "offline",
+      label: "Offline",
+      detail,
+      title: detail
+    };
+  }
+
+  if (nextState?.gameServerHost) {
+    const detail = "Game server has not been checked yet.";
+    return {
+      state: "unknown",
+      label: "Unknown",
+      detail,
+      title: detail
+    };
+  }
+
+  return {
+    state: "unconfigured",
+    label: "Not configured",
+    detail: "Set gameServerHost in launcher-config.yml.",
+    title: "Game server status is not configured."
+  };
+}
+function deriveLoginServerStatusPresentation(nextState) {
+  const safeStatus = nextState?.loginServerStatus && typeof nextState.loginServerStatus === "object"
+    ? nextState.loginServerStatus
+    : {};
+  const statusState = String(safeStatus.state || "").trim().toLowerCase();
+
+  if (statusState === "online") {
+    const latency = Number.parseInt(String(safeStatus.latencyMs || ""), 10);
+    const detail = Number.isInteger(latency) && latency > 0
+      ? `Login server reachable in ${latency}ms.`
+      : "Login server is reachable.";
+    return {
+      state: "online",
+      label: "Online",
+      detail,
+      title: detail
+    };
+  }
+
+  if (statusState === "offline") {
+    const error = String(safeStatus.error || "").trim();
+    const detail = error
+      ? `Login server is unreachable: ${error}`
+      : "Login server is unreachable.";
+    return {
+      state: "offline",
+      label: "Offline",
+      detail,
+      title: detail
+    };
+  }
+
+  if (nextState?.loginServerHost) {
+    const detail = "Login server has not been checked yet.";
+    return {
+      state: "unknown",
+      label: "Unknown",
+      detail,
+      title: detail
+    };
+  }
+
+  return {
+    state: "unconfigured",
+    label: "Not configured",
+    detail: "Read from eqhost.txt after selecting a game directory.",
+    title: "Login server status is not configured."
+  };
+}
+function renderGameServerStatus(nextState) {
+  if (!elements.gameServerStatusBadge || !elements.gameServerStatusDetail) {
+    return;
+  }
+
+  const presentation = deriveGameServerStatusPresentation(nextState);
+  const checkedAt = nextState?.gameServerStatus?.checkedAt || "";
+  setStatusBadgeLabel(elements.gameServerStatusBadge, elements.gameServerStatusLabel, presentation.label);
+  elements.gameServerStatusBadge.dataset.state = presentation.state;
+  elements.gameServerStatusBadge.dataset.statusTitleBase = presentation.title;
+  elements.gameServerStatusBadge.dataset.checkedAt = checkedAt;
+  setStatusBadgeTitle(elements.gameServerStatusBadge);
+  elements.gameServerStatusBadge.setAttribute("aria-label", `Game server status: ${presentation.label}`);
+  elements.gameServerStatusDetail.textContent = presentation.detail;
+  elements.gameServerStatusDetail.title = elements.gameServerStatusBadge.title;
+  updateStatusRefreshControls();
+}
+function renderLoginServerStatus(nextState) {
+  if (!elements.loginServerValue || !elements.loginServerStatusBadge || !elements.loginServerStatusDetail) {
+    return;
+  }
+
+  const presentation = deriveLoginServerStatusPresentation(nextState);
+  const checkedAt = nextState?.loginServerStatus?.checkedAt || "";
+  elements.loginServerValue.textContent = "Login server status";
+  setStatusBadgeLabel(elements.loginServerStatusBadge, elements.loginServerStatusLabel, presentation.label);
+  elements.loginServerStatusBadge.dataset.state = presentation.state;
+  elements.loginServerStatusBadge.dataset.statusTitleBase = presentation.title;
+  elements.loginServerStatusBadge.dataset.checkedAt = checkedAt;
+  setStatusBadgeTitle(elements.loginServerStatusBadge);
+  elements.loginServerStatusBadge.setAttribute("aria-label", `Login server status: ${presentation.label}`);
+  elements.loginServerStatusDetail.textContent = presentation.detail;
+  elements.loginServerStatusDetail.title = elements.loginServerStatusBadge.title;
+  updateStatusRefreshControls();
+}
 function setBusy(button, busyText, busy) {
   if (button.classList.contains("refresh-button")) {
     button.disabled = busy;
@@ -3073,6 +3287,8 @@ function renderState(nextState) {
   elements.discordButton.dataset.url = isExternalHttpUrl(branding.discordUrl) ? branding.discordUrl : "";
   renderToolsMenu({ ...branding, serverName: resolvedTitle });
   elements.serverValue.textContent = nextState.serverName;
+  renderGameServerStatus(nextState);
+  renderLoginServerStatus(nextState);
   elements.clientValue.textContent = nextState.clientLabel;
   elements.patchStateValue.textContent = presentation.patchStateText;
   document.title = resolvedTitle;
@@ -3151,6 +3367,51 @@ function renderProgress(progress) {
   elements.progressValue.textContent = formatProgress(safeValue, safeMax);
   elements.progressBar.style.width = percent;
 }
+async function pollServerStatusNow() {
+  if (!window.launcher?.refreshServerStatus || serverStatusPollPromise) {
+    return serverStatusPollPromise;
+  }
+
+  serverStatusPollPromise = window.launcher.refreshServerStatus()
+    .then((nextState) => {
+      if (nextState) {
+        renderState(nextState);
+      }
+      return nextState;
+    })
+    .catch((error) => {
+      pushLog({
+        text: `Server status refresh failed: ${error.message}`,
+        tone: "warning",
+        timestamp: new Date().toISOString()
+      });
+      return null;
+    })
+    .finally(() => {
+      serverStatusPollPromise = null;
+      updateStatusRefreshControls();
+    });
+
+  updateStatusRefreshControls();
+  return serverStatusPollPromise;
+}
+function startServerStatusPolling() {
+  if (serverStatusPollTimerId || !window.launcher?.refreshServerStatus || typeof setInterval !== "function") {
+    return;
+  }
+
+  serverStatusPollTimerId = setInterval(() => {
+    pollServerStatusNow();
+  }, SERVER_STATUS_POLL_INTERVAL_MS);
+}
+function stopServerStatusPolling() {
+  if (!serverStatusPollTimerId || typeof clearInterval !== "function") {
+    return;
+  }
+
+  clearInterval(serverStatusPollTimerId);
+  serverStatusPollTimerId = null;
+}
 function pushLog(entry) {
   state.logs.push(entry);
   if (state.logs.length > 500) {
@@ -3221,12 +3482,45 @@ function preventNativeDragDuringWindowMove(event) {
   event.preventDefault();
   event.stopPropagation();
 }
+function wireStatusBadgeTooltip(badge) {
+  if (!badge) {
+    return;
+  }
+
+  const updateTitle = () => {
+    setStatusBadgeTitle(badge);
+    updateStatusRefreshControls();
+  };
+  badge.addEventListener("mouseenter", updateTitle);
+  badge.addEventListener("focus", updateTitle);
+}
+async function handleManualServerStatusRefresh(event) {
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (serverStatusPollPromise || getManualStatusRefreshCooldownMs() > 0) {
+    updateStatusRefreshControls();
+    return;
+  }
+
+  serverStatusManualRefreshAvailableAt = Date.now() + SERVER_STATUS_MANUAL_COOLDOWN_MS;
+  updateStatusRefreshControls();
+  await pollServerStatusNow();
+}
 function wireEvents() {
   document.addEventListener("mousedown", beginWindowDrag, true);
   document.addEventListener("mousemove", updateWindowDrag, true);
   document.addEventListener("mouseup", endWindowDrag, true);
   document.addEventListener("mouseleave", endWindowDrag, true);
   document.addEventListener("dragstart", preventNativeDragDuringWindowMove, true);
+  if (typeof window.addEventListener === "function") {
+    window.addEventListener("beforeunload", stopServerStatusPolling);
+  }
+
+  wireStatusBadgeTooltip(elements.gameServerStatusBadge);
+  wireStatusBadgeTooltip(elements.loginServerStatusBadge);
+  elements.gameServerStatusRefreshButton?.addEventListener("click", handleManualServerStatusRefresh);
+  elements.loginServerStatusRefreshButton?.addEventListener("click", handleManualServerStatusRefresh);
 
   bindHorizontalWheelScroll(elements.uiManagerPackageList);
   bindHorizontalWheelScroll(elements.uiManagerTargetList);
@@ -3967,6 +4261,7 @@ async function bootstrap() {
   ]);
   renderPatcherVersion(version);
   renderState(nextState);
+  startServerStatusPolling();
 }
 bootstrap().catch((error) => {
   pushLog({

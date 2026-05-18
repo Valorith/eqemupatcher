@@ -76,6 +76,16 @@ async function startFixtureServer(routes) {
   };
 }
 
+function createMockSocket(eventName, payload) {
+  const socket = new EventEmitter();
+  socket.setTimeout = () => socket;
+  socket.destroy = () => {};
+  setImmediate(() => {
+    socket.emit(eventName, payload);
+  });
+  return socket;
+}
+
 test("initialize without a selected game directory reports selection state", async (t) => {
   const { backend, appUserDataPath } = await createBackendHarness(t);
 
@@ -220,6 +230,167 @@ test("legacy placeholder server names are replaced with a label derived from the
 
   assert.equal(state.serverName, "Clumsy's World");
   assert.equal(state.filelistUrl, "https://patch.clumsysworld.com/");
+});
+
+test("initialize reports configured game server status as online", async (t) => {
+  const { backend, projectRoot } = await createBackendHarness(t, {
+    netConnectImpl: () => createMockSocket("connect")
+  });
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\ngameServerHost: game.example.invalid\ngameServerPort: 9000\n",
+    "utf8"
+  );
+
+  const state = await backend.initialize();
+
+  assert.equal(state.gameServerHost, "game.example.invalid");
+  assert.equal(state.gameServerPort, 9000);
+  assert.equal(state.gameServerStatus.state, "online");
+  assert.equal(state.gameServerStatus.label, "Online");
+  assert.equal(state.gameServerStatus.host, "game.example.invalid");
+  assert.equal(state.gameServerStatus.port, 9000);
+  assert.match(state.gameServerStatus.detail, /Connected to game\.example\.invalid:9000/);
+});
+
+test("initialize reports configured game server status as offline", async (t) => {
+  const { backend, projectRoot } = await createBackendHarness(t, {
+    netConnectImpl: () => createMockSocket("error", new Error("connection refused"))
+  });
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\ngameServerHost: game.example.invalid\ngameServerPort: 9000\n",
+    "utf8"
+  );
+
+  const state = await backend.initialize();
+
+  assert.equal(state.gameServerStatus.state, "offline");
+  assert.equal(state.gameServerStatus.label, "Offline");
+  assert.equal(state.gameServerStatus.host, "game.example.invalid");
+  assert.equal(state.gameServerStatus.port, 9000);
+  assert.equal(state.gameServerStatus.error, "connection refused");
+});
+
+test("initialize reports login server status from eqhost as online", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  const connectionChecks = [];
+  const { backend, projectRoot } = await createBackendHarness(t, {
+    launchDirectory,
+    netConnectImpl: (options) => {
+      connectionChecks.push(options);
+      return createMockSocket("connect");
+    }
+  });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  backend.checkForLauncherUpdate = async () => backend.getState();
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(launchDirectory, "eqgame.exe"), "dummy", "utf8");
+  await fsp.writeFile(
+    path.join(launchDirectory, "eqhost.txt"),
+    "[LoginServer]\n;Host=ignored.eqemulator.net:5999\nHost=login.eqemulator.net:5999\n",
+    "utf8"
+  );
+
+  const state = await backend.initialize();
+
+  assert.equal(state.loginServerHost, "login.eqemulator.net");
+  assert.equal(state.loginServerPort, 5999);
+  assert.equal(state.loginServerStatus.state, "online");
+  assert.equal(state.loginServerStatus.label, "Online");
+  assert.equal(state.loginServerStatus.host, "login.eqemulator.net");
+  assert.equal(state.loginServerStatus.port, 5999);
+  assert.match(state.loginServerStatus.detail, /Connected to login\.eqemulator\.net:5999/);
+  assert.deepEqual(connectionChecks, [
+    { host: "login.eqemulator.net", port: 5999 }
+  ]);
+});
+
+test("initialize reports login server status as unconfigured when eqhost is missing", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  const connectionChecks = [];
+  const { backend, projectRoot } = await createBackendHarness(t, {
+    launchDirectory,
+    netConnectImpl: (options) => {
+      connectionChecks.push(options);
+      return createMockSocket("connect");
+    }
+  });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  backend.checkForLauncherUpdate = async () => backend.getState();
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(launchDirectory, "eqgame.exe"), "dummy", "utf8");
+
+  const state = await backend.initialize();
+
+  assert.equal(state.loginServerHost, "");
+  assert.equal(state.loginServerPort, 0);
+  assert.equal(state.loginServerStatus.state, "unconfigured");
+  assert.equal(state.loginServerStatus.label, "Not configured");
+  assert.equal(state.loginServerStatus.detail, "eqhost.txt was not found in the selected game directory.");
+  assert.deepEqual(connectionChecks, []);
+});
+
+test("refreshServerStatus checks game and login endpoints without manifest refresh", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  const connectionChecks = [];
+  const { backend, projectRoot } = await createBackendHarness(t, {
+    launchDirectory,
+    netConnectImpl: (options) => {
+      connectionChecks.push(options);
+      return createMockSocket("connect");
+    }
+  });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  backend.checkForLauncherUpdate = async () => backend.getState();
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\ngameServerHost: https://patch.example.invalid/\ngameServerPort: 443\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(launchDirectory, "eqgame.exe"), "dummy", "utf8");
+  await fsp.writeFile(
+    path.join(launchDirectory, "eqhost.txt"),
+    "[LoginServer]\nHost=login.eqemulator.net:5999\n",
+    "utf8"
+  );
+
+  await backend.initialize();
+  connectionChecks.length = 0;
+
+  const state = await backend.refreshServerStatus();
+
+  assert.equal(state.gameServerStatus.state, "online");
+  assert.equal(state.loginServerStatus.state, "online");
+  assert.deepEqual(connectionChecks, [
+    { host: "patch.example.invalid", port: 443 },
+    { host: "login.eqemulator.net", port: 5999 }
+  ]);
 });
 
 test("refreshState recognizes a configured supported client and manifest status", async (t) => {

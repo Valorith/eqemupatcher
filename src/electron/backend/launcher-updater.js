@@ -7,9 +7,19 @@ const { spawn } = require("child_process");
 const DEFAULT_RELEASE_API_URL = "https://api.github.com/repos/Valorith/eqemupatcher/releases/latest";
 const PORTABLE_ASSET_PATTERN = /^EQEmu Launcher-.*-windows-portable\.exe$/i;
 const RELEASE_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const APPLY_RESULT_READ_ATTEMPTS = 6;
+const APPLY_RESULT_READ_RETRY_MS = 75;
 
 function clone(value) {
   return JSON.parse(JSON.stringify(value));
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function parseJsonPayload(raw) {
+  return JSON.parse(String(raw || "").replace(/^\uFEFF/, ""));
 }
 
 function normalizeVersion(value) {
@@ -325,6 +335,7 @@ class LauncherUpdater {
 
     const backupPath = `${this.executablePath}.bak`;
     const relaunchArgsPayload = Buffer.from(JSON.stringify(this.relaunchArgs), "utf8").toString("base64");
+    await fsp.rm(this.applyResultPath, { force: true }).catch(() => {});
 
     try {
       await this.spawnHelperProcess({
@@ -886,13 +897,27 @@ class LauncherUpdater {
       return;
     }
 
-    try {
-      const raw = await fsp.readFile(this.applyResultPath, "utf8");
-      const parsed = JSON.parse(raw);
-      if (parsed?.status === "error" && parsed.message) {
-        this.previousApplyError = String(parsed.message);
+    let parsed = null;
+
+    for (let attempt = 0; attempt < APPLY_RESULT_READ_ATTEMPTS; attempt += 1) {
+      try {
+        const raw = await fsp.readFile(this.applyResultPath, "utf8");
+        parsed = parseJsonPayload(raw);
+        break;
+      } catch (error) {
+        if (error?.code === "ENOENT") {
+          return;
+        }
+
+        if (attempt < APPLY_RESULT_READ_ATTEMPTS - 1) {
+          await delay(APPLY_RESULT_READ_RETRY_MS);
+        }
       }
-    } catch (_error) {
+    }
+
+    if (parsed?.status === "error" && parsed.message) {
+      this.previousApplyError = String(parsed.message);
+    } else if (!parsed) {
       this.previousApplyError = "The last launcher update failed before it could report details.";
     }
 

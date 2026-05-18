@@ -225,6 +225,52 @@ test("a failed prior helper result is surfaced on the next update check", async 
   assert.match(state.message, /Previous launcher update failed: The launcher executable was locked\./);
 });
 
+test("initialize accepts PowerShell UTF-8 BOM apply result JSON", async (t) => {
+  const { updater, appUserDataPath } = await createUpdaterHarness(t);
+
+  await fsp.mkdir(path.join(appUserDataPath, "launcher-update"), { recursive: true });
+  await fsp.writeFile(
+    path.join(appUserDataPath, "launcher-update", "apply-result.json"),
+    `\uFEFF${JSON.stringify({
+      status: "error",
+      message: "The launcher executable was locked."
+    })}`,
+    "utf8"
+  );
+
+  const state = await updater.initialize({ releaseApiUrl: "https://api.github.com/repos/Valorith/eqemupatcher/releases/latest" });
+
+  assert.equal(state.status, "helper-error");
+  assert.match(state.message, /Previous launcher update failed: The launcher executable was locked\./);
+});
+
+test("initialize retries a transient partial apply result before reporting failure", async (t) => {
+  const { updater, appUserDataPath } = await createUpdaterHarness(t);
+  const resultPath = path.join(appUserDataPath, "launcher-update", "apply-result.json");
+
+  await fsp.mkdir(path.dirname(resultPath), { recursive: true });
+  await fsp.writeFile(resultPath, "{", "utf8");
+
+  const rewritePromise = new Promise((resolve, reject) => {
+    setTimeout(() => {
+      fsp.writeFile(
+        resultPath,
+        JSON.stringify({
+          status: "error",
+          message: "The launcher executable was locked."
+        }),
+        "utf8"
+      ).then(resolve, reject);
+    }, 10);
+  });
+
+  const state = await updater.initialize({ releaseApiUrl: "https://api.github.com/repos/Valorith/eqemupatcher/releases/latest" });
+  await rewritePromise;
+
+  assert.equal(state.status, "helper-error");
+  assert.match(state.message, /Previous launcher update failed: The launcher executable was locked\./);
+});
+
 test("parseReleasePayload accepts version tags with and without a leading v", async (t) => {
   const { updater } = await createUpdaterHarness(t);
   const digest = `sha256:${sha256("launcher")}`;
