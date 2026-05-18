@@ -4,6 +4,8 @@ patchNotesUrl: https://patch.clumsysworld.com/patch-notes.md
 launcherReleaseApiUrl: https://api.github.com/repos/Valorith/eqemupatcher/releases/latest
 gameServerHost: 76.251.85.36
 gameServerPort: 9000
+loginServerHost: login.eqemulator.net
+loginServerPort: 5999
 tagline: An EverQuest Emulated Server
 primaryImage: src/electron/assets/hero/generated/dragon-cavern-v1.png
 wordmarkImage: src/electron/assets/branding/clumsys-world-wordmark-cwt.png

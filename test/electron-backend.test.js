@@ -351,6 +351,44 @@ test("initialize reports login server status as unconfigured when eqhost is miss
   assert.deepEqual(connectionChecks, []);
 });
 
+test("initialize uses configured login server fallback when eqhost is missing", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  const connectionChecks = [];
+  const { backend, projectRoot } = await createBackendHarness(t, {
+    launchDirectory,
+    netConnectImpl: (options) => {
+      connectionChecks.push(options);
+      return createMockSocket("connect");
+    }
+  });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  backend.checkForLauncherUpdate = async () => backend.getState();
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\nloginServerHost: login.eqemulator.net\nloginServerPort: 5999\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(launchDirectory, "eqgame.exe"), "dummy", "utf8");
+
+  const state = await backend.initialize();
+
+  assert.equal(state.loginServerHost, "login.eqemulator.net");
+  assert.equal(state.loginServerPort, 5999);
+  assert.equal(state.loginServerStatus.state, "online");
+  assert.equal(state.loginServerStatus.label, "Online");
+  assert.equal(state.loginServerStatus.host, "login.eqemulator.net");
+  assert.equal(state.loginServerStatus.port, 5999);
+  assert.match(state.loginServerStatus.detail, /Connected to login\.eqemulator\.net:5999/);
+  assert.deepEqual(connectionChecks, [
+    { host: "login.eqemulator.net", port: 5999 }
+  ]);
+});
+
 test("refreshServerStatus checks game and login endpoints without manifest refresh", async (t) => {
   const launchDirectory = await createTempDir("eqemu-launch-");
   const connectionChecks = [];

@@ -42,6 +42,8 @@ patchNotesUrl: https://patch.clumsysworld.com/patch-notes.md
 launcherReleaseApiUrl: https://api.github.com/repos/your-org/your-patcher/releases/latest
 gameServerHost: https://patch.example.com/
 gameServerPort: 443
+loginServerHost: login.eqemulator.net
+loginServerPort: 5999
 tagline: An EverQuest Emulated Server
 primaryImage: assets/branding/hero.png
 wordmarkImage: assets/branding/wordmark.png
@@ -61,7 +63,7 @@ supportedClients:
   - Rain_Of_Fear_2_4GB
 ```
 
-Update this file before packaging if you are shipping a launcher for a different server. Set `gameServerHost` and `gameServerPort` to the endpoint players should reach; the launcher displays a small online/offline TCP status indicator for that endpoint. `gameServerHost` may be a bare host or a URL. The launcher also reads `eqhost.txt` from the selected game directory and shows a separate login-server status indicator. Branding image paths can be `https://` URLs, `file://` URLs, absolute local paths, or paths relative to the active `launcher-config.yml`. If `primaryImage` is not set, the launcher still supports the legacy `eqemupatcher.png` splash image in the player's game directory.
+Update this file before packaging if you are shipping a launcher for a different server. Set `gameServerHost` and `gameServerPort` to the endpoint players should reach; the launcher displays a small online/offline TCP status indicator for that endpoint. `gameServerHost` may be a bare host or a URL. The launcher reads `eqhost.txt` from the selected game directory for the login-server status indicator, and falls back to `loginServerHost`/`loginServerPort` when `eqhost.txt` is unavailable. Branding image paths can be `https://` URLs, `file://` URLs, absolute local paths, or paths relative to the active `launcher-config.yml`. If `primaryImage` is not set, the launcher still supports the legacy `eqemupatcher.png` splash image in the player's game directory.
 
 ## Local Development
 

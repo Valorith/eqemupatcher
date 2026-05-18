@@ -17,6 +17,8 @@ const DEFAULTS = {
   launcherReleaseApiUrl: DEFAULT_RELEASE_API_URL,
   gameServerHost: "",
   gameServerPort: 0,
+  loginServerHost: "",
+  loginServerPort: 0,
   gameServerStatusTimeoutMs: 1500,
   tagline: "An EverQuest Emulated Server",
   primaryImage: "",
@@ -1371,34 +1373,44 @@ class LauncherBackend {
     }
   }
 
+  getConfiguredLoginServerFallbackEndpoint() {
+    const endpoint = resolveEndpoint(this.config.loginServerHost, this.config.loginServerPort, 5999);
+    return {
+      ...endpoint,
+      timeoutMs: normalizeGameServerStatusTimeoutMs(this.config.gameServerStatusTimeoutMs)
+    };
+  }
+
+  getLoginServerEndpointFallback(detail) {
+    const fallbackEndpoint = this.getConfiguredLoginServerFallbackEndpoint();
+    if (fallbackEndpoint.host) {
+      return {
+        ...fallbackEndpoint,
+        detail: ""
+      };
+    }
+
+    return {
+      host: "",
+      port: 0,
+      timeoutMs: normalizeGameServerStatusTimeoutMs(this.config.gameServerStatusTimeoutMs),
+      detail
+    };
+  }
+
   async getConfiguredLoginServerEndpoint() {
     if (!this.state.gameDirectory) {
-      return {
-        host: "",
-        port: 0,
-        timeoutMs: normalizeGameServerStatusTimeoutMs(this.config.gameServerStatusTimeoutMs),
-        detail: "Select a game directory with eqhost.txt to show login server status."
-      };
+      return this.getLoginServerEndpointFallback("Select a game directory with eqhost.txt to show login server status.");
     }
 
     const eqhostPath = path.join(this.state.gameDirectory, "eqhost.txt");
     if (!(await exists(eqhostPath))) {
-      return {
-        host: "",
-        port: 0,
-        timeoutMs: normalizeGameServerStatusTimeoutMs(this.config.gameServerStatusTimeoutMs),
-        detail: "eqhost.txt was not found in the selected game directory."
-      };
+      return this.getLoginServerEndpointFallback("eqhost.txt was not found in the selected game directory.");
     }
 
     const configuredHost = parseEqhostLoginServer(await fsp.readFile(eqhostPath, "utf8"));
     if (!configuredHost) {
-      return {
-        host: "",
-        port: 0,
-        timeoutMs: normalizeGameServerStatusTimeoutMs(this.config.gameServerStatusTimeoutMs),
-        detail: "eqhost.txt does not contain an active Host entry."
-      };
+      return this.getLoginServerEndpointFallback("eqhost.txt does not contain an active Host entry.");
     }
 
     const endpoint = resolveEndpoint(configuredHost, 0, 5999);
