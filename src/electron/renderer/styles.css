@@ -379,6 +379,8 @@ body {
 
 .summary-status-text {
   display: flex;
+  flex: 0 1 13rem;
+  width: 13rem;
   min-width: 0;
   flex-direction: column;
   justify-content: center;
@@ -6015,6 +6017,11 @@ body .summary-status-layout {
   min-height: 100%;
 }
 
+body .summary-status-text {
+  flex-basis: 13.1rem;
+  width: 13.1rem;
+}
+
 body .summary-status-layout .server-status-badge {
   min-height: 100%;
 }
@@ -6213,9 +6220,9 @@ body .toggle-row {
   flex-direction: row;
   flex-wrap: wrap;
   align-items: center;
-  min-height: 5rem;
-  margin-top: 0.82rem;
-  gap: 1.35rem;
+  min-height: 0;
+  margin-top: 0.38rem;
+  gap: 1.1rem;
   justify-content: flex-start;
 }
 
@@ -6594,8 +6601,7 @@ body .ui-manager-beta-badge-tab {
   }
 
   body .toggle-row {
-    min-height: 4.4rem;
-    margin-top: 0.56rem;
+    margin-top: 0.34rem;
   }
 
   body .hero-wordmark-panel {
@@ -6643,8 +6649,7 @@ body .ui-manager-beta-badge-tab {
   }
 
   body .toggle-row {
-    min-height: 4rem;
-    margin-top: 0.42rem;
+    margin-top: 0.3rem;
   }
 
   body .footer-tab-shell {
