@@ -10,6 +10,9 @@ const SimpleYaml = require("./simple-yaml");
 const { DEFAULT_RELEASE_API_URL, LauncherUpdater } = require("./launcher-updater");
 const { UiManager } = require("./ui-manager");
 
+const DEFAULT_GAME_SERVER_STATUS_HOST = "76.251.85.36";
+const DEFAULT_GAME_SERVER_STATUS_PORT = 9000;
+
 const DEFAULTS = {
   serverName: "Clumsy's World",
   filelistUrl: "https://patch.clumsysworld.com/",
@@ -625,7 +628,7 @@ function createGameServerStatus(overrides = {}) {
   return {
     state: "unconfigured",
     label: "Not configured",
-    detail: "Set gameServerHost in launcher-config.yml to show game server status.",
+    detail: "Game server status has not been checked.",
     host: "",
     port: 0,
     checkedAt: "",
@@ -1357,7 +1360,13 @@ class LauncherBackend {
   }
 
   getConfiguredGameServerEndpoint() {
-    const endpoint = resolveEndpoint(this.config.gameServerHost, this.config.gameServerPort, 9000);
+    const configuredHost = normalizeConfigText(this.config.gameServerHost);
+    const endpoint = configuredHost
+      ? resolveEndpoint(configuredHost, this.config.gameServerPort, DEFAULT_GAME_SERVER_STATUS_PORT)
+      : {
+          host: DEFAULT_GAME_SERVER_STATUS_HOST,
+          port: DEFAULT_GAME_SERVER_STATUS_PORT
+        };
     return {
       ...endpoint,
       timeoutMs: normalizeGameServerStatusTimeoutMs(this.config.gameServerStatusTimeoutMs)

@@ -28,13 +28,13 @@
   function createState(mode) {
     const base = {
       serverName: "Clumsy's World: Resurgence",
-      gameServerHost: "76.251.85.36",
+      gameServerHost: "",
       gameServerPort: 9000,
       gameServerStatus: {
         state: "online",
         label: "Online",
-        detail: "Connected to 76.251.85.36:9000 in 24ms.",
-        host: "76.251.85.36",
+        detail: "Connected to the default game server in 24ms.",
+        host: "",
         port: 9000,
         checkedAt: new Date().toISOString(),
         latencyMs: 24,
