@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const dgram = require("dgram");
 const fs = require("fs");
 const fsp = require("fs/promises");
 const net = require("net");
@@ -12,6 +13,9 @@ const { UiManager } = require("./ui-manager");
 
 const DEFAULT_GAME_SERVER_STATUS_HOST = "76.251.85.36";
 const DEFAULT_GAME_SERVER_STATUS_PORT = 9000;
+const LOGIN_SERVER_SESSION_PROTOCOL_VERSION = 3;
+const LOGIN_SERVER_SESSION_MAX_PACKET_SIZE = 512;
+const EQ_CRC32_TABLE = createCrc32Table();
 
 const DEFAULTS = {
   serverName: "Clumsy's World",
@@ -599,20 +603,133 @@ function resolveEndpoint(value, configuredPort, defaultPort = 0) {
 }
 
 function parseEqhostLoginServer(content) {
-  const lines = String(content || "").split(/\r?\n/);
-  for (const rawLine of lines) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#") || line.startsWith(";")) {
-      continue;
+  const parsed = parseEqhostLoginServers(content);
+  const activeEntry = parsed.entries.find((entry) => !entry.commented);
+  return activeEntry ? activeEntry.hostSource : "";
+}
+
+function splitEqhostLines(content) {
+  const source = String(content || "");
+  if (!source) {
+    return [];
+  }
+
+  return source.match(/[^\r\n]*(?:\r\n|\n|\r)|[^\r\n]+/g) || [];
+}
+
+function splitLineTerminator(line) {
+  const source = String(line || "");
+  const match = source.match(/(\r\n|\n|\r)$/);
+  if (!match) {
+    return {
+      body: source,
+      eol: ""
+    };
+  }
+
+  return {
+    body: source.slice(0, -match[1].length),
+    eol: match[1]
+  };
+}
+
+function parseEqhostLoginServers(content) {
+  const lines = splitEqhostLines(content);
+  const entries = [];
+
+  lines.forEach((line, lineIndex) => {
+    const { body } = splitLineTerminator(line);
+    const match = body.match(/^(\s*)(#?)(Host\s*=\s*(.+))$/i);
+    if (!match) {
+      return;
     }
 
-    const match = line.match(/^Host\s*=\s*(.+)$/i);
-    if (match) {
-      return normalizeConfigText(match[1]);
+    const hostSource = normalizeConfigText(match[4]);
+    const endpoint = resolveEndpoint(hostSource, 0, 5999);
+    if (!endpoint.host) {
+      return;
     }
+
+    entries.push({
+      lineIndex,
+      commented: match[2] === "#",
+      hostSource,
+      host: endpoint.host,
+      port: endpoint.port
+    });
+  });
+
+  return {
+    lines,
+    entries
+  };
+}
+
+function getManagedLoginServerEntries(parsedEqhost) {
+  return Array.isArray(parsedEqhost?.entries) ? parsedEqhost.entries.slice(0, 2) : [];
+}
+
+function createLoginServerOption(entry = null) {
+  return {
+    host: entry?.host || "",
+    port: entry?.host ? entry.port : 0
+  };
+}
+
+function createLoginServerOptions(primary = null, backup = null) {
+  return {
+    primary: createLoginServerOption(primary),
+    backup: createLoginServerOption(backup)
+  };
+}
+
+function getActiveManagedLoginServerRole(entries) {
+  const managedEntries = Array.isArray(entries) ? entries : [];
+  if (managedEntries[0] && !managedEntries[0].commented) {
+    return "primary";
+  }
+
+  if (managedEntries[1] && !managedEntries[1].commented) {
+    return "backup";
   }
 
   return "";
+}
+
+function normalizeLoginServerRole(value) {
+  return value === "backup" ? "backup" : value === "primary" ? "primary" : "";
+}
+
+function setEqhostActiveLoginServer(content, role) {
+  const normalizedRole = normalizeLoginServerRole(role);
+  const parsed = parseEqhostLoginServers(content);
+  const managedEntries = getManagedLoginServerEntries(parsed);
+  if (!normalizedRole || managedEntries.length < 2) {
+    return {
+      content: String(content || ""),
+      changed: false
+    };
+  }
+
+  const activeIndex = normalizedRole === "backup" ? 1 : 0;
+  const lines = [...parsed.lines];
+
+  managedEntries.forEach((entry, index) => {
+    const { body, eol } = splitLineTerminator(lines[entry.lineIndex]);
+    const match = body.match(/^(\s*)(#?)(Host\s*=.*)$/i);
+    if (!match) {
+      return;
+    }
+
+    const nextBody = `${match[1]}${index === activeIndex ? "" : "#"}${match[3]}`;
+    lines[entry.lineIndex] = `${nextBody}${eol}`;
+  });
+
+  const nextContent = lines.join("");
+  return {
+    content: nextContent,
+    changed: nextContent !== String(content || "")
+  };
 }
 
 function normalizeGameServerStatusTimeoutMs(value) {
@@ -648,8 +765,93 @@ function createLoginServerStatus(overrides = {}) {
     checkedAt: "",
     latencyMs: 0,
     error: "",
+    role: "",
+    selectionMode: "auto",
+    failoverActive: false,
+    primaryError: "",
+    backupError: "",
     ...overrides
   };
+}
+
+function createEqLoginSessionRequest(connectCode) {
+  const packet = Buffer.alloc(14);
+  packet[0] = 0x00;
+  packet[1] = 0x01;
+  packet.writeUInt32BE(LOGIN_SERVER_SESSION_PROTOCOL_VERSION, 2);
+  packet.writeUInt32BE(connectCode, 6);
+  packet.writeUInt32BE(LOGIN_SERVER_SESSION_MAX_PACKET_SIZE, 10);
+  return packet;
+}
+
+function createCrc32Table() {
+  const table = [];
+  for (let index = 0; index < 256; index += 1) {
+    let crc = index;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc & 1) ? (0xEDB88320 ^ (crc >>> 1)) : (crc >>> 1);
+    }
+    table[index] = crc >>> 0;
+  }
+
+  return table;
+}
+
+function updateEqCrc32(crc, byte) {
+  return ((crc >>> 8) ^ EQ_CRC32_TABLE[(crc ^ byte) & 0xFF]) >>> 0;
+}
+
+function calculateEqCrc32(buffer, key) {
+  let crc = 0xFFFFFFFF;
+  for (let index = 0; index < 4; index += 1) {
+    crc = updateEqCrc32(crc, (key >>> (index * 8)) & 0xFF);
+  }
+
+  for (const byte of buffer) {
+    crc = updateEqCrc32(crc, byte);
+  }
+
+  return (~crc) >>> 0;
+}
+
+function createEqLoginSessionDisconnect(connectCode, response) {
+  const basePacket = Buffer.alloc(6);
+  basePacket[0] = 0x00;
+  basePacket[1] = 0x05;
+  basePacket.writeUInt32BE(connectCode, 2);
+
+  const crcBytes = response?.length >= 11 ? response[10] : 0;
+  if (crcBytes !== 2 && crcBytes !== 4) {
+    return basePacket;
+  }
+
+  const packet = Buffer.alloc(basePacket.length + crcBytes);
+  basePacket.copy(packet);
+  const encodeKey = response.readUInt32BE(6);
+  const crc = calculateEqCrc32(basePacket, encodeKey);
+  if (crcBytes === 2) {
+    packet.writeUInt16BE(crc & 0xFFFF, basePacket.length);
+  } else {
+    packet.writeUInt32BE(crc, basePacket.length);
+  }
+
+  return packet;
+}
+
+function isEqLoginSessionResponse(message, connectCode) {
+  return Buffer.isBuffer(message)
+    && message.length >= 10
+    && message[0] === 0x00
+    && message[1] === 0x02
+    && message.readUInt32BE(2) === connectCode;
+}
+
+function createLoginServerConnectedDetail(check) {
+  if (check.probe === "eq-udp") {
+    return `Connected to ${check.target} over the EQ login protocol in ${check.latencyMs}ms.`;
+  }
+
+  return `Connected to ${check.target} in ${check.latencyMs}ms.`;
 }
 
 function normalizeBrandingServerName(value) {
@@ -1100,6 +1302,8 @@ class LauncherBackend {
     eventSink,
     fetchImpl,
     netConnectImpl,
+    dgramCreateSocketImpl,
+    loginServerUdpProbeImpl,
     spawnImpl,
     platform,
     appVersion,
@@ -1118,6 +1322,8 @@ class LauncherBackend {
     this.eventSink = eventSink;
     this.fetchImpl = fetchImpl || fetch;
     this.netConnectImpl = netConnectImpl || net.createConnection;
+    this.dgramCreateSocketImpl = dgramCreateSocketImpl || ((type) => dgram.createSocket(type));
+    this.loginServerUdpProbeImpl = typeof loginServerUdpProbeImpl === "function" ? loginServerUdpProbeImpl : null;
     this.spawnImpl = spawnImpl || spawn;
     this.platform = platform || process.platform;
     this.appVersion = normalizeVersion(appVersion) || "0.0.0";
@@ -1160,6 +1366,10 @@ class LauncherBackend {
       loginServerHost: "",
       loginServerPort: 0,
       loginServerStatus: createLoginServerStatus(),
+      loginServerSelectionMode: "auto",
+      loginServerActiveRole: "",
+      loginServerFailoverActive: false,
+      loginServerOptions: createLoginServerOptions(),
       gameDirectory: "",
       eqGamePath: "",
       clientVersion: "Unknown",
@@ -1407,6 +1617,39 @@ class LauncherBackend {
     };
   }
 
+  getLoginServerStatusTimeoutMs() {
+    return normalizeGameServerStatusTimeoutMs(this.config.gameServerStatusTimeoutMs);
+  }
+
+  syncLoginServerSelectionState({
+    activeRole = "",
+    failoverActive = false,
+    primary = null,
+    backup = null
+  } = {}) {
+    this.state.loginServerActiveRole = activeRole;
+    this.state.loginServerFailoverActive = Boolean(failoverActive);
+    this.state.loginServerOptions = createLoginServerOptions(primary, backup);
+  }
+
+  createLoginServerEndpointFromEntry(entry, role) {
+    if (!entry?.host) {
+      return {
+        role,
+        host: "",
+        port: 0,
+        timeoutMs: this.getLoginServerStatusTimeoutMs()
+      };
+    }
+
+    return {
+      role,
+      host: entry.host,
+      port: entry.port,
+      timeoutMs: this.getLoginServerStatusTimeoutMs()
+    };
+  }
+
   async getConfiguredLoginServerEndpoint() {
     if (!this.state.gameDirectory) {
       return this.getLoginServerEndpointFallback("Select a game directory with eqhost.txt to show login server status.");
@@ -1428,6 +1671,297 @@ class LauncherBackend {
       timeoutMs: normalizeGameServerStatusTimeoutMs(this.config.gameServerStatusTimeoutMs),
       detail: ""
     };
+  }
+
+  async getLoginServerConfiguration() {
+    if (!this.state.gameDirectory) {
+      return {
+        type: "fallback",
+        endpoint: this.getLoginServerEndpointFallback("Select a game directory with eqhost.txt to show login server status."),
+        primary: null,
+        backup: null,
+        activeRole: ""
+      };
+    }
+
+    const eqhostPath = path.join(this.state.gameDirectory, "eqhost.txt");
+    if (!(await exists(eqhostPath))) {
+      return {
+        type: "fallback",
+        endpoint: this.getLoginServerEndpointFallback("eqhost.txt was not found in the selected game directory."),
+        primary: null,
+        backup: null,
+        activeRole: ""
+      };
+    }
+
+    const content = await fsp.readFile(eqhostPath, "utf8");
+    const parsed = parseEqhostLoginServers(content);
+    const managedEntries = getManagedLoginServerEntries(parsed);
+
+    if (managedEntries.length >= 2) {
+      const primary = this.createLoginServerEndpointFromEntry(managedEntries[0], "primary");
+      const backup = this.createLoginServerEndpointFromEntry(managedEntries[1], "backup");
+      return {
+        type: "managed",
+        eqhostPath,
+        content,
+        primary,
+        backup,
+        activeRole: getActiveManagedLoginServerRole(managedEntries)
+      };
+    }
+
+    const configuredHost = parseEqhostLoginServer(content);
+    if (!configuredHost) {
+      return {
+        type: "fallback",
+        endpoint: this.getLoginServerEndpointFallback("eqhost.txt does not contain an active Host entry."),
+        primary: managedEntries[0] ? this.createLoginServerEndpointFromEntry(managedEntries[0], "primary") : null,
+        backup: null,
+        activeRole: ""
+      };
+    }
+
+    const endpoint = resolveEndpoint(configuredHost, 0, 5999);
+    return {
+      type: "single",
+      endpoint: {
+        ...endpoint,
+        role: "primary",
+        timeoutMs: this.getLoginServerStatusTimeoutMs(),
+        detail: ""
+      },
+      primary: {
+        ...endpoint,
+        role: "primary",
+        timeoutMs: this.getLoginServerStatusTimeoutMs()
+      },
+      backup: null,
+      activeRole: "primary"
+    };
+  }
+
+  async activateEqhostLoginServer(configuration, role) {
+    const normalizedRole = normalizeLoginServerRole(role);
+    if (configuration?.type !== "managed" || !normalizedRole) {
+      return false;
+    }
+
+    const result = setEqhostActiveLoginServer(configuration.content, normalizedRole);
+    if (!result.changed) {
+      return false;
+    }
+
+    await fsp.writeFile(configuration.eqhostPath, result.content, "utf8");
+    configuration.content = result.content;
+    configuration.activeRole = normalizedRole;
+    return true;
+  }
+
+  async checkLoginServerEndpoint(endpoint) {
+    const startedAt = Date.now();
+    const checkedAt = new Date().toISOString();
+    const target = `${endpoint.host}:${endpoint.port}`;
+
+    try {
+      const result = await this.testLoginServerConnection(endpoint);
+      return {
+        online: true,
+        checkedAt,
+        latencyMs: Math.max(1, Date.now() - startedAt),
+        target,
+        probe: result.probe,
+        error: ""
+      };
+    } catch (error) {
+      return {
+        online: false,
+        checkedAt,
+        latencyMs: 0,
+        target,
+        error: String(error?.message || "Connection failed.").trim()
+      };
+    }
+  }
+
+  async testLoginServerConnection(endpoint) {
+    try {
+      await this.testGameServerConnection(endpoint);
+      return { probe: "tcp" };
+    } catch (tcpError) {
+      const tcpMessage = String(tcpError?.message || "Connection failed.").trim();
+
+      try {
+        await this.testEqLoginServerSessionConnection(endpoint);
+        return { probe: "eq-udp" };
+      } catch {
+        throw new Error(tcpMessage);
+      }
+    }
+  }
+
+  async testEqLoginServerSessionConnection(endpoint) {
+    if (this.loginServerUdpProbeImpl) {
+      await this.loginServerUdpProbeImpl(endpoint);
+      return;
+    }
+
+    await this.testEqLoginServerSessionProbe(endpoint);
+  }
+
+  async testEqLoginServerSessionProbe({ host, port, timeoutMs }) {
+    await new Promise((resolve, reject) => {
+      let socket = null;
+      let timeout = null;
+      let settled = false;
+      const connectCode = crypto.randomBytes(4).readUInt32BE(0);
+      const request = createEqLoginSessionRequest(connectCode);
+
+      const finish = (error = null) => {
+        if (settled) {
+          return;
+        }
+
+        settled = true;
+        if (timeout) {
+          clearTimeout(timeout);
+        }
+
+        if (socket) {
+          socket.removeAllListeners("message");
+          socket.removeAllListeners("error");
+          if (typeof socket.close === "function") {
+            socket.close();
+          }
+        }
+
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      };
+
+      const sendDisconnectAndFinish = (disconnect) => {
+        if (!socket || typeof socket.send !== "function") {
+          finish();
+          return;
+        }
+
+        socket.send(disconnect, port, host, () => finish());
+      };
+
+      try {
+        socket = this.dgramCreateSocketImpl("udp4");
+      } catch (error) {
+        finish(error);
+        return;
+      }
+
+      if (!socket || typeof socket.once !== "function" || typeof socket.send !== "function") {
+        finish(new Error("Login protocol status check did not return a UDP socket."));
+        return;
+      }
+
+      timeout = setTimeout(() => {
+        const error = new Error(`Login protocol probe timed out after ${timeoutMs}ms.`);
+        error.code = "ETIMEDOUT";
+        finish(error);
+      }, timeoutMs);
+
+      socket.once("message", (message) => {
+        if (!isEqLoginSessionResponse(message, connectCode)) {
+          finish(new Error("Login protocol probe received an unexpected response."));
+          return;
+        }
+
+        sendDisconnectAndFinish(createEqLoginSessionDisconnect(connectCode, message));
+      });
+
+      socket.once("error", (error) => finish(error));
+      socket.send(request, port, host, (error) => {
+        if (error) {
+          finish(error);
+        }
+      });
+    });
+  }
+
+  setLoginServerStatusFromCheck(endpoint, check, {
+    role = "",
+    failoverActive = false,
+    primary = null,
+    backup = null,
+    primaryError = "",
+    backupError = "",
+    allowUnconfirmedSelection = false,
+    unconfirmedDetail = ""
+  } = {}) {
+    this.state.loginServerHost = endpoint.host;
+    this.state.loginServerPort = endpoint.host ? endpoint.port : 0;
+    this.syncLoginServerSelectionState({
+      activeRole: role,
+      failoverActive,
+      primary,
+      backup
+    });
+
+    if (check.online) {
+      this.state.loginServerStatus = createLoginServerStatus({
+        state: "online",
+        label: role === "backup" ? "Backup" : "Online",
+        detail: createLoginServerConnectedDetail(check),
+        host: endpoint.host,
+        port: endpoint.port,
+        checkedAt: check.checkedAt,
+        latencyMs: check.latencyMs,
+        error: "",
+        role,
+        selectionMode: this.state.loginServerSelectionMode,
+        failoverActive: Boolean(failoverActive),
+        primaryError,
+        backupError
+      });
+      return;
+    }
+
+    if (allowUnconfirmedSelection) {
+      const detail = unconfirmedDetail || `Selected ${check.target}. Login server status check could not confirm reachability: ${check.error}`;
+      this.state.loginServerStatus = createLoginServerStatus({
+        state: "unknown",
+        label: role === "backup" ? "Backup" : "Selected",
+        detail,
+        host: endpoint.host,
+        port: endpoint.port,
+        checkedAt: check.checkedAt,
+        latencyMs: 0,
+        error: check.error,
+        role,
+        selectionMode: this.state.loginServerSelectionMode,
+        failoverActive: Boolean(failoverActive),
+        primaryError,
+        backupError
+      });
+      return;
+    }
+
+    this.state.loginServerStatus = createLoginServerStatus({
+      state: "offline",
+      label: "Offline",
+      detail: `Unable to reach ${check.target}.`,
+      host: endpoint.host,
+      port: endpoint.port,
+      checkedAt: check.checkedAt,
+      latencyMs: 0,
+      error: check.error,
+      role,
+      selectionMode: this.state.loginServerSelectionMode,
+      failoverActive: Boolean(failoverActive),
+      primaryError,
+      backupError
+    });
   }
 
   async testGameServerConnection({ host, port, timeoutMs }) {
@@ -1525,47 +2059,94 @@ class LauncherBackend {
   }
 
   async refreshLoginServerStatus() {
-    const endpoint = await this.getConfiguredLoginServerEndpoint();
-    this.state.loginServerHost = endpoint.host;
-    this.state.loginServerPort = endpoint.host ? endpoint.port : 0;
+    const configuration = await this.getLoginServerConfiguration();
+    const primary = configuration.primary || null;
+    const backup = configuration.backup || null;
 
-    if (!endpoint.host) {
-      this.state.loginServerStatus = createLoginServerStatus({
-        detail: endpoint.detail || "Select a game directory with eqhost.txt to show login server status."
+    if (configuration.type === "managed") {
+      if (this.state.loginServerSelectionMode === "manual") {
+        const manualRole = normalizeLoginServerRole(this.state.loginServerActiveRole) || configuration.activeRole || "primary";
+        const endpoint = manualRole === "backup" ? backup : primary;
+        await this.activateEqhostLoginServer(configuration, manualRole);
+        const check = await this.checkLoginServerEndpoint(endpoint);
+        this.setLoginServerStatusFromCheck(endpoint, check, {
+          role: manualRole,
+          failoverActive: false,
+          primary,
+          backup,
+          primaryError: manualRole === "primary" ? check.error : "",
+          backupError: manualRole === "backup" ? check.error : "",
+          allowUnconfirmedSelection: true
+        });
+        return;
+      }
+
+      const primaryCheck = await this.checkLoginServerEndpoint(primary);
+      if (primaryCheck.online) {
+        await this.activateEqhostLoginServer(configuration, "primary");
+        this.setLoginServerStatusFromCheck(primary, primaryCheck, {
+          role: "primary",
+          failoverActive: false,
+          primary,
+          backup
+        });
+        return;
+      }
+
+      const backupCheck = await this.checkLoginServerEndpoint(backup);
+      if (backupCheck.online) {
+        await this.activateEqhostLoginServer(configuration, "backup");
+        this.setLoginServerStatusFromCheck(backup, backupCheck, {
+          role: "backup",
+          failoverActive: true,
+          primary,
+          backup,
+          primaryError: primaryCheck.error
+        });
+        return;
+      }
+
+      await this.activateEqhostLoginServer(configuration, "backup");
+      this.setLoginServerStatusFromCheck(backup, backupCheck, {
+        role: "backup",
+        failoverActive: true,
+        primary,
+        backup,
+        primaryError: primaryCheck.error,
+        backupError: backupCheck.error,
+        allowUnconfirmedSelection: true,
+        unconfirmedDetail: `Primary login server is unreachable, so backup ${backupCheck.target} was selected. Backup status check could not confirm reachability: ${backupCheck.error}`
       });
       return;
     }
 
-    const startedAt = Date.now();
-    const checkedAt = new Date().toISOString();
-    const target = `${endpoint.host}:${endpoint.port}`;
+    const endpoint = configuration.endpoint;
+    this.state.loginServerHost = endpoint.host;
+    this.state.loginServerPort = endpoint.host ? endpoint.port : 0;
+    this.syncLoginServerSelectionState({
+      activeRole: configuration.activeRole || "",
+      failoverActive: false,
+      primary,
+      backup
+    });
 
-    try {
-      await this.testGameServerConnection(endpoint);
-      const latencyMs = Math.max(1, Date.now() - startedAt);
+    if (!endpoint.host) {
       this.state.loginServerStatus = createLoginServerStatus({
-        state: "online",
-        label: "Online",
-        detail: `Connected to ${target} in ${latencyMs}ms.`,
-        host: endpoint.host,
-        port: endpoint.port,
-        checkedAt,
-        latencyMs,
-        error: ""
+        detail: endpoint.detail || "Select a game directory with eqhost.txt to show login server status.",
+        role: configuration.activeRole || "",
+        selectionMode: this.state.loginServerSelectionMode,
+        failoverActive: false
       });
-    } catch (error) {
-      const message = String(error?.message || "Connection failed.").trim();
-      this.state.loginServerStatus = createLoginServerStatus({
-        state: "offline",
-        label: "Offline",
-        detail: `Unable to reach ${target}.`,
-        host: endpoint.host,
-        port: endpoint.port,
-        checkedAt,
-        latencyMs: 0,
-        error: message
-      });
+      return;
     }
+
+    const check = await this.checkLoginServerEndpoint(endpoint);
+    this.setLoginServerStatusFromCheck(endpoint, check, {
+      role: configuration.activeRole || endpoint.role || "",
+      failoverActive: false,
+      primary,
+      backup
+    });
   }
 
   async refreshServerStatus() {
@@ -1573,6 +2154,34 @@ class LauncherBackend {
       this.refreshGameServerStatus(),
       this.refreshLoginServerStatus()
     ]);
+    return this.getState();
+  }
+
+  async setActiveLoginServer(options = {}) {
+    const requestedRole = String(options.role || "").trim().toLowerCase();
+    if (requestedRole === "auto") {
+      this.state.loginServerSelectionMode = "auto";
+      this.state.loginServerActiveRole = "";
+      await this.refreshLoginServerStatus();
+      this.emitState();
+      return this.getState();
+    }
+
+    const role = normalizeLoginServerRole(requestedRole);
+    if (!role) {
+      throw new Error("A login server role of primary, backup, or auto is required.");
+    }
+
+    const configuration = await this.getLoginServerConfiguration();
+    if (configuration.type !== "managed") {
+      throw new Error("Manual login server switching requires two Host entries in eqhost.txt.");
+    }
+
+    this.state.loginServerSelectionMode = "manual";
+    this.state.loginServerActiveRole = role;
+    await this.activateEqhostLoginServer(configuration, role);
+    await this.refreshLoginServerStatus();
+    this.emitState();
     return this.getState();
   }
 
@@ -2337,6 +2946,8 @@ class LauncherBackend {
   async setGameDirectory(gameDirectory) {
     this.state.gameDirectory = gameDirectory;
     this.appState.gameDirectory = gameDirectory;
+    this.state.loginServerSelectionMode = "auto";
+    this.state.loginServerActiveRole = "";
     await this.saveAppState();
     await this.ensureGameDirectoryConfig();
     await this.loadConfig();

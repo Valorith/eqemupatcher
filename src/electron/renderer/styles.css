@@ -398,6 +398,16 @@ body {
   justify-content: center;
 }
 
+.login-server-context-target,
+.login-server-context-target * {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+.login-server-context-target {
+  cursor: context-menu;
+}
+
 .summary-stack .summary-item strong {
   color: #f2ece5;
   font-size: 1.05rem;
@@ -421,10 +431,14 @@ body {
   line-height: 1;
   text-transform: uppercase;
   white-space: nowrap;
+  cursor: context-menu;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
 }
 
 .server-status-label {
   min-width: 0;
+  pointer-events: none;
 }
 
 .server-status-refresh-button {
@@ -441,6 +455,8 @@ body {
   background: rgba(9, 10, 12, 0.18);
   cursor: pointer;
   opacity: 0.68;
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
   transition:
     opacity 160ms ease,
     border-color 160ms ease,
@@ -512,6 +528,17 @@ body {
   box-shadow: 0 0 10px rgba(217, 170, 92, 0.3);
 }
 
+.server-status-badge[data-state="backup"] {
+  color: #ffe0a3;
+  border-color: rgba(235, 185, 96, 0.5);
+  background: rgba(88, 62, 25, 0.58);
+}
+
+.server-status-badge[data-state="backup"]::before {
+  background: #e7b35f;
+  box-shadow: 0 0 12px rgba(231, 179, 95, 0.42);
+}
+
 .server-status-detail {
   display: block;
   min-width: 0;
@@ -522,6 +549,64 @@ body {
   line-height: 1.2;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.login-server-context-menu {
+  position: fixed;
+  z-index: 40;
+  width: 13.5rem;
+  max-width: calc(100vw - 24px);
+  padding: 6px;
+  border: 1px solid rgba(235, 185, 96, 0.26);
+  border-radius: 8px;
+  background: rgba(16, 17, 20, 0.98);
+  box-shadow: 0 14px 38px rgba(0, 0, 0, 0.34);
+  -webkit-app-region: no-drag;
+}
+
+.login-server-context-action {
+  width: 100%;
+  overflow: hidden;
+  min-height: 2.35rem;
+  padding: 0.58rem 0.72rem;
+  border: 0;
+  border-radius: 6px;
+  color: #ead5af;
+  background: transparent;
+  font-family: "Avenir Next Condensed", "Gill Sans", sans-serif;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.login-server-context-action:hover,
+.login-server-context-action:focus-visible {
+  color: #fff1cf;
+  background: rgba(235, 185, 96, 0.12);
+  outline: none;
+}
+
+.login-server-context-action[data-active="true"]::before {
+  content: "✓";
+  display: inline-block;
+  width: 1rem;
+  color: #e7b35f;
+}
+
+.login-server-context-action[data-active="false"]::before {
+  content: "";
+  display: inline-block;
+  width: 1rem;
+}
+
+.login-server-context-action:disabled {
+  cursor: default;
+  opacity: 0.42;
 }
 
 .current-state-block {

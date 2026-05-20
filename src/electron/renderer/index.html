@@ -118,7 +118,7 @@
                         <small id="gameServerStatusDetail" class="server-status-detail">Set gameServerHost in launcher-config.yml.</small>
                       </div>
                     </article>
-                    <article class="summary-item summary-item-rich">
+                    <article id="loginServerSummaryItem" class="summary-item summary-item-rich login-server-context-target" data-login-server-context-target="true">
                       <div class="summary-icon" aria-hidden="true">
                         <svg viewBox="0 0 24 24" focusable="false">
                           <circle cx="12" cy="12" r="8"></circle>
@@ -349,6 +349,12 @@
           </div>
         </div>
       </footer>
+    </div>
+
+    <div id="loginServerContextMenu" class="login-server-context-menu hidden" role="menu" aria-label="Login server actions" aria-hidden="true">
+      <button id="loginServerUseAutoAction" class="login-server-context-action" type="button" role="menuitemradio" data-login-server-role="auto">Auto</button>
+      <button id="loginServerUsePrimaryAction" class="login-server-context-action" type="button" role="menuitemradio" data-login-server-role="primary">Use Primary</button>
+      <button id="loginServerUseBackupAction" class="login-server-context-action" type="button" role="menuitemradio" data-login-server-role="backup">Use Backup</button>
     </div>
 
     <div id="settingsModal" class="modal-shell hidden" aria-hidden="true">

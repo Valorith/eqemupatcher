@@ -39,6 +39,9 @@ async function createBackendHarness(t, options = {}) {
   const events = [];
   const {
     netConnectImpl = () => createMockSocket("connect"),
+    loginServerUdpProbeImpl = async () => {
+      throw new Error("login UDP probe unavailable in test");
+    },
     ...backendOptions
   } = options;
 
@@ -53,6 +56,7 @@ async function createBackendHarness(t, options = {}) {
       projectRoot,
       eventSink: (event) => events.push(event),
       netConnectImpl,
+      loginServerUdpProbeImpl,
       ...backendOptions
     }),
     projectRoot,
@@ -342,8 +346,411 @@ test("initialize reports login server status from eqhost as online", async (t) =
   assert.equal(state.loginServerStatus.label, "Online");
   assert.equal(state.loginServerStatus.host, "login.eqemulator.net");
   assert.equal(state.loginServerStatus.port, 5999);
+  assert.equal(state.loginServerActiveRole, "primary");
+  assert.equal(state.loginServerOptions.backup.host, "");
   assert.match(state.loginServerStatus.detail, /Connected to login\.eqemulator\.net:5999/);
   assert(connectionChecks.some((check) => check.host === "login.eqemulator.net" && check.port === 5999));
+});
+
+test("initialize fails over to backup login server by only toggling eqhost comment prefixes", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  const connectionChecks = [];
+  const { backend, projectRoot } = await createBackendHarness(t, {
+    launchDirectory,
+    netConnectImpl: (options) => {
+      connectionChecks.push(options);
+      if (options.host === "primary.login.invalid") {
+        return createMockSocket("error", new Error("primary offline"));
+      }
+      return createMockSocket("connect");
+    }
+  });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  backend.checkForLauncherUpdate = async () => backend.getState();
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(launchDirectory, "eqgame.exe"), "dummy", "utf8");
+  const eqhostPath = path.join(launchDirectory, "eqhost.txt");
+  await fsp.writeFile(
+    eqhostPath,
+    "[LoginServer]\r\n  Host = primary.login.invalid:5999\r\n  #Host=backup.login.invalid:5999\r\n;Host=ignored.login.invalid:5999\r\n",
+    "utf8"
+  );
+
+  const state = await backend.initialize();
+  const eqhost = await fsp.readFile(eqhostPath, "utf8");
+
+  assert.equal(state.loginServerHost, "backup.login.invalid");
+  assert.equal(state.loginServerPort, 5999);
+  assert.equal(state.loginServerStatus.state, "online");
+  assert.equal(state.loginServerStatus.label, "Backup");
+  assert.equal(state.loginServerActiveRole, "backup");
+  assert.equal(state.loginServerSelectionMode, "auto");
+  assert.equal(state.loginServerFailoverActive, true);
+  assert.equal(state.loginServerStatus.primaryError, "primary offline");
+  assert.equal(eqhost, "[LoginServer]\r\n  #Host = primary.login.invalid:5999\r\n  Host=backup.login.invalid:5999\r\n;Host=ignored.login.invalid:5999\r\n");
+  assert(connectionChecks.some((check) => check.host === "primary.login.invalid" && check.port === 5999));
+  assert(connectionChecks.some((check) => check.host === "backup.login.invalid" && check.port === 5999));
+});
+
+test("initialize detects backup login server with EQ UDP probe when TCP refuses it", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  const udpChecks = [];
+  const { backend, projectRoot } = await createBackendHarness(t, {
+    launchDirectory,
+    netConnectImpl: (options) => createMockSocket("error", new Error(`${options.host} tcp refused`)),
+    loginServerUdpProbeImpl: async (endpoint) => {
+      udpChecks.push(endpoint);
+      if (endpoint.host === "backup.login.invalid") {
+        return;
+      }
+      throw new Error(`${endpoint.host} udp timeout`);
+    }
+  });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  backend.checkForLauncherUpdate = async () => backend.getState();
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(launchDirectory, "eqgame.exe"), "dummy", "utf8");
+  const eqhostPath = path.join(launchDirectory, "eqhost.txt");
+  await fsp.writeFile(
+    eqhostPath,
+    "[LoginServer]\nHost=primary.login.invalid:5999\n#Host=backup.login.invalid:5999\n",
+    "utf8"
+  );
+
+  const state = await backend.initialize();
+
+  assert.equal(state.loginServerHost, "backup.login.invalid");
+  assert.equal(state.loginServerPort, 5999);
+  assert.equal(state.loginServerStatus.state, "online");
+  assert.equal(state.loginServerStatus.label, "Backup");
+  assert.equal(state.loginServerActiveRole, "backup");
+  assert.equal(state.loginServerFailoverActive, true);
+  assert.equal(state.loginServerStatus.primaryError, "primary.login.invalid tcp refused");
+  assert.match(state.loginServerStatus.detail, /over the EQ login protocol/);
+  assert(udpChecks.some((check) => check.host === "primary.login.invalid" && check.port === 5999));
+  assert(udpChecks.some((check) => check.host === "backup.login.invalid" && check.port === 5999));
+  assert.equal(await fsp.readFile(eqhostPath, "utf8"), "[LoginServer]\n#Host=primary.login.invalid:5999\nHost=backup.login.invalid:5999\n");
+});
+
+test("initialize selects backup when primary is offline even if backup status is unconfirmed", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  const { backend, projectRoot } = await createBackendHarness(t, {
+    launchDirectory,
+    netConnectImpl: (options) => {
+      if (options.host.endsWith(".login.invalid")) {
+        return createMockSocket("error", new Error(`${options.host} offline`));
+      }
+      return createMockSocket("connect");
+    }
+  });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  backend.checkForLauncherUpdate = async () => backend.getState();
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(launchDirectory, "eqgame.exe"), "dummy", "utf8");
+  const eqhostPath = path.join(launchDirectory, "eqhost.txt");
+  await fsp.writeFile(
+    eqhostPath,
+    "[LoginServer]\n#Host=primary.login.invalid:5999\nHost=backup.login.invalid:5999\n",
+    "utf8"
+  );
+
+  const state = await backend.initialize();
+  const eqhost = await fsp.readFile(eqhostPath, "utf8");
+
+  assert.equal(state.loginServerHost, "backup.login.invalid");
+  assert.equal(state.loginServerStatus.state, "unknown");
+  assert.equal(state.loginServerStatus.label, "Backup");
+  assert.equal(state.loginServerActiveRole, "backup");
+  assert.equal(state.loginServerFailoverActive, true);
+  assert.equal(state.loginServerStatus.primaryError, "primary.login.invalid offline");
+  assert.equal(state.loginServerStatus.backupError, "backup.login.invalid offline");
+  assert.equal(eqhost, "[LoginServer]\n#Host=primary.login.invalid:5999\nHost=backup.login.invalid:5999\n");
+});
+
+test("refreshServerStatus returns from backup to primary when primary recovers", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  let primaryOnline = false;
+  const { backend, projectRoot } = await createBackendHarness(t, {
+    launchDirectory,
+    netConnectImpl: (options) => {
+      if (options.host === "primary.login.invalid" && !primaryOnline) {
+        return createMockSocket("error", new Error("primary offline"));
+      }
+      return createMockSocket("connect");
+    }
+  });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  backend.checkForLauncherUpdate = async () => backend.getState();
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(launchDirectory, "eqgame.exe"), "dummy", "utf8");
+  const eqhostPath = path.join(launchDirectory, "eqhost.txt");
+  await fsp.writeFile(
+    eqhostPath,
+    "[LoginServer]\nHost=primary.login.invalid:5999\n#Host=backup.login.invalid:5999\n",
+    "utf8"
+  );
+
+  let state = await backend.initialize();
+  assert.equal(state.loginServerActiveRole, "backup");
+
+  primaryOnline = true;
+  state = await backend.refreshServerStatus();
+  const eqhost = await fsp.readFile(eqhostPath, "utf8");
+
+  assert.equal(state.loginServerHost, "primary.login.invalid");
+  assert.equal(state.loginServerActiveRole, "primary");
+  assert.equal(state.loginServerFailoverActive, false);
+  assert.equal(eqhost, "[LoginServer]\nHost=primary.login.invalid:5999\n#Host=backup.login.invalid:5999\n");
+});
+
+test("manual backup login server selection holds until restart", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  const netConnectImpl = () => createMockSocket("connect");
+  const { backend, projectRoot } = await createBackendHarness(t, {
+    launchDirectory,
+    netConnectImpl
+  });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  backend.checkForLauncherUpdate = async () => backend.getState();
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(launchDirectory, "eqgame.exe"), "dummy", "utf8");
+  const eqhostPath = path.join(launchDirectory, "eqhost.txt");
+  await fsp.writeFile(
+    eqhostPath,
+    "[LoginServer]\nHost=primary.login.invalid:5999\n#Host=backup.login.invalid:5999\n",
+    "utf8"
+  );
+
+  let state = await backend.initialize();
+  assert.equal(state.loginServerActiveRole, "primary");
+
+  state = await backend.setActiveLoginServer({ role: "backup" });
+  assert.equal(state.loginServerSelectionMode, "manual");
+  assert.equal(state.loginServerActiveRole, "backup");
+
+  state = await backend.refreshServerStatus();
+  assert.equal(state.loginServerSelectionMode, "manual");
+  assert.equal(state.loginServerActiveRole, "backup");
+  assert.equal(await fsp.readFile(eqhostPath, "utf8"), "[LoginServer]\n#Host=primary.login.invalid:5999\nHost=backup.login.invalid:5999\n");
+
+  const { backend: restartedBackend } = await createBackendHarness(t, {
+    launchDirectory,
+    netConnectImpl
+  });
+  restartedBackend.checkForLauncherUpdate = async () => restartedBackend.getState();
+
+  state = await restartedBackend.initialize();
+  assert.equal(state.loginServerSelectionMode, "auto");
+  assert.equal(state.loginServerActiveRole, "primary");
+  assert.equal(await fsp.readFile(eqhostPath, "utf8"), "[LoginServer]\nHost=primary.login.invalid:5999\n#Host=backup.login.invalid:5999\n");
+});
+
+test("manual backup login server selection stays active when status probe cannot confirm it", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  const { backend, projectRoot } = await createBackendHarness(t, {
+    launchDirectory,
+    netConnectImpl: (options) => {
+      if (options.host === "backup.login.invalid") {
+        return createMockSocket("error", new Error("backup probe refused"));
+      }
+      return createMockSocket("connect");
+    }
+  });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  backend.checkForLauncherUpdate = async () => backend.getState();
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(launchDirectory, "eqgame.exe"), "dummy", "utf8");
+  const eqhostPath = path.join(launchDirectory, "eqhost.txt");
+  await fsp.writeFile(
+    eqhostPath,
+    "[LoginServer]\nHost=primary.login.invalid:5999\n#Host=backup.login.invalid:5999\n",
+    "utf8"
+  );
+
+  await backend.initialize();
+  const state = await backend.setActiveLoginServer({ role: "backup" });
+
+  assert.equal(state.loginServerSelectionMode, "manual");
+  assert.equal(state.loginServerActiveRole, "backup");
+  assert.equal(state.loginServerStatus.state, "unknown");
+  assert.equal(state.loginServerStatus.label, "Backup");
+  assert.equal(state.loginServerStatus.backupError, "backup probe refused");
+  assert.equal(await fsp.readFile(eqhostPath, "utf8"), "[LoginServer]\n#Host=primary.login.invalid:5999\nHost=backup.login.invalid:5999\n");
+});
+
+test("manual backup login server selection reports online when EQ UDP probe succeeds", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  const { backend, projectRoot } = await createBackendHarness(t, {
+    launchDirectory,
+    netConnectImpl: (options) => {
+      if (options.host === "backup.login.invalid") {
+        return createMockSocket("error", new Error("backup tcp refused"));
+      }
+      return createMockSocket("connect");
+    },
+    loginServerUdpProbeImpl: async (endpoint) => {
+      if (endpoint.host === "backup.login.invalid") {
+        return;
+      }
+      throw new Error("udp timeout");
+    }
+  });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  backend.checkForLauncherUpdate = async () => backend.getState();
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(launchDirectory, "eqgame.exe"), "dummy", "utf8");
+  const eqhostPath = path.join(launchDirectory, "eqhost.txt");
+  await fsp.writeFile(
+    eqhostPath,
+    "[LoginServer]\nHost=primary.login.invalid:5999\n#Host=backup.login.invalid:5999\n",
+    "utf8"
+  );
+
+  await backend.initialize();
+  const state = await backend.setActiveLoginServer({ role: "backup" });
+
+  assert.equal(state.loginServerSelectionMode, "manual");
+  assert.equal(state.loginServerActiveRole, "backup");
+  assert.equal(state.loginServerStatus.state, "online");
+  assert.equal(state.loginServerStatus.label, "Backup");
+  assert.match(state.loginServerStatus.detail, /over the EQ login protocol/);
+  assert.equal(await fsp.readFile(eqhostPath, "utf8"), "[LoginServer]\n#Host=primary.login.invalid:5999\nHost=backup.login.invalid:5999\n");
+});
+
+test("manual login server selection can return to auto failover mode", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  const { backend, projectRoot } = await createBackendHarness(t, {
+    launchDirectory,
+    netConnectImpl: () => createMockSocket("connect")
+  });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  backend.checkForLauncherUpdate = async () => backend.getState();
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(launchDirectory, "eqgame.exe"), "dummy", "utf8");
+  const eqhostPath = path.join(launchDirectory, "eqhost.txt");
+  await fsp.writeFile(
+    eqhostPath,
+    "[LoginServer]\nHost=primary.login.invalid:5999\n#Host=backup.login.invalid:5999\n",
+    "utf8"
+  );
+
+  await backend.initialize();
+  let state = await backend.setActiveLoginServer({ role: "backup" });
+  assert.equal(state.loginServerSelectionMode, "manual");
+  assert.equal(state.loginServerActiveRole, "backup");
+  assert.equal(await fsp.readFile(eqhostPath, "utf8"), "[LoginServer]\n#Host=primary.login.invalid:5999\nHost=backup.login.invalid:5999\n");
+
+  state = await backend.setActiveLoginServer({ role: "auto" });
+
+  assert.equal(state.loginServerSelectionMode, "auto");
+  assert.equal(state.loginServerActiveRole, "primary");
+  assert.equal(state.loginServerFailoverActive, false);
+  assert.equal(await fsp.readFile(eqhostPath, "utf8"), "[LoginServer]\nHost=primary.login.invalid:5999\n#Host=backup.login.invalid:5999\n");
+});
+
+test("manual backup login server selection reports a clear error without two managed hosts", async (t) => {
+  const launchDirectory = await createTempDir("eqemu-launch-");
+  const { backend, projectRoot } = await createBackendHarness(t, {
+    launchDirectory,
+    netConnectImpl: () => createMockSocket("connect")
+  });
+
+  t.after(async () => {
+    await fsp.rm(launchDirectory, { recursive: true, force: true });
+  });
+
+  backend.checkForLauncherUpdate = async () => backend.getState();
+
+  await fsp.writeFile(
+    path.join(projectRoot, "launcher-config.yml"),
+    "serverName: Test Realm\nfilelistUrl: https://example.invalid/\n",
+    "utf8"
+  );
+  await fsp.writeFile(path.join(launchDirectory, "eqgame.exe"), "dummy", "utf8");
+  await fsp.writeFile(
+    path.join(launchDirectory, "eqhost.txt"),
+    "[LoginServer]\nHost=primary.login.invalid:5999\n",
+    "utf8"
+  );
+
+  await backend.initialize();
+
+  await assert.rejects(
+    () => backend.setActiveLoginServer({ role: "backup" }),
+    /requires two Host entries/
+  );
 });
 
 test("initialize reports login server status as unconfigured when eqhost is missing", async (t) => {

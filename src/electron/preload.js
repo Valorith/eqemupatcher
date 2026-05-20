@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("launcher", {
   getVersion: () => ipcRenderer.invoke("launcher:getVersion"),
   refreshState: () => ipcRenderer.invoke("launcher:refreshState"),
   refreshServerStatus: () => ipcRenderer.invoke("launcher:refreshServerStatus"),
+  setActiveLoginServer: (options) => ipcRenderer.invoke("launcher:setActiveLoginServer", options),
   getPatchNotes: (options) => ipcRenderer.invoke("launcher:getPatchNotes", options),
   checkForLauncherUpdate: (options) => ipcRenderer.invoke("launcher:checkForLauncherUpdate", options),
   startLauncherUpdateDownload: () => ipcRenderer.invoke("launcher:startLauncherUpdateDownload"),

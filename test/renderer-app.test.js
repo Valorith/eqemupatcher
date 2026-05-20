@@ -127,8 +127,11 @@ class FakeElement extends FakeNode {
       currentTarget: this,
       key: overrides.key,
       shiftKey: Boolean(overrides.shiftKey),
-      preventDefault() {},
-      stopPropagation() {}
+      button: overrides.button,
+      clientX: overrides.clientX,
+      clientY: overrides.clientY,
+      preventDefault: typeof overrides.preventDefault === "function" ? overrides.preventDefault : function preventDefault() {},
+      stopPropagation: typeof overrides.stopPropagation === "function" ? overrides.stopPropagation : function stopPropagation() {}
     };
 
     for (const listener of listeners) {
@@ -327,7 +330,25 @@ function createLauncherState(patchNotesUrl, options = {}) {
       port: 0,
       checkedAt: "",
       latencyMs: 0,
-      error: ""
+      error: "",
+      role: "",
+      selectionMode: "auto",
+      failoverActive: false,
+      primaryError: "",
+      backupError: ""
+    },
+    loginServerSelectionMode: "auto",
+    loginServerActiveRole: "",
+    loginServerFailoverActive: false,
+    loginServerOptions: {
+      primary: {
+        host: "",
+        port: 0
+      },
+      backup: {
+        host: "",
+        port: 0
+      }
     },
     patchNotesUrl,
     clientLabel: "Unknown",
@@ -498,6 +519,7 @@ async function createRendererHarness(options = {}) {
     getPatchNotes: [],
     refreshState: 0,
     refreshServerStatus: 0,
+    setActiveLoginServer: [],
     checkForLauncherUpdate: 0,
     openExternal: [],
     getUiManagerOverview: 0,
@@ -558,6 +580,41 @@ async function createRendererHarness(options = {}) {
       calls.refreshServerStatus += 1;
       if (options.polledServerStatusState) {
         Object.assign(launcherState, options.polledServerStatusState);
+      }
+      return launcherState;
+    },
+    async setActiveLoginServer(requestOptions = {}) {
+      calls.setActiveLoginServer.push({ ...requestOptions });
+      if (requestOptions.role === "auto") {
+        Object.assign(launcherState, {
+          loginServerSelectionMode: "auto",
+          loginServerActiveRole: "primary",
+          loginServerFailoverActive: false
+        });
+        if (launcherState.loginServerStatus) {
+          launcherState.loginServerStatus = {
+            ...launcherState.loginServerStatus,
+            role: "primary",
+            selectionMode: "auto",
+            failoverActive: false
+          };
+        }
+        return launcherState;
+      }
+
+      const role = requestOptions.role === "backup" ? "backup" : "primary";
+      Object.assign(launcherState, {
+        loginServerSelectionMode: "manual",
+        loginServerActiveRole: role,
+        loginServerFailoverActive: false
+      });
+      if (launcherState.loginServerStatus) {
+        launcherState.loginServerStatus = {
+          ...launcherState.loginServerStatus,
+          role,
+          selectionMode: "manual",
+          failoverActive: false
+        };
       }
       return launcherState;
     },
@@ -723,6 +780,7 @@ async function createRendererHarness(options = {}) {
   document.getElementById("uiManagerModal").classList.add("hidden");
   document.getElementById("uiManagerConfirmModal").classList.add("hidden");
   document.getElementById("toolsMenu").classList.add("hidden");
+  document.getElementById("loginServerContextMenu").classList.add("hidden");
   document.getElementById("launcherUpdatePanel").classList.add("hidden");
 
   vm.runInNewContext(APP_SOURCE, context, {
@@ -777,11 +835,16 @@ async function createRendererHarness(options = {}) {
       gameServerStatusLabel: document.getElementById("gameServerStatusLabel"),
       gameServerStatusRefreshButton: document.getElementById("gameServerStatusRefreshButton"),
       gameServerStatusDetail: document.getElementById("gameServerStatusDetail"),
+      loginServerSummaryItem: document.getElementById("loginServerSummaryItem"),
       loginServerValue: document.getElementById("loginServerValue"),
       loginServerStatusBadge: document.getElementById("loginServerStatusBadge"),
       loginServerStatusLabel: document.getElementById("loginServerStatusLabel"),
       loginServerStatusRefreshButton: document.getElementById("loginServerStatusRefreshButton"),
       loginServerStatusDetail: document.getElementById("loginServerStatusDetail"),
+      loginServerContextMenu: document.getElementById("loginServerContextMenu"),
+      loginServerUseAutoAction: document.getElementById("loginServerUseAutoAction"),
+      loginServerUsePrimaryAction: document.getElementById("loginServerUsePrimaryAction"),
+      loginServerUseBackupAction: document.getElementById("loginServerUseBackupAction"),
       taglineValue: document.getElementById("taglineValue"),
       heroBackgroundImage: document.getElementById("heroBackgroundImage"),
       heroWordmark: document.getElementById("heroWordmark"),
@@ -971,6 +1034,298 @@ test("renderer displays login server status from launcher state", async () => {
   assert.equal(harness.elements.loginServerStatusBadge.dataset.state, "online");
   assert.equal(harness.elements.loginServerStatusDetail.textContent, "Login server reachable in 22ms.");
   assert.equal(harness.elements.loginServerStatusBadge.attributes["aria-label"], "Login server status: Online");
+});
+
+test("renderer marks backup login server status distinctly", async () => {
+  const harness = await createRendererHarness({
+    loginServerHost: "login.eqemulator.dev",
+    loginServerPort: 5999,
+    loginServerSelectionMode: "auto",
+    loginServerActiveRole: "backup",
+    loginServerFailoverActive: true,
+    loginServerOptions: {
+      primary: {
+        host: "login.eqemulator.net",
+        port: 5999
+      },
+      backup: {
+        host: "login.eqemulator.dev",
+        port: 5999
+      }
+    },
+    loginServerStatus: {
+      state: "online",
+      label: "Backup",
+      detail: "Connected to login.eqemulator.dev:5999 in 31ms.",
+      host: "login.eqemulator.dev",
+      port: 5999,
+      checkedAt: "2026-05-17T00:00:00.000Z",
+      latencyMs: 31,
+      error: "",
+      role: "backup",
+      selectionMode: "auto",
+      failoverActive: true,
+      primaryError: "primary offline",
+      backupError: ""
+    }
+  });
+
+  assert.equal(harness.elements.loginServerStatusLabel.textContent, "Backup");
+  assert.equal(harness.elements.loginServerStatusBadge.dataset.state, "backup");
+  assert.equal(harness.elements.loginServerStatusDetail.textContent, "Backup login server reachable in 31ms.");
+  assert.equal(harness.elements.loginServerStatusBadge.attributes["aria-label"], "Login server status: Backup");
+});
+
+test("renderer keeps backup label when login server status is unconfirmed", async () => {
+  const harness = await createRendererHarness({
+    loginServerHost: "login.eqemulator.dev",
+    loginServerPort: 5999,
+    loginServerSelectionMode: "manual",
+    loginServerActiveRole: "backup",
+    loginServerFailoverActive: false,
+    loginServerOptions: {
+      primary: {
+        host: "login.eqemulator.net",
+        port: 5999
+      },
+      backup: {
+        host: "login.eqemulator.dev",
+        port: 5999
+      }
+    },
+    loginServerStatus: {
+      state: "unknown",
+      label: "Backup",
+      detail: "Selected login.eqemulator.dev:5999. Login server status check could not confirm reachability: connection refused",
+      host: "login.eqemulator.dev",
+      port: 5999,
+      checkedAt: "2026-05-17T00:00:00.000Z",
+      latencyMs: 0,
+      error: "connection refused",
+      role: "backup",
+      selectionMode: "manual",
+      failoverActive: false,
+      primaryError: "",
+      backupError: "connection refused"
+    }
+  });
+
+  assert.equal(harness.elements.loginServerStatusLabel.textContent, "Backup");
+  assert.equal(harness.elements.loginServerStatusBadge.dataset.state, "backup");
+  assert.equal(harness.elements.loginServerStatusDetail.textContent, "Selected login.eqemulator.dev:5999. Login server status check could not confirm reachability: connection refused");
+});
+
+test("login server status badge context menu toggles login servers", async () => {
+  const harness = await createRendererHarness({
+    loginServerHost: "login.eqemulator.net",
+    loginServerPort: 5999,
+    loginServerSelectionMode: "auto",
+    loginServerActiveRole: "primary",
+    loginServerOptions: {
+      primary: {
+        host: "login.eqemulator.net",
+        port: 5999
+      },
+      backup: {
+        host: "login.eqemulator.dev",
+        port: 5999
+      }
+    },
+    loginServerStatus: {
+      state: "online",
+      label: "Online",
+      detail: "Connected to login.eqemulator.net:5999 in 22ms.",
+      host: "login.eqemulator.net",
+      port: 5999,
+      checkedAt: "2026-05-17T00:00:00.000Z",
+      latencyMs: 22,
+      error: "",
+      role: "primary",
+      selectionMode: "auto",
+      failoverActive: false,
+      primaryError: "",
+      backupError: ""
+    }
+  });
+
+  await harness.elements.loginServerStatusBadge.dispatch("contextmenu", {
+    clientX: 140,
+    clientY: 190,
+    preventDefault() {}
+  });
+
+  assert.equal(harness.elements.loginServerContextMenu.classList.contains("hidden"), false);
+  assert.equal(harness.elements.loginServerContextMenu.style.left, "140px");
+  assert.equal(harness.elements.loginServerUseBackupAction.textContent, "Use Backup");
+  assert.equal(harness.elements.loginServerUseBackupAction.title, "Switch eqhost.txt to login.eqemulator.dev:5999.");
+
+  await harness.elements.loginServerContextMenu.dispatch("click", {
+    target: {
+      closest(selector) {
+        return selector === "button[data-login-server-role]" ? harness.elements.loginServerUseBackupAction : null;
+      }
+    }
+  });
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.setActiveLoginServer, [{ role: "backup" }]);
+  assert.equal(harness.elements.loginServerContextMenu.classList.contains("hidden"), true);
+});
+
+test("login server context menu can return manual selection to auto mode", async () => {
+  const harness = await createRendererHarness({
+    loginServerHost: "login.eqemulator.dev",
+    loginServerPort: 5999,
+    loginServerSelectionMode: "manual",
+    loginServerActiveRole: "backup",
+    loginServerOptions: {
+      primary: {
+        host: "login.eqemulator.net",
+        port: 5999
+      },
+      backup: {
+        host: "login.eqemulator.dev",
+        port: 5999
+      }
+    },
+    loginServerStatus: {
+      state: "online",
+      label: "Backup",
+      detail: "Connected to login.eqemulator.dev:5999 in 22ms.",
+      host: "login.eqemulator.dev",
+      port: 5999,
+      checkedAt: "2026-05-17T00:00:00.000Z",
+      latencyMs: 22,
+      error: "",
+      role: "backup",
+      selectionMode: "manual",
+      failoverActive: false,
+      primaryError: "",
+      backupError: ""
+    }
+  });
+
+  await harness.elements.loginServerStatusBadge.dispatch("contextmenu", {
+    clientX: 100,
+    clientY: 120,
+    preventDefault() {}
+  });
+
+  assert.equal(harness.elements.loginServerUseAutoAction.textContent, "Auto");
+  assert.equal(harness.elements.loginServerUseAutoAction.dataset.active, "false");
+  assert.equal(harness.elements.loginServerUseBackupAction.dataset.active, "true");
+
+  await harness.elements.loginServerContextMenu.dispatch("click", {
+    target: {
+      closest(selector) {
+        return selector === "button[data-login-server-role]" ? harness.elements.loginServerUseAutoAction : null;
+      }
+    }
+  });
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.setActiveLoginServer, [{ role: "auto" }]);
+  assert.equal(harness.elements.loginServerContextMenu.classList.contains("hidden"), true);
+});
+
+test("login server context menu keeps manual actions clickable without parsed backup metadata", async () => {
+  const harness = await createRendererHarness({
+    loginServerHost: "login.eqemulator.net",
+    loginServerPort: 5999,
+    loginServerSelectionMode: "auto",
+    loginServerActiveRole: "primary",
+    loginServerOptions: {
+      primary: {
+        host: "login.eqemulator.net",
+        port: 5999
+      },
+      backup: {
+        host: "",
+        port: 0
+      }
+    },
+    loginServerStatus: {
+      state: "online",
+      label: "Online",
+      detail: "Connected to login.eqemulator.net:5999 in 22ms.",
+      host: "login.eqemulator.net",
+      port: 5999,
+      checkedAt: "2026-05-17T00:00:00.000Z",
+      latencyMs: 22,
+      error: "",
+      role: "primary",
+      selectionMode: "auto",
+      failoverActive: false,
+      primaryError: "",
+      backupError: ""
+    }
+  });
+
+  await harness.elements.loginServerStatusBadge.dispatch("contextmenu", {
+    clientX: 90,
+    clientY: 110,
+    preventDefault() {}
+  });
+
+  assert.equal(harness.elements.loginServerContextMenu.classList.contains("hidden"), false);
+  assert.equal(harness.elements.loginServerUseAutoAction.disabled, false);
+  assert.equal(harness.elements.loginServerUsePrimaryAction.disabled, false);
+  assert.equal(harness.elements.loginServerUseBackupAction.disabled, false);
+
+  await harness.elements.loginServerContextMenu.dispatch("click", {
+    target: {
+      closest(selector) {
+        return selector === "button[data-login-server-role]" ? harness.elements.loginServerUseBackupAction : null;
+      }
+    }
+  });
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.setActiveLoginServer, [{ role: "backup" }]);
+});
+
+test("login server context menu opens from the whole login server row", async () => {
+  const harness = await createRendererHarness({
+    loginServerHost: "login.eqemulator.net",
+    loginServerPort: 5999,
+    loginServerSelectionMode: "auto",
+    loginServerActiveRole: "primary",
+    loginServerOptions: {
+      primary: {
+        host: "login.eqemulator.net",
+        port: 5999
+      },
+      backup: {
+        host: "login.eqemulator.dev",
+        port: 5999
+      }
+    },
+    loginServerStatus: {
+      state: "online",
+      label: "Online",
+      detail: "Connected to login.eqemulator.net:5999 in 22ms.",
+      host: "login.eqemulator.net",
+      port: 5999,
+      checkedAt: "2026-05-17T00:00:00.000Z",
+      latencyMs: 22,
+      error: "",
+      role: "primary",
+      selectionMode: "auto",
+      failoverActive: false,
+      primaryError: "",
+      backupError: ""
+    }
+  });
+
+  await harness.elements.loginServerSummaryItem.dispatch("contextmenu", {
+    clientX: 75,
+    clientY: 95,
+    preventDefault() {}
+  });
+
+  assert.equal(harness.elements.loginServerContextMenu.classList.contains("hidden"), false);
+  assert.equal(harness.elements.loginServerContextMenu.style.left, "75px");
+  assert.equal(harness.elements.loginServerContextMenu.style.top, "95px");
 });
 
 test("renderer polls server status every 30 seconds", async () => {

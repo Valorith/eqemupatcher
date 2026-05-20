@@ -9,6 +9,9 @@ const state = {
   launcherUpdateAutoApplyVersion: "",
   launcherUpdateAutoApplyInFlight: false,
   patchNotesPromptDismissedSignature: "",
+  loginServerContextMenuOpen: false,
+  loginServerContextMenuX: 0,
+  loginServerContextMenuY: 0,
   uiManagerConfirmationAction: null,
   patchNotes: {
     loaded: false,
@@ -114,11 +117,16 @@ const elements = {
   gameServerStatusLabel: document.getElementById("gameServerStatusLabel"),
   gameServerStatusRefreshButton: document.getElementById("gameServerStatusRefreshButton"),
   gameServerStatusDetail: document.getElementById("gameServerStatusDetail"),
+  loginServerSummaryItem: document.getElementById("loginServerSummaryItem"),
   loginServerValue: document.getElementById("loginServerValue"),
   loginServerStatusBadge: document.getElementById("loginServerStatusBadge"),
   loginServerStatusLabel: document.getElementById("loginServerStatusLabel"),
   loginServerStatusRefreshButton: document.getElementById("loginServerStatusRefreshButton"),
   loginServerStatusDetail: document.getElementById("loginServerStatusDetail"),
+  loginServerContextMenu: document.getElementById("loginServerContextMenu"),
+  loginServerUseAutoAction: document.getElementById("loginServerUseAutoAction"),
+  loginServerUsePrimaryAction: document.getElementById("loginServerUsePrimaryAction"),
+  loginServerUseBackupAction: document.getElementById("loginServerUseBackupAction"),
   clientValue: document.getElementById("clientValue"),
   patchStateValue: document.getElementById("patchStateValue"),
   actionsRow: document.getElementById("actionsRow"),
@@ -649,6 +657,52 @@ function openUiManagerPackageContextMenu(packageName, x, y) {
 function closeUiManagerPackageContextMenu() {
   state.uiManager.packageContextMenuOpen = false;
   state.uiManager.packageContextPackageName = "";
+}
+function canUseLoginServerContextMenu(nextState = state.current) {
+  return Boolean(nextState);
+}
+function hasManagedLoginServerOptions(nextState = state.current) {
+  const options = nextState?.loginServerOptions || {};
+  return Boolean(options.primary?.host && options.backup?.host);
+}
+function openLoginServerContextMenu(x, y) {
+  if (!canUseLoginServerContextMenu()) {
+    return;
+  }
+
+  state.loginServerContextMenuOpen = true;
+  state.loginServerContextMenuX = Number.isFinite(x) ? x : 0;
+  state.loginServerContextMenuY = Number.isFinite(y) ? y : 0;
+  renderLoginServerContextMenu();
+}
+function isLoginServerContextTarget(target) {
+  if (
+    target === elements.loginServerSummaryItem
+    || target === elements.loginServerStatusBadge
+    || target === elements.loginServerStatusDetail
+  ) {
+    return true;
+  }
+
+  return Boolean(
+    target
+    && typeof target.closest === "function"
+    && target.closest("[data-login-server-context-target], #loginServerStatusBadge, #loginServerStatusDetail")
+  );
+}
+function closeLoginServerContextMenu() {
+  state.loginServerContextMenuOpen = false;
+}
+function formatLoginServerOptionLabel(role) {
+  if (role === "auto") {
+    return "Auto";
+  }
+
+  return `Use ${role === "backup" ? "Backup" : "Primary"}`;
+}
+function formatLoginServerOptionTarget(role) {
+  const option = state.current?.loginServerOptions?.[role] || {};
+  return option.host ? `${option.host}:${option.port || 5999}` : "";
 }
 function openUiManagerConfirmModal(message, action) {
   state.uiManagerConfirmationAction = typeof action === "function" ? action : null;
@@ -3027,6 +3081,56 @@ function updateStatusRefreshControls() {
     }
   }
 }
+function renderLoginServerContextMenu() {
+  if (!elements.loginServerContextMenu) {
+    return;
+  }
+
+  const canUseMenu = canUseLoginServerContextMenu();
+  const isOpen = Boolean(state.loginServerContextMenuOpen && canUseMenu);
+  elements.loginServerContextMenu.classList.toggle("hidden", !isOpen);
+  elements.loginServerContextMenu.setAttribute("aria-hidden", isOpen ? "false" : "true");
+
+  if (!isOpen) {
+    return;
+  }
+
+  const activeRole = String(state.current?.loginServerActiveRole || "").trim();
+  const mode = String(state.current?.loginServerSelectionMode || "auto").trim();
+  const hasSwitchApi = Boolean(window.launcher?.setActiveLoginServer);
+  const actions = [
+    { role: "auto", button: elements.loginServerUseAutoAction },
+    { role: "primary", button: elements.loginServerUsePrimaryAction },
+    { role: "backup", button: elements.loginServerUseBackupAction }
+  ];
+
+  for (const { role, button } of actions) {
+    if (!button) {
+      continue;
+    }
+
+    const isActive = role === "auto" ? mode !== "manual" : mode === "manual" && activeRole === role;
+    const isAvailable = hasSwitchApi;
+    button.disabled = Boolean(serverStatusPollPromise) || !isAvailable;
+    button.dataset.loginServerRole = role;
+    button.dataset.active = isActive ? "true" : "false";
+    button.textContent = formatLoginServerOptionLabel(role);
+    button.setAttribute("aria-checked", isActive ? "true" : "false");
+    const target = role === "auto" ? "" : formatLoginServerOptionTarget(role);
+    button.title = !hasSwitchApi
+      ? "Login server switching is unavailable in this launcher build."
+      : role === "auto"
+      ? "Use primary-first automatic login server failover."
+      : isActive && mode === "manual"
+      ? "This login server is manually selected."
+      : target
+      ? `Switch eqhost.txt to ${target}.`
+      : "Switch eqhost.txt to this login server.";
+  }
+
+  elements.loginServerContextMenu.style.left = `${state.loginServerContextMenuX}px`;
+  elements.loginServerContextMenu.style.top = `${state.loginServerContextMenuY}px`;
+}
 function deriveGameServerStatusPresentation(nextState) {
   const safeStatus = nextState?.gameServerStatus && typeof nextState.gameServerStatus === "object"
     ? nextState.gameServerStatus
@@ -3081,15 +3185,17 @@ function deriveLoginServerStatusPresentation(nextState) {
     ? nextState.loginServerStatus
     : {};
   const statusState = String(safeStatus.state || "").trim().toLowerCase();
+  const activeRole = String(nextState?.loginServerActiveRole || safeStatus.role || "").trim().toLowerCase();
+  const isBackupActive = activeRole === "backup";
 
   if (statusState === "online") {
     const latency = Number.parseInt(String(safeStatus.latencyMs || ""), 10);
     const detail = Number.isInteger(latency) && latency > 0
-      ? `Login server reachable in ${latency}ms.`
-      : "Login server is reachable.";
+      ? `${isBackupActive ? "Backup login server" : "Login server"} reachable in ${latency}ms.`
+      : `${isBackupActive ? "Backup login server" : "Login server"} is reachable.`;
     return {
-      state: "online",
-      label: "Online",
+      state: isBackupActive ? "backup" : "online",
+      label: isBackupActive ? "Backup" : "Online",
       detail,
       title: detail
     };
@@ -3097,22 +3203,27 @@ function deriveLoginServerStatusPresentation(nextState) {
 
   if (statusState === "offline") {
     const error = String(safeStatus.error || "").trim();
+    const backupError = String(safeStatus.backupError || "").trim();
     const detail = error
-      ? `Login server is unreachable: ${error}`
-      : "Login server is unreachable.";
+      ? `${isBackupActive ? "Backup login server" : "Login server"} is unreachable: ${error}`
+      : `${isBackupActive ? "Backup login server" : "Login server"} is unreachable.`;
+    const backupDetail = !isBackupActive && backupError
+      ? ` Backup is also unreachable: ${backupError}`
+      : "";
     return {
       state: "offline",
-      label: "Offline",
-      detail,
-      title: detail
+      label: isBackupActive ? "Backup" : "Offline",
+      detail: `${detail}${backupDetail}`,
+      title: `${detail}${backupDetail}`
     };
   }
 
   if (nextState?.loginServerHost) {
-    const detail = "Login server has not been checked yet.";
+    const detail = String(safeStatus.detail || "").trim()
+      || `${isBackupActive ? "Backup login server" : "Login server"} has not been checked yet.`;
     return {
-      state: "unknown",
-      label: "Unknown",
+      state: isBackupActive ? "backup" : "unknown",
+      label: isBackupActive ? "Backup" : "Unknown",
       detail,
       title: detail
     };
@@ -3158,6 +3269,7 @@ function renderLoginServerStatus(nextState) {
   elements.loginServerStatusBadge.setAttribute("aria-label", `Login server status: ${presentation.label}`);
   elements.loginServerStatusDetail.textContent = presentation.detail;
   elements.loginServerStatusDetail.title = elements.loginServerStatusBadge.title;
+  renderLoginServerContextMenu();
   updateStatusRefreshControls();
 }
 function setBusy(button, busyText, busy) {
@@ -3507,12 +3619,55 @@ async function handleManualServerStatusRefresh(event) {
   updateStatusRefreshControls();
   await pollServerStatusNow();
 }
+async function handleLoginServerMenuAction(event) {
+  const button = event.target.closest("button[data-login-server-role]");
+  if (!button || !window.launcher?.setActiveLoginServer) {
+    return;
+  }
+  if (button.disabled) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  let role = "primary";
+  if (button.dataset.loginServerRole === "auto") {
+    role = "auto";
+  } else if (button.dataset.loginServerRole === "backup") {
+    role = "backup";
+  }
+  closeLoginServerContextMenu();
+  renderLoginServerContextMenu();
+
+  try {
+    const nextState = await window.launcher.setActiveLoginServer({ role });
+    if (nextState) {
+      renderState(nextState);
+    }
+  } catch (error) {
+    pushLog({
+      text: `Login server switch failed: ${error.message}`,
+      tone: "warning",
+      timestamp: new Date().toISOString()
+    });
+  }
+}
+function handleLoginServerContextMenu(event) {
+  if (!isLoginServerContextTarget(event.target) || !canUseLoginServerContextMenu()) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  openLoginServerContextMenu(event.clientX || 0, event.clientY || 0);
+}
 function wireEvents() {
   document.addEventListener("mousedown", beginWindowDrag, true);
   document.addEventListener("mousemove", updateWindowDrag, true);
   document.addEventListener("mouseup", endWindowDrag, true);
   document.addEventListener("mouseleave", endWindowDrag, true);
   document.addEventListener("dragstart", preventNativeDragDuringWindowMove, true);
+  document.addEventListener("contextmenu", handleLoginServerContextMenu, true);
   if (typeof window.addEventListener === "function") {
     window.addEventListener("beforeunload", stopServerStatusPolling);
   }
@@ -3521,6 +3676,9 @@ function wireEvents() {
   wireStatusBadgeTooltip(elements.loginServerStatusBadge);
   elements.gameServerStatusRefreshButton?.addEventListener("click", handleManualServerStatusRefresh);
   elements.loginServerStatusRefreshButton?.addEventListener("click", handleManualServerStatusRefresh);
+  elements.loginServerSummaryItem?.addEventListener("contextmenu", handleLoginServerContextMenu);
+  elements.loginServerStatusBadge?.addEventListener("contextmenu", handleLoginServerContextMenu);
+  elements.loginServerContextMenu?.addEventListener("click", handleLoginServerMenuAction);
 
   bindHorizontalWheelScroll(elements.uiManagerPackageList);
   bindHorizontalWheelScroll(elements.uiManagerTargetList);
@@ -4209,6 +4367,11 @@ function wireEvents() {
       renderUiManagerPackageContextMenu();
       return;
     }
+    if (!elements.loginServerContextMenu.classList.contains("hidden")) {
+      closeLoginServerContextMenu();
+      renderLoginServerContextMenu();
+      return;
+    }
     if (!elements.uiManagerRecoveryModal.classList.contains("hidden")) {
       closeUiManagerRecoveryModal();
       return;
@@ -4229,9 +4392,16 @@ function wireEvents() {
     if (event.target.closest("#uiManagerPackageContextMenu")) {
       return;
     }
+    if (event.target.closest("#loginServerContextMenu")) {
+      return;
+    }
     if (!elements.uiManagerPackageContextMenu.classList.contains("hidden")) {
       closeUiManagerPackageContextMenu();
       renderUiManagerPackageContextMenu();
+    }
+    if (!elements.loginServerContextMenu.classList.contains("hidden")) {
+      closeLoginServerContextMenu();
+      renderLoginServerContextMenu();
     }
   });
 }
