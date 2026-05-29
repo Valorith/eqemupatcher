@@ -2533,7 +2533,18 @@ body {
 }
 
 .toggle input {
-  display: none;
+  /* Visually hidden but still focusable so the toggles stay keyboard
+     accessible (display:none would drop them from the tab order). */
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
 }
 
 .toggle-track {
@@ -6743,5 +6754,94 @@ body .ui-manager-beta-badge-tab {
 
   body .footer-utility-shell {
     transform: translate(0, 0.24rem);
+  }
+}
+
+/* ============================================================
+   Polish pass - interaction feedback, focus, and motion.
+   Additive layer kept at the end of the file so it wins
+   specificity ties within the gold theme layer above.
+   ============================================================ */
+
+/* Tactile press feedback: buttons lift on hover, settle on press. */
+body .primary-button:active:not(:disabled),
+body .secondary-button:active:not(:disabled),
+body .ghost-button:active:not(:disabled),
+body .icon-button:active:not(:disabled),
+body .launch-button:active:not(:disabled),
+body .start-patch-button:active:not(:disabled),
+body .install-prerequisites-button:active:not(:disabled),
+body .window-control:active:not(:disabled) {
+  transform: translateY(1px);
+  filter: brightness(0.97);
+}
+
+/* Keyboard focus rings - gold to match the live theme, shown only for
+   keyboard navigation (focus-visible), never on a mouse click. */
+body .primary-button:focus-visible,
+body .secondary-button:focus-visible,
+body .ghost-button:focus-visible,
+body .icon-button:focus-visible,
+body .window-control:focus-visible,
+body .tab-button:focus-visible,
+body .website-link:focus-visible,
+body .tools-button:focus-visible,
+body .notes-nav-button:focus-visible,
+body .ui-manager-stage-tab:focus-visible {
+  outline: 2px solid rgba(214, 175, 102, 0.75);
+  outline-offset: 2px;
+}
+
+/* Auto Patch / Auto Play toggles are now keyboard-focusable - surface it. */
+body .toggle input:focus-visible + .toggle-track {
+  outline: 2px solid rgba(214, 175, 102, 0.75);
+  outline-offset: 3px;
+}
+
+/* Toggle track eases between on/off states instead of snapping. */
+body .toggle-track {
+  transition: background 160ms ease, border-color 160ms ease;
+}
+
+/* Modal entrance: backdrop fades in, panel rises and settles. */
+.modal-shell:not(.hidden) .modal-backdrop {
+  animation: modal-backdrop-in 180ms ease-out both;
+}
+
+.modal-shell:not(.hidden) .modal-panel {
+  animation: modal-panel-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes modal-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-panel-in {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Tab content fades in when switching panels. */
+.tab-panel:not(.hidden) {
+  animation: tab-panel-in 200ms ease-out both;
+}
+
+@keyframes tab-panel-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Respect users who prefer reduced motion: drop the looping and
+   entrance animations and near-instant transitions, but keep state
+   changes legible. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
   }
 }
