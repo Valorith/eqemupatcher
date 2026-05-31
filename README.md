@@ -107,6 +107,19 @@ npm test
 npm run dist:win
 ```
 
+### Manual GitHub Release Workflow
+
+The repository includes a manual GitHub Actions workflow named `Manual Release`.
+
+To publish a release from GitHub:
+
+1. Open the repository's `Actions` tab.
+2. Select `Manual Release`.
+3. Click `Run workflow`.
+4. Enter a semantic version such as `3.2.1`.
+
+The workflow updates `package.json` and `package-lock.json`, runs checks and tests, builds the x64 portable Windows patcher, commits the version bump, tags it as `V<version>`, and creates a GitHub release containing `CWPatcher-v<version>-win-x64.exe`.
+
 Fallback installer build:
 
 ```bash
