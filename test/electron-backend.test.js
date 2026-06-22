@@ -1942,6 +1942,11 @@ test("auto-login helper uses DPI-aware client-area click coordinates", async () 
   assert.match(helperSource, /Wait-ForLoginOutcome/);
   assert.match(helperSource, /\[switch\]\$EnterWorld/);
   assert.match(helperSource, /Wait-ForServerSelectReady/);
+  assert.match(helperSource, /\[switch\]\$DetectServerSelect/);
+  assert.match(helperSource, /Test-ServerSelectPlayButtonReady -WindowHandle \$WindowHandle[\s\S]*return "server-select"/);
+  assert.match(helperSource, /Wait-ForLoginOutcome -WindowHandle \$window\.Handle -TimeoutSeconds \$UdpWaitSeconds -FocusWaitSeconds \$FocusWaitSeconds -DetectServerSelect:\$EnterWorld/);
+  assert.match(helperSource, /\$loginOutcome -eq "advanced" -or \$loginOutcome -eq "server-select"/);
+  assert.match(helperSource, /if \(\$loginOutcome -ne "server-select"\)[\s\S]*Wait-ForServerSelectReady/);
   assert.match(helperSource, /Test-ServerSelectPlayButtonPixel/);
   assert.match(helperSource, /\$ServerSelectPlayButtonXRatio = 0\.724/);
   assert.match(helperSource, /\$ServerSelectPlayButtonYRatio = 0\.700/);

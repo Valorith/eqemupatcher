@@ -899,7 +899,8 @@ function Wait-ForLoginOutcome {
     [Parameter(Mandatory = $true)]
     [int]$TimeoutSeconds,
     [Parameter(Mandatory = $true)]
-    [int]$FocusWaitSeconds
+    [int]$FocusWaitSeconds,
+    [switch]$DetectServerSelect
   )
 
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
@@ -918,6 +919,16 @@ function Wait-ForLoginOutcome {
     }
 
     $now = Get-Date
+    if ($DetectServerSelect -and $state -eq "advanced") {
+      try {
+        if (Test-ServerSelectPlayButtonReady -WindowHandle $WindowHandle) {
+          return "server-select"
+        }
+      } catch {
+        # The client may briefly resize or swap surfaces while loading server select.
+      }
+    }
+
     if ($state -eq "advanced" -and $now -ge $eligibleAt) {
       if ($null -eq $advancedSince) {
         $advancedSince = $now
@@ -1059,12 +1070,15 @@ try {
   [EqAutoLogin.Native]::SendEnter($KeyDelayMilliseconds)
 
   Write-AutoLoginEvent -Stage "confirm" -Message "Checking the EverQuest login screen state." -StatusState "running" -StatusLabel "Confirming" -StatusDetail "Checking whether the client advanced past the login form." -ProgressValue 86 -ProgressLabel "Confirming login result"
-  $loginOutcome = Wait-ForLoginOutcome -WindowHandle $window.Handle -TimeoutSeconds $UdpWaitSeconds -FocusWaitSeconds $FocusWaitSeconds
-  if ($loginOutcome -eq "advanced") {
+  $loginOutcome = Wait-ForLoginOutcome -WindowHandle $window.Handle -TimeoutSeconds $UdpWaitSeconds -FocusWaitSeconds $FocusWaitSeconds -DetectServerSelect:$EnterWorld
+  if ($loginOutcome -eq "advanced" -or $loginOutcome -eq "server-select") {
     if ($EnterWorld) {
-      Write-AutoLoginEvent -Stage "server-select" -Message "Waiting for the server select Play EverQuest button." -StatusState "running" -StatusLabel "Server select" -StatusDetail "Waiting for Play EverQuest before entering the selected server." -ProgressValue 94 -ProgressLabel "Waiting for Play EverQuest"
+      $serverSelectMessage = if ($loginOutcome -eq "server-select") { "Play EverQuest is ready." } else { "Waiting for the server select Play EverQuest button." }
+      Write-AutoLoginEvent -Stage "server-select" -Message $serverSelectMessage -StatusState "running" -StatusLabel "Server select" -StatusDetail "Waiting for Play EverQuest before entering the selected server." -ProgressValue 94 -ProgressLabel "Waiting for Play EverQuest"
       try {
-        Wait-ForServerSelectReady -WindowHandle $window.Handle -TimeoutSeconds $ServerSelectWaitSeconds -FocusWaitSeconds $FocusWaitSeconds
+        if ($loginOutcome -ne "server-select") {
+          Wait-ForServerSelectReady -WindowHandle $window.Handle -TimeoutSeconds $ServerSelectWaitSeconds -FocusWaitSeconds $FocusWaitSeconds
+        }
         Wait-ForTargetWindowForeground -WindowHandle $window.Handle -TimeoutSeconds $FocusWaitSeconds -Stage "Play EverQuest"
         Write-AutoLoginEvent -Stage "enter-world" -Message "Clicking Play EverQuest." -StatusState "running" -StatusLabel "Entering" -StatusDetail "Clicking Play EverQuest on the server select screen." -ProgressValue 98 -ProgressLabel "Clicking Play EverQuest"
         [EqAutoLogin.Native]::ClickWindowRelative($window.Handle, $ServerSelectPlayButtonXRatio, $ServerSelectPlayButtonYRatio, $ClickMoveDelayMilliseconds, $ClickHoldDelayMilliseconds)
