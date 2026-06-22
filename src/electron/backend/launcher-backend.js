@@ -159,6 +159,23 @@ function normalizeAutoLoginProfileId(value) {
   return String(value || "").trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
 }
 
+function normalizeAutoLoginProfileIds(value) {
+  const ids = Array.isArray(value) ? value : [];
+  const seen = new Set();
+  const normalizedIds = [];
+  for (const id of ids) {
+    const normalizedId = normalizeAutoLoginProfileId(id);
+    if (!normalizedId || seen.has(normalizedId)) {
+      continue;
+    }
+
+    seen.add(normalizedId);
+    normalizedIds.push(normalizedId);
+  }
+
+  return normalizedIds;
+}
+
 function createAutoLoginProfileId() {
   if (typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
@@ -1400,7 +1417,9 @@ class LauncherBackend {
     this.gameSettings = null;
     this.appState = {
       gameDirectory: "",
-      onGameLaunch: normalizeOnGameLaunch(DEFAULTS.defaultOnGameLaunch)
+      onGameLaunch: normalizeOnGameLaunch(DEFAULTS.defaultOnGameLaunch),
+      selectedAutoLoginProfileId: "",
+      selectedAutoLoginProfileIds: []
     };
     this.cancelController = null;
     this.cancelRequested = false;
@@ -1457,6 +1476,7 @@ class LauncherBackend {
       autoLoginAvailable: this.platform === "win32",
       autoLoginProfiles: [],
       selectedAutoLoginProfileId: "",
+      selectedAutoLoginProfileIds: [],
       isAutoLoginRunning: false,
       autoLoginOverlayText: "",
       autoLoginOverlayProgress: 0,
@@ -2938,13 +2958,21 @@ class LauncherBackend {
       this.appState = { ...this.appState, ...(parsed || {}) };
       this.state.gameDirectory = this.appState.gameDirectory || "";
       this.state.onGameLaunch = normalizeOnGameLaunch(this.appState.onGameLaunch);
+      this.state.selectedAutoLoginProfileId = normalizeAutoLoginProfileId(this.appState.selectedAutoLoginProfileId);
+      this.state.selectedAutoLoginProfileIds = normalizeAutoLoginProfileIds(this.appState.selectedAutoLoginProfileIds);
       this.appState.onGameLaunch = this.state.onGameLaunch;
+      this.appState.selectedAutoLoginProfileId = this.state.selectedAutoLoginProfileId;
+      this.appState.selectedAutoLoginProfileIds = [...this.state.selectedAutoLoginProfileIds];
     } catch (_error) {
       this.appState = {
         gameDirectory: "",
-        onGameLaunch: normalizeOnGameLaunch(DEFAULTS.defaultOnGameLaunch)
+        onGameLaunch: normalizeOnGameLaunch(DEFAULTS.defaultOnGameLaunch),
+        selectedAutoLoginProfileId: "",
+        selectedAutoLoginProfileIds: []
       };
       this.state.onGameLaunch = this.appState.onGameLaunch;
+      this.state.selectedAutoLoginProfileId = "";
+      this.state.selectedAutoLoginProfileIds = [];
       await this.saveYaml(this.appStatePath, this.appState);
     }
   }
@@ -2981,15 +3009,31 @@ class LauncherBackend {
   syncAutoLoginProfilesState() {
     this.normalizeAutoLoginProfileDefaults();
     const sanitizedProfiles = sanitizeAutoLoginProfiles(this.autoLoginProfiles);
-    const selectedId = normalizeAutoLoginProfileId(this.state.selectedAutoLoginProfileId);
-    const selectedExists = sanitizedProfiles.some((profile) => profile.id === selectedId);
+    const profileIds = new Set(sanitizedProfiles.map((profile) => profile.id));
+    const requestedSelectedIds = normalizeAutoLoginProfileIds(this.state.selectedAutoLoginProfileIds);
+    let orderedSelectedIds = sanitizedProfiles
+      .map((profile) => profile.id)
+      .filter((id) => requestedSelectedIds.includes(id));
+    let selectedId = normalizeAutoLoginProfileId(this.state.selectedAutoLoginProfileId);
+    const selectedExists = profileIds.has(selectedId);
     const defaultProfile = sanitizedProfiles.find((profile) => profile.isDefault);
-    this.state.autoLoginProfiles = sanitizedProfiles;
-    this.state.selectedAutoLoginProfileId = selectedExists
+    selectedId = selectedExists
       ? selectedId
-      : defaultProfile?.id || sanitizedProfiles[0]?.id || "";
+      : orderedSelectedIds[0] || defaultProfile?.id || sanitizedProfiles[0]?.id || "";
+    if (!orderedSelectedIds.length && selectedId) {
+      orderedSelectedIds = [selectedId];
+    }
+    this.state.autoLoginProfiles = sanitizedProfiles;
+    this.state.selectedAutoLoginProfileId = selectedId;
+    this.state.selectedAutoLoginProfileIds = orderedSelectedIds;
+    this.appState.selectedAutoLoginProfileId = selectedId;
+    this.appState.selectedAutoLoginProfileIds = [...orderedSelectedIds];
     if (!sanitizedProfiles.length) {
       this.state.autoLogin = false;
+      this.state.selectedAutoLoginProfileId = "";
+      this.state.selectedAutoLoginProfileIds = [];
+      this.appState.selectedAutoLoginProfileId = "";
+      this.appState.selectedAutoLoginProfileIds = [];
     }
   }
 
@@ -3047,7 +3091,61 @@ class LauncherBackend {
     }
 
     this.state.selectedAutoLoginProfileId = requestedId;
+    this.state.selectedAutoLoginProfileIds = requestedId ? [requestedId] : [];
     this.syncAutoLoginProfilesState();
+    await this.saveAppState();
+    this.emitState();
+    return this.getState();
+  }
+
+  async setAutoLoginProfileSelection(options = {}) {
+    const existingIds = new Set(this.autoLoginProfiles.map((profile) => profile.id));
+    const requestedIds = normalizeAutoLoginProfileIds(options.ids);
+    const activeId = normalizeAutoLoginProfileId(options.activeId || options.id);
+
+    for (const id of requestedIds) {
+      if (!existingIds.has(id)) {
+        throw new Error("One or more selected account profiles no longer exist.");
+      }
+    }
+
+    if (activeId && !existingIds.has(activeId)) {
+      throw new Error("The selected account profile no longer exists.");
+    }
+
+    this.state.selectedAutoLoginProfileIds = requestedIds;
+    this.state.selectedAutoLoginProfileId = activeId || requestedIds[0] || "";
+    this.syncAutoLoginProfilesState();
+    await this.saveAppState();
+    this.emitState();
+    return this.getState();
+  }
+
+  async reorderAutoLoginProfiles(options = {}) {
+    const requestedOrderIds = normalizeAutoLoginProfileIds(options.ids);
+    const existingIds = new Set(this.autoLoginProfiles.map((profile) => profile.id));
+
+    for (const id of requestedOrderIds) {
+      if (!existingIds.has(id)) {
+        throw new Error("One or more account profiles no longer exist.");
+      }
+    }
+
+    if (requestedOrderIds.length === 0 || this.autoLoginProfiles.length <= 1) {
+      this.syncAutoLoginProfilesState();
+      return this.getState();
+    }
+
+    const profileById = new Map(this.autoLoginProfiles.map((profile) => [profile.id, profile]));
+    const requestedOrderSet = new Set(requestedOrderIds);
+    this.autoLoginProfiles = [
+      ...requestedOrderIds.map((id) => profileById.get(id)).filter(Boolean),
+      ...this.autoLoginProfiles.filter((profile) => !requestedOrderSet.has(profile.id))
+    ];
+
+    await this.saveAutoLoginProfiles();
+    await this.saveAppState();
+    this.state.autoLoginStatus = createAutoLoginStatus("idle", "Profiles reordered", "Account profile order was saved.");
     this.emitState();
     return this.getState();
   }
@@ -3108,7 +3206,9 @@ class LauncherBackend {
     }
 
     this.state.selectedAutoLoginProfileId = profile.id;
+    this.state.selectedAutoLoginProfileIds = [profile.id];
     await this.saveAutoLoginProfiles();
+    await this.saveAppState();
     this.state.autoLoginStatus = createAutoLoginStatus("idle", "Profile saved", `${profile.label} is ready to launch.`);
     this.emitLog(`Saved account profile '${profile.label}' for ${profile.username}.`, "success");
     this.emitState();
@@ -3124,6 +3224,7 @@ class LauncherBackend {
 
     const [removedProfile] = this.autoLoginProfiles.splice(existingIndex, 1);
     await this.saveAutoLoginProfiles();
+    await this.saveAppState();
     await this.saveGameSettings();
     this.state.autoLoginStatus = createAutoLoginStatus("idle", "Profile deleted", `${removedProfile.label || removedProfile.username} was removed.`);
     this.emitLog(`Deleted account profile '${removedProfile.label || removedProfile.username}'.`, "warning");

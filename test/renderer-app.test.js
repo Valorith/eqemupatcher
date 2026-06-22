@@ -395,6 +395,7 @@ function createLauncherState(patchNotesUrl, options = {}) {
     autoLoginAvailable: true,
     autoLoginProfiles: [],
     selectedAutoLoginProfileId: "",
+    selectedAutoLoginProfileIds: [],
     isAutoLoginRunning: false,
     autoLoginStatus: {
       state: "idle",
@@ -574,6 +575,8 @@ async function createRendererHarness(options = {}) {
     startPatch: 0,
     launchGame: 0,
     selectAutoLoginProfile: [],
+    setAutoLoginProfileSelection: [],
+    reorderAutoLoginProfiles: [],
     saveAutoLoginProfile: [],
     deleteAutoLoginProfile: [],
     launchAutoLoginProfile: [],
@@ -690,6 +693,31 @@ async function createRendererHarness(options = {}) {
     async selectAutoLoginProfile(requestOptions = {}) {
       calls.selectAutoLoginProfile.push({ ...requestOptions });
       launcherState.selectedAutoLoginProfileId = requestOptions.id || "";
+      return launcherState;
+    },
+    async setAutoLoginProfileSelection(requestOptions = {}) {
+      const requestedIds = Array.isArray(requestOptions.ids) ? [...requestOptions.ids] : [];
+      calls.setAutoLoginProfileSelection.push({
+        activeId: requestOptions.activeId || "",
+        ids: requestedIds
+      });
+      const validIds = new Set(launcherState.autoLoginProfiles.map((profile) => profile.id));
+      launcherState.selectedAutoLoginProfileIds = (Array.isArray(requestOptions.ids) ? requestOptions.ids : [])
+        .filter((id) => validIds.has(id));
+      launcherState.selectedAutoLoginProfileId = validIds.has(requestOptions.activeId)
+        ? requestOptions.activeId
+        : launcherState.selectedAutoLoginProfileIds[0] || "";
+      return launcherState;
+    },
+    async reorderAutoLoginProfiles(requestOptions = {}) {
+      const requestedIds = Array.isArray(requestOptions.ids) ? [...requestOptions.ids] : [];
+      calls.reorderAutoLoginProfiles.push({ ids: requestedIds });
+      const profileById = new Map(launcherState.autoLoginProfiles.map((profile) => [profile.id, profile]));
+      const requestedSet = new Set(requestedIds);
+      launcherState.autoLoginProfiles = [
+        ...requestedIds.map((id) => profileById.get(id)).filter(Boolean),
+        ...launcherState.autoLoginProfiles.filter((profile) => !requestedSet.has(profile.id))
+      ];
       return launcherState;
     },
     async saveAutoLoginProfile(requestOptions = {}) {
@@ -1154,6 +1182,49 @@ test("renderer primary launch uses checked profiles when auto-login is enabled",
   assert.equal(harness.calls.launchGame, 0);
 });
 
+test("renderer restores saved multi-profile auto-login selection", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    statusDetail: "Manifest and local patch version are aligned.",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoLogin: true,
+    autoLoginProfiles: [{
+      id: "profile-1",
+      label: "Druid",
+      username: "vayle04",
+      isDefault: true,
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }, {
+      id: "profile-2",
+      label: "Cleric",
+      username: "bgondaway",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }, {
+      id: "profile-3",
+      label: "Bard",
+      username: "vayle3",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }],
+    selectedAutoLoginProfileId: "profile-3",
+    selectedAutoLoginProfileIds: ["profile-1", "profile-3"]
+  });
+
+  assert.equal(harness.elements.launchButton.textContent, "Launch (2) Ready");
+  assert.equal(harness.elements.autoLoginProfileList.children[0].attributes["aria-checked"], "true");
+  assert.equal(harness.elements.autoLoginProfileList.children[1].attributes["aria-checked"], "false");
+  assert.equal(harness.elements.autoLoginProfileList.children[2].attributes["aria-checked"], "true");
+});
+
 test("renderer keeps account profile controls in a popover and management modal", async () => {
   const harness = await createRendererHarness({
     gameDirectory: "C:\\EQ",
@@ -1214,6 +1285,8 @@ test("renderer anchors account profile popover above the Account button with CSS
   assert.match(STYLE_SOURCE, /\.auto-login-profile-option\s*{[\s\S]*?grid-template-columns:\s*auto minmax\(0, 1fr\) auto;/);
   assert.match(STYLE_SOURCE, /\.auto-login-profile-meta\s*{[\s\S]*?display:\s*grid;/);
   assert.match(STYLE_SOURCE, /\.auto-login-profile-username\s*{[\s\S]*?text-transform:\s*uppercase;/);
+  assert.match(STYLE_SOURCE, /\.auto-login-profile-move-controls\s*{[\s\S]*?display:\s*inline-flex;/);
+  assert.match(STYLE_SOURCE, /\.auto-login-profile-move-button\s*{[\s\S]*?place-items:\s*center;/);
   assert.match(STYLE_SOURCE, /\.auto-login-profile-checkbox\s*{[\s\S]*?border-radius:\s*0\.22rem;/);
   assert.match(STYLE_SOURCE, /\.auto-login-beta-badge\s*{[\s\S]*?border-radius:\s*999px;/);
   assert.match(STYLE_SOURCE, /\.auto-login-beta-badge\s*{[\s\S]*?rgba\(52, 95, 146, 0\.92\)/);
@@ -1446,10 +1519,60 @@ test("renderer selects account profile from inline popover list without closing 
     target: selectedClericOption
   });
 
-  assert.deepEqual(harness.calls.selectAutoLoginProfile, [{ id: "profile-2" }]);
+  assert.deepEqual(harness.calls.selectAutoLoginProfile, []);
+  assert.deepEqual(harness.calls.setAutoLoginProfileSelection, [{
+    activeId: "profile-2",
+    ids: ["profile-1", "profile-2"]
+  }]);
   assert.equal(harness.elements.autoLoginProfileSelect.value, "profile-2");
   assert.equal(harness.elements.autoLoginPopover.classList.contains("hidden"), false);
   assert.equal(selectedClericOption.attributes["aria-selected"], "true");
+});
+
+test("renderer reorders account profiles from inline controls", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoLoginProfiles: [{
+      id: "profile-1",
+      label: "Druid",
+      username: "vayle04",
+      isDefault: true,
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }, {
+      id: "profile-2",
+      label: "Cleric",
+      username: "bgondaway",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }, {
+      id: "profile-3",
+      label: "Bard",
+      username: "vayle3",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }],
+    selectedAutoLoginProfileId: "profile-1"
+  });
+  const clericDownButton = harness.elements.autoLoginProfileList.children[1].children[2].children[0].children[1];
+
+  await harness.elements.autoLoginProfileList.dispatch("click", {
+    target: clericDownButton
+  });
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.reorderAutoLoginProfiles, [{
+    ids: ["profile-1", "profile-3", "profile-2"]
+  }]);
+  assert.equal(harness.elements.autoLoginProfileList.children[2].children[1].children[0].textContent, "Cleric");
 });
 
 test("renderer closes account profile popover for outside clicks", async () => {

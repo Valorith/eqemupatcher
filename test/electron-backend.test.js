@@ -1867,6 +1867,57 @@ test("auto-login profile defaults persist and become the startup selection", asy
   assert.equal(restartedState.autoLoginProfiles.find((profile) => profile.id === secondProfileId).isDefault, true);
 });
 
+test("auto-login profile order and multi-selection persist across restart", async (t) => {
+  const { backend, appUserDataPath, projectRoot } = await createBackendHarness(t, {
+    platform: "win32"
+  });
+  backend.protectAutoLoginSecret = async (password) => `protected:${Buffer.from(password, "utf8").toString("base64")}`;
+
+  let state = await backend.saveAutoLoginProfile({
+    label: "Druid",
+    username: "vayle04",
+    password: "first-password"
+  });
+  const druidId = state.autoLoginProfiles[0].id;
+
+  state = await backend.saveAutoLoginProfile({
+    label: "Cleric",
+    username: "bgondaway",
+    password: "second-password"
+  });
+  const clericId = state.autoLoginProfiles.find((profile) => profile.username === "bgondaway").id;
+
+  state = await backend.saveAutoLoginProfile({
+    label: "Bard",
+    username: "vayle3",
+    password: "third-password"
+  });
+  const bardId = state.autoLoginProfiles.find((profile) => profile.username === "vayle3").id;
+
+  state = await backend.reorderAutoLoginProfiles({
+    ids: [bardId, druidId, clericId]
+  });
+  assert.deepEqual(state.autoLoginProfiles.map((profile) => profile.id), [bardId, druidId, clericId]);
+
+  state = await backend.setAutoLoginProfileSelection({
+    activeId: druidId,
+    ids: [druidId, bardId]
+  });
+  assert.deepEqual(state.selectedAutoLoginProfileIds, [bardId, druidId]);
+  assert.equal(state.selectedAutoLoginProfileId, druidId);
+
+  const restartedBackend = new LauncherBackend({
+    appUserDataPath,
+    projectRoot,
+    platform: "win32"
+  });
+  const restartedState = await restartedBackend.initialize();
+
+  assert.deepEqual(restartedState.autoLoginProfiles.map((profile) => profile.id), [bardId, druidId, clericId]);
+  assert.deepEqual(restartedState.selectedAutoLoginProfileIds, [bardId, druidId]);
+  assert.equal(restartedState.selectedAutoLoginProfileId, druidId);
+});
+
 test("auto-login helper uses DPI-aware client-area click coordinates", async () => {
   const helperSource = await fsp.readFile(
     path.join(__dirname, "..", "src", "electron", "assets", "auto-login", "Invoke-EqAutoLogin.ps1"),

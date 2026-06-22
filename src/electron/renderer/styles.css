@@ -1225,7 +1225,6 @@ body {
 }
 
 .auto-login-profile-default-badge {
-  justify-self: end;
   padding: 0.18rem 0.42rem;
   border: 1px solid rgba(215, 177, 109, 0.28);
   border-radius: 999px;
@@ -1238,7 +1237,50 @@ body {
   text-transform: uppercase;
 }
 
-.auto-login-profile-option:hover:not(:disabled),
+.auto-login-profile-trailing {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.52rem;
+  min-width: 0;
+}
+
+.auto-login-profile-move-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22rem;
+}
+
+.auto-login-profile-move-button {
+  display: inline-grid;
+  place-items: center;
+  width: 1.48rem;
+  height: 1.36rem;
+  border: 1px solid rgba(126, 184, 238, 0.22);
+  border-radius: 0.28rem;
+  background: rgba(17, 25, 36, 0.62);
+  color: rgba(220, 236, 252, 0.9);
+  font-family: "Avenir Next Condensed", "Gill Sans", sans-serif;
+  font-size: 0.74rem;
+  font-weight: 900;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.auto-login-profile-move-button:hover:not(:disabled),
+.auto-login-profile-move-button:focus-visible {
+  border-color: rgba(126, 184, 238, 0.48);
+  background: rgba(45, 75, 110, 0.54);
+  color: #f4f9ff;
+  outline: none;
+}
+
+.auto-login-profile-move-button:disabled {
+  cursor: default;
+  opacity: 0.3;
+}
+
+.auto-login-profile-option:hover:not([aria-disabled="true"]),
 .auto-login-profile-option[aria-selected="true"] {
   border-color: rgba(226, 188, 111, 0.42);
   background:
@@ -1246,7 +1288,7 @@ body {
   color: #f4e7cd;
 }
 
-.auto-login-profile-option:disabled {
+.auto-login-profile-option[aria-disabled="true"] {
   opacity: 0.58;
   cursor: default;
 }

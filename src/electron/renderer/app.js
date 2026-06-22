@@ -3453,9 +3453,12 @@ function getAutoLoginSelectedProfileIds(nextState = state.current) {
   const validIds = new Set(profiles.map((profile) => profile.id));
   const defaultProfile = profiles.find((profile) => profile.isDefault);
   const fallbackId = state.autoLoginSelectedProfileId ?? nextState?.selectedAutoLoginProfileId ?? defaultProfile?.id ?? profiles[0]?.id ?? "";
+  const savedSelectedIds = Array.isArray(nextState?.selectedAutoLoginProfileIds) && nextState.selectedAutoLoginProfileIds.length > 0
+    ? nextState.selectedAutoLoginProfileIds
+    : null;
   const sourceIds = Array.isArray(state.autoLoginSelectedProfileIds)
     ? state.autoLoginSelectedProfileIds
-    : (fallbackId ? [fallbackId] : []);
+    : savedSelectedIds || (fallbackId ? [fallbackId] : []);
   const selectedSet = new Set(sourceIds.filter((id) => validIds.has(id)));
 
   return profiles
@@ -3468,6 +3471,21 @@ function setAutoLoginSelectedProfileIds(profileIds = [], nextState = state.curre
   state.autoLoginSelectedProfileIds = profiles
     .map((profile) => profile.id)
     .filter((id) => requestedIds.has(id));
+}
+async function persistAutoLoginProfileSelection(activeId = state.autoLoginSelectedProfileId || "") {
+  const selectedIds = getAutoLoginSelectedProfileIds();
+  if (window.launcher?.setAutoLoginProfileSelection) {
+    return window.launcher.setAutoLoginProfileSelection({
+      activeId,
+      ids: selectedIds
+    });
+  }
+
+  if (activeId && window.launcher?.selectAutoLoginProfile) {
+    return window.launcher.selectAutoLoginProfile({ id: activeId });
+  }
+
+  return null;
 }
 function getAutoLoginLaunchProfiles(nextState = state.current) {
   const selectedIds = new Set(getAutoLoginSelectedProfileIds(nextState));
@@ -3539,17 +3557,18 @@ function renderAutoLoginProfileList(list, profiles, selectedIds, locked) {
     return;
   }
 
-  for (const profile of profiles) {
-    const option = document.createElement("button");
+  profiles.forEach((profile, index) => {
+    const option = document.createElement("div");
     const label = profile.label || profile.username || "Account profile";
     const checked = selectedSet.has(profile.id);
     option.className = "auto-login-profile-option";
-    option.type = "button";
     option.dataset.autoLoginProfileId = profile.id;
+    option.dataset.autoLoginProfileLocked = locked ? "true" : "false";
     option.setAttribute("role", "checkbox");
     option.setAttribute("aria-checked", checked ? "true" : "false");
     option.setAttribute("aria-selected", checked ? "true" : "false");
-    option.disabled = Boolean(locked);
+    option.setAttribute("aria-disabled", locked ? "true" : "false");
+    option.tabIndex = locked ? -1 : 0;
 
     const checkbox = document.createElement("span");
     checkbox.className = "auto-login-profile-checkbox";
@@ -3572,15 +3591,35 @@ function renderAutoLoginProfileList(list, profiles, selectedIds, locked) {
 
     option.appendChild(profileMeta);
 
+    const trailing = document.createElement("span");
+    trailing.className = "auto-login-profile-trailing";
+
     if (profile.isDefault) {
       const defaultText = document.createElement("span");
       defaultText.className = "auto-login-profile-default-badge";
       defaultText.textContent = "Default";
-      option.appendChild(defaultText);
+      trailing.appendChild(defaultText);
     }
 
+    const moveControls = document.createElement("span");
+    moveControls.className = "auto-login-profile-move-controls";
+    moveControls.setAttribute("aria-label", `Move ${label}`);
+    for (const direction of ["up", "down"]) {
+      const moveButton = document.createElement("button");
+      const isUp = direction === "up";
+      moveButton.className = "auto-login-profile-move-button";
+      moveButton.type = "button";
+      moveButton.dataset.autoLoginProfileMove = direction;
+      moveButton.dataset.autoLoginProfileId = profile.id;
+      moveButton.disabled = Boolean(locked || (isUp ? index === 0 : index === profiles.length - 1));
+      moveButton.setAttribute("aria-label", `Move ${label} ${direction}`);
+      moveButton.innerHTML = isUp ? "&uarr;" : "&darr;";
+      moveControls.appendChild(moveButton);
+    }
+    trailing.appendChild(moveControls);
+    option.appendChild(trailing);
     list.appendChild(option);
-  }
+  });
 }
 function renderAutoLogin(nextState) {
   if (!elements.autoLoginPanel || !elements.autoLoginProfileSelect) {
@@ -4083,19 +4122,14 @@ async function selectAutoLoginProfileById(selectedId, options = {}) {
   }
   elements.autoLoginProfileSelect.value = selectedId;
 
-  if (!selectedId || !window.launcher?.selectAutoLoginProfile) {
-    if (state.current) {
+  try {
+    const nextState = await persistAutoLoginProfileSelection(selectedId);
+    if (nextState) {
+      renderState(nextState);
+    } else if (state.current) {
       renderState(state.current);
     } else {
       renderAutoLogin(state.current);
-    }
-    return;
-  }
-
-  try {
-    const nextState = await window.launcher.selectAutoLoginProfile({ id: selectedId });
-    if (nextState) {
-      renderState(nextState);
     }
   } catch (error) {
     pushLog({
@@ -4105,11 +4139,49 @@ async function selectAutoLoginProfileById(selectedId, options = {}) {
     });
   }
 }
+async function moveAutoLoginProfile(profileId, direction) {
+  const profiles = getAutoLoginProfiles();
+  const currentIndex = profiles.findIndex((profile) => profile.id === profileId);
+  const offset = direction === "up" ? -1 : direction === "down" ? 1 : 0;
+  const nextIndex = currentIndex + offset;
+  if (!window.launcher?.reorderAutoLoginProfiles || currentIndex < 0 || nextIndex < 0 || nextIndex >= profiles.length) {
+    return;
+  }
+
+  const nextProfiles = [...profiles];
+  const [profile] = nextProfiles.splice(currentIndex, 1);
+  nextProfiles.splice(nextIndex, 0, profile);
+
+  try {
+    const nextState = await window.launcher.reorderAutoLoginProfiles({
+      ids: nextProfiles.map((candidate) => candidate.id)
+    });
+    if (nextState) {
+      renderState(nextState);
+    }
+  } catch (error) {
+    pushLog({
+      text: `Account profile reorder failed: ${error.message}`,
+      tone: "warning",
+      timestamp: new Date().toISOString()
+    });
+  }
+}
 async function handleAutoLoginProfileListClick(event) {
+  const moveButton = event.target?.dataset?.autoLoginProfileMove !== undefined
+    ? event.target
+    : closestElement(event.target, "[data-auto-login-profile-move]");
+  if (moveButton) {
+    event.preventDefault();
+    event.stopPropagation();
+    await moveAutoLoginProfile(moveButton.dataset.autoLoginProfileId || "", moveButton.dataset.autoLoginProfileMove || "");
+    return;
+  }
+
   const option = event.target?.dataset?.autoLoginProfileId !== undefined
     ? event.target
     : closestElement(event.target, "[data-auto-login-profile-id]");
-  if (!option || option.disabled) {
+  if (!option || option.dataset.autoLoginProfileLocked === "true") {
     return;
   }
 
@@ -4144,13 +4216,36 @@ async function handleAutoLoginSelectAll() {
   setAutoLoginSelectedProfileIds(profiles.map((profile) => profile.id));
   await selectAutoLoginProfileById(profiles[0].id, { preserveMultiSelection: true });
 }
-function handleAutoLoginSelectNone() {
+async function handleAutoLoginSelectNone() {
   if (state.current?.isAutoLoginRunning) {
     return;
   }
 
   setAutoLoginSelectedProfileIds([]);
-  renderState(state.current);
+  try {
+    const nextState = await persistAutoLoginProfileSelection("");
+    renderState(nextState || state.current);
+  } catch (error) {
+    pushLog({
+      text: `Account profile selection failed: ${error.message}`,
+      tone: "warning",
+      timestamp: new Date().toISOString()
+    });
+  }
+}
+async function handleAutoLoginProfileListKeydown(event) {
+  if (event.key !== "Enter" && event.key !== " ") {
+    return;
+  }
+
+  const moveButton = event.target?.dataset?.autoLoginProfileMove !== undefined
+    ? event.target
+    : closestElement(event.target, "[data-auto-login-profile-move]");
+  if (moveButton) {
+    return;
+  }
+
+  await handleAutoLoginProfileListClick(event);
 }
 async function handleAutoLoginManageProfileSelectChange() {
   const selectedId = elements.autoLoginManageProfileSelect.value || "";
@@ -4899,6 +4994,7 @@ function wireEvents() {
   });
   elements.autoLoginProfileSelect?.addEventListener("change", handleAutoLoginProfileSelectChange);
   elements.autoLoginProfileList?.addEventListener("click", handleAutoLoginProfileListClick);
+  elements.autoLoginProfileList?.addEventListener("keydown", handleAutoLoginProfileListKeydown);
   elements.autoLoginSelectAllButton?.addEventListener("click", handleAutoLoginSelectAll);
   elements.autoLoginSelectNoneButton?.addEventListener("click", handleAutoLoginSelectNone);
   elements.autoLoginManageProfileSelect?.addEventListener("change", handleAutoLoginManageProfileSelectChange);

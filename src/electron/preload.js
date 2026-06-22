@@ -27,6 +27,8 @@ contextBridge.exposeInMainWorld("launcher", {
   launchGame: () => ipcRenderer.invoke("launcher:launchGame"),
   getAutoLoginProfiles: () => ipcRenderer.invoke("launcher:getAutoLoginProfiles"),
   selectAutoLoginProfile: (options) => ipcRenderer.invoke("launcher:selectAutoLoginProfile", options),
+  setAutoLoginProfileSelection: (options) => ipcRenderer.invoke("launcher:setAutoLoginProfileSelection", options),
+  reorderAutoLoginProfiles: (options) => ipcRenderer.invoke("launcher:reorderAutoLoginProfiles", options),
   saveAutoLoginProfile: (options) => ipcRenderer.invoke("launcher:saveAutoLoginProfile", options),
   deleteAutoLoginProfile: (options) => ipcRenderer.invoke("launcher:deleteAutoLoginProfile", options),
   launchAutoLoginProfile: (options) => ipcRenderer.invoke("launcher:launchAutoLoginProfile", options),
