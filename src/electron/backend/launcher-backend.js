@@ -132,7 +132,7 @@ const AUTO_LOGIN_HELPER_FILE_NAME = "Invoke-EqAutoLogin.ps1";
 const AUTO_LOGIN_CONFIRMATION_TIMEOUT_EXIT_CODE = 2;
 const AUTO_LOGIN_LOGIN_REJECTED_EXIT_CODE = 3;
 const AUTO_LOGIN_HELPER_TIMEOUT_MS = 60 * 1000;
-const AUTO_LOGIN_BATCH_DELAY_MS = 50;
+const AUTO_LOGIN_BATCH_DELAY_MS = 500;
 const AUTO_LOGIN_HELPER_SOURCE_PATH = path.join(__dirname, "..", "assets", "auto-login", AUTO_LOGIN_HELPER_FILE_NAME);
 
 function boolToLegacyString(value) {
