@@ -12,6 +12,9 @@ const state = {
   loginServerContextMenuOpen: false,
   loginServerContextMenuX: 0,
   loginServerContextMenuY: 0,
+  autoLoginSelectedProfileId: null,
+  autoLoginFormDirty: false,
+  autoLoginPointerStartedInside: false,
   uiManagerConfirmationAction: null,
   patchNotes: {
     loaded: false,
@@ -60,6 +63,7 @@ const PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY = "eqemu-launcher.patchNotesReadI
 const SERVER_STATUS_POLL_INTERVAL_MS = 30000;
 const SERVER_STATUS_MANUAL_COOLDOWN_MS = 60000;
 const WINDOW_DRAG_TOP_RATIO = 0.2;
+const AUTO_LOGIN_POPOVER_GUTTER_PX = 12;
 const WINDOW_DRAG_INTERACTIVE_SELECTOR = [
   "a",
   "button",
@@ -134,6 +138,25 @@ const elements = {
   actionStatus: document.getElementById("actionStatus"),
   launchButton: document.getElementById("launchButton"),
   manualPrerequisitesButton: document.getElementById("manualPrerequisitesButton"),
+  autoLoginPanel: document.getElementById("autoLoginPanel"),
+  autoLoginMenuButton: document.getElementById("autoLoginMenuButton"),
+  autoLoginPopover: document.getElementById("autoLoginPopover"),
+  autoLoginStatusText: document.getElementById("autoLoginStatusText"),
+  autoLoginLaunchButton: document.getElementById("autoLoginLaunchButton"),
+  autoLoginProfileSelect: document.getElementById("autoLoginProfileSelect"),
+  autoLoginProfileList: document.getElementById("autoLoginProfileList"),
+  autoLoginManageButton: document.getElementById("autoLoginManageButton"),
+  autoLoginModal: document.getElementById("autoLoginModal"),
+  autoLoginBackdrop: document.getElementById("autoLoginBackdrop"),
+  autoLoginCloseButton: document.getElementById("autoLoginCloseButton"),
+  autoLoginManageProfileSelect: document.getElementById("autoLoginManageProfileSelect"),
+  autoLoginLabelInput: document.getElementById("autoLoginLabelInput"),
+  autoLoginUsernameInput: document.getElementById("autoLoginUsernameInput"),
+  autoLoginPasswordInput: document.getElementById("autoLoginPasswordInput"),
+  autoLoginDefaultInput: document.getElementById("autoLoginDefaultInput"),
+  autoLoginModalStatusText: document.getElementById("autoLoginModalStatusText"),
+  autoLoginSaveButton: document.getElementById("autoLoginSaveButton"),
+  autoLoginDeleteButton: document.getElementById("autoLoginDeleteButton"),
   refreshButton: document.getElementById("refreshButton"),
   settingsButton: document.getElementById("settingsButton"),
   minimizeButton: document.getElementById("minimizeButton"),
@@ -142,6 +165,7 @@ const elements = {
   discordButton: document.getElementById("discordButton"),
   autoPatchToggle: document.getElementById("autoPatchToggle"),
   autoPlayToggle: document.getElementById("autoPlayToggle"),
+  autoLoginToggle: document.getElementById("autoLoginToggle"),
   reportLink: document.getElementById("reportLink"),
   progressLabel: document.getElementById("progressLabel"),
   progressValue: document.getElementById("progressValue"),
@@ -2302,6 +2326,110 @@ function closeSettingsModal() {
   elements.settingsModal.classList.add("hidden");
   elements.settingsModal.setAttribute("aria-hidden", "true");
 }
+function getViewportSize() {
+  return {
+    width: Number(window.innerWidth) || document.documentElement?.clientWidth || document.body?.clientWidth || 0,
+    height: Number(window.innerHeight) || document.documentElement?.clientHeight || document.body?.clientHeight || 0
+  };
+}
+function positionAutoLoginPopover() {
+  if (!elements.autoLoginPopover || !elements.autoLoginMenuButton || elements.autoLoginPopover.classList.contains("hidden")) {
+    return;
+  }
+
+  const anchorRect = elements.autoLoginMenuButton.getBoundingClientRect();
+  const popoverRect = elements.autoLoginPopover.getBoundingClientRect();
+  const viewport = getViewportSize();
+  const popoverWidth = popoverRect.width || elements.autoLoginPopover.offsetWidth || 0;
+  const popoverHeight = popoverRect.height || elements.autoLoginPopover.offsetHeight || 0;
+  const maxLeft = viewport.width ? viewport.width - popoverWidth - AUTO_LOGIN_POPOVER_GUTTER_PX : anchorRect.right;
+  const maxTop = viewport.height ? viewport.height - popoverHeight - AUTO_LOGIN_POPOVER_GUTTER_PX : anchorRect.top;
+  let left = anchorRect.right;
+  let top = anchorRect.top - popoverHeight;
+
+  if (viewport.width && left > maxLeft) {
+    left = maxLeft;
+  }
+  if (top < AUTO_LOGIN_POPOVER_GUTTER_PX) {
+    top = anchorRect.bottom;
+  }
+  if (viewport.height && top > maxTop) {
+    top = maxTop;
+  }
+
+  elements.autoLoginPopover.style.left = `${Math.max(AUTO_LOGIN_POPOVER_GUTTER_PX, Math.round(left))}px`;
+  elements.autoLoginPopover.style.top = `${Math.max(AUTO_LOGIN_POPOVER_GUTTER_PX, Math.round(top))}px`;
+}
+function openAutoLoginPopover() {
+  if (!elements.autoLoginPopover || !elements.autoLoginMenuButton) {
+    return;
+  }
+
+  elements.autoLoginPopover.classList.remove("hidden");
+  elements.autoLoginMenuButton.setAttribute("aria-expanded", "true");
+  positionAutoLoginPopover();
+  if (typeof window.requestAnimationFrame === "function") {
+    window.requestAnimationFrame(positionAutoLoginPopover);
+  }
+}
+function closeAutoLoginPopover() {
+  if (!elements.autoLoginPopover || !elements.autoLoginMenuButton) {
+    return;
+  }
+
+  state.autoLoginPointerStartedInside = false;
+  elements.autoLoginPopover.classList.add("hidden");
+  elements.autoLoginMenuButton.setAttribute("aria-expanded", "false");
+}
+function closestElement(target, selector) {
+  return typeof target?.closest === "function" ? target.closest(selector) : null;
+}
+function isAutoLoginControlTarget(target) {
+  if (!target) {
+    return false;
+  }
+
+  return Boolean(
+    elements.autoLoginPanel?.contains(target) ||
+    elements.autoLoginPopover?.contains(target) ||
+    target === elements.autoLoginPanel ||
+    target === elements.autoLoginPopover ||
+    target === elements.autoLoginMenuButton
+  );
+}
+function stopAutoLoginPopoverEvent(event) {
+  event.stopPropagation();
+}
+function rememberAutoLoginInteractionTarget(event) {
+  state.autoLoginPointerStartedInside = isAutoLoginControlTarget(event.target);
+}
+function toggleAutoLoginPopover() {
+  if (!elements.autoLoginPopover || elements.autoLoginMenuButton?.disabled) {
+    return;
+  }
+
+  if (elements.autoLoginPopover.classList.contains("hidden")) {
+    openAutoLoginPopover();
+    return;
+  }
+
+  closeAutoLoginPopover();
+}
+function openAutoLoginModal() {
+  closeAutoLoginPopover();
+  state.autoLoginSelectedProfileId = state.autoLoginSelectedProfileId ?? state.current?.selectedAutoLoginProfileId ?? "";
+  state.autoLoginFormDirty = false;
+  setAutoLoginFormProfile(getSelectedAutoLoginProfile());
+  renderAutoLogin(state.current);
+  elements.autoLoginModal.classList.remove("hidden");
+  elements.autoLoginModal.setAttribute("aria-hidden", "false");
+}
+function closeAutoLoginModal() {
+  elements.autoLoginModal.classList.add("hidden");
+  elements.autoLoginModal.setAttribute("aria-hidden", "true");
+  state.autoLoginFormDirty = false;
+  renderAutoLogin(state.current);
+}
 function openUnsupportedClientModal(nextState) {
   if (nextState.clientVersion === "Unknown") {
     elements.unsupportedClientMessage.textContent = `This EverQuest executable is not recognized by ${nextState.serverName}. Launch is disabled until you switch to a supported client build.`;
@@ -2984,6 +3112,16 @@ function derivePresentation(nextState) {
     presentation.actionButtonTone = "install-prerequisites";
     return presentation;
   }
+  if (nextState.isAutoLoginRunning) {
+    presentation.chipText = "Auto Login";
+    presentation.chipTone = "active";
+    presentation.patchStateText = "Signing in";
+    presentation.showActionStatus = true;
+    presentation.actionStatusText = nextState.progressLabel || "Launching account profile";
+    presentation.actionButtonLabel = "Launching...";
+    presentation.actionButtonAction = "locked";
+    return presentation;
+  }
   if (nextState.canInstallPrerequisites) {
     presentation.chipText = nextState.statusBadge === "Install Error"
       ? "Install Failed"
@@ -3002,6 +3140,21 @@ function derivePresentation(nextState) {
       : "Install Prerequisites";
     presentation.actionButtonAction = "install-prerequisites";
     presentation.actionButtonTone = "install-prerequisites";
+    return presentation;
+  }
+  if (nextState.statusBadge === "Auto Login" || nextState.statusBadge === "Auto Login Check" || nextState.statusBadge === "Auto Login Error") {
+    presentation.chipText = nextState.statusBadge === "Auto Login Error"
+      ? "Auto Login Error"
+      : nextState.statusBadge === "Auto Login Check"
+        ? "Check Login"
+        : "Auto Login";
+    presentation.chipTone = nextState.statusBadge === "Auto Login"
+      ? "success"
+      : "warning";
+    presentation.statusDetailTone = nextState.statusBadge === "Auto Login Error" ? "danger" : "default";
+    presentation.patchStateText = nextState.statusBadge === "Auto Login"
+      ? "Server select"
+      : "Needs attention";
     return presentation;
   }
   if (nextState.manifestVersion) {
@@ -3272,6 +3425,183 @@ function renderLoginServerStatus(nextState) {
   renderLoginServerContextMenu();
   updateStatusRefreshControls();
 }
+function clearElementChildren(element) {
+  if (!element) {
+    return;
+  }
+
+  element.innerHTML = "";
+  if (Array.isArray(element.children)) {
+    element.children.length = 0;
+  }
+}
+function getAutoLoginProfiles(nextState = state.current) {
+  return Array.isArray(nextState?.autoLoginProfiles) ? nextState.autoLoginProfiles : [];
+}
+function getSelectedAutoLoginProfile(nextState = state.current) {
+  const profiles = getAutoLoginProfiles(nextState);
+  const defaultProfile = profiles.find((profile) => profile.isDefault);
+  const requestedId = state.autoLoginSelectedProfileId ?? nextState?.selectedAutoLoginProfileId ?? defaultProfile?.id ?? profiles[0]?.id ?? "";
+  if (!requestedId) {
+    return null;
+  }
+  return profiles.find((profile) => profile.id === requestedId) || defaultProfile || profiles[0] || null;
+}
+function setAutoLoginFormProfile(profile) {
+  elements.autoLoginLabelInput.value = profile?.label || "";
+  elements.autoLoginUsernameInput.value = profile?.username || "";
+  elements.autoLoginPasswordInput.value = "";
+  elements.autoLoginDefaultInput.checked = profile?.isDefault === true;
+  elements.autoLoginPasswordInput.placeholder = profile
+    ? "Leave blank to keep saved password"
+    : "Required for new or changed password";
+  state.autoLoginFormDirty = false;
+}
+function renderAutoLoginProfileOptions(select, profiles, selectedId, options = {}) {
+  if (!select) {
+    return;
+  }
+
+  clearElementChildren(select);
+  if (options.includeNewProfile) {
+    const newOption = document.createElement("option");
+    newOption.value = "";
+    newOption.textContent = "New profile";
+    select.appendChild(newOption);
+  } else if (!profiles.length) {
+    const emptyOption = document.createElement("option");
+    emptyOption.value = "";
+    emptyOption.textContent = "No profiles saved";
+    select.appendChild(emptyOption);
+  }
+
+  for (const profile of profiles) {
+    const option = document.createElement("option");
+    option.value = profile.id;
+    option.textContent = profile.isDefault
+      ? `${profile.label || profile.username} (Default)`
+      : profile.label || profile.username;
+    select.appendChild(option);
+  }
+  select.value = profiles.some((profile) => profile.id === selectedId) ? selectedId : "";
+}
+function renderAutoLoginProfileList(list, profiles, selectedId, locked) {
+  if (!list) {
+    return;
+  }
+
+  clearElementChildren(list);
+  if (!profiles.length) {
+    const emptyOption = document.createElement("button");
+    emptyOption.className = "auto-login-profile-option";
+    emptyOption.type = "button";
+    emptyOption.setAttribute("role", "option");
+    emptyOption.setAttribute("aria-selected", "false");
+    emptyOption.disabled = true;
+    emptyOption.textContent = "No profiles saved";
+    list.appendChild(emptyOption);
+    return;
+  }
+
+  for (const profile of profiles) {
+    const option = document.createElement("button");
+    const label = profile.label || profile.username || "Account profile";
+    option.className = "auto-login-profile-option";
+    option.type = "button";
+    option.dataset.autoLoginProfileId = profile.id;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", profile.id === selectedId ? "true" : "false");
+    option.disabled = Boolean(locked);
+
+    const labelText = document.createElement("strong");
+    labelText.textContent = label;
+    option.appendChild(labelText);
+
+    if (profile.isDefault) {
+      const defaultText = document.createElement("span");
+      defaultText.textContent = "Default";
+      option.appendChild(defaultText);
+    }
+
+    list.appendChild(option);
+  }
+}
+function renderAutoLogin(nextState) {
+  if (!elements.autoLoginPanel || !elements.autoLoginProfileSelect) {
+    return;
+  }
+
+  const profiles = getAutoLoginProfiles(nextState);
+  const selectedProfile = getSelectedAutoLoginProfile(nextState);
+  const selectedId = selectedProfile?.id || "";
+  const previousSelectedId = elements.autoLoginManageProfileSelect?.value || "";
+  const modalOpen = Boolean(elements.autoLoginModal && !elements.autoLoginModal.classList.contains("hidden"));
+  state.autoLoginSelectedProfileId = selectedId;
+  const autoLoginAvailable = nextState.autoLoginAvailable !== false;
+  const locked = Boolean(nextState.isPatching || nextState.isInstallingPrerequisites || nextState.isAutoLoginRunning || !autoLoginAvailable);
+  const launchLocked = Boolean(locked || !selectedProfile || !nextState.canLaunch);
+  const status = nextState.autoLoginStatus || {};
+  const profileCountText = profiles.length === 1 ? "1 saved profile" : `${profiles.length} saved profiles`;
+  const statusDetail = String(status.detail || "").trim();
+  const canUseAutoLogin = autoLoginAvailable && profiles.length > 0;
+
+  renderAutoLoginProfileOptions(elements.autoLoginProfileSelect, profiles, selectedId);
+  renderAutoLoginProfileOptions(elements.autoLoginManageProfileSelect, profiles, selectedId, {
+    includeNewProfile: true
+  });
+  renderAutoLoginProfileList(elements.autoLoginProfileList, profiles, selectedId, locked);
+
+  elements.autoLoginPanel.dataset.state = status.state || (autoLoginAvailable ? "idle" : "unavailable");
+  elements.autoLoginStatusText.textContent = !autoLoginAvailable
+    ? "Windows only"
+    : nextState.isAutoLoginRunning
+      ? status.label || "Launching profile"
+      : statusDetail || profileCountText;
+  elements.autoLoginStatusText.title = statusDetail || elements.autoLoginStatusText.textContent;
+  if (elements.autoLoginModalStatusText) {
+    elements.autoLoginModalStatusText.textContent = statusDetail || "Stored passwords are protected by Windows for this user account.";
+  }
+  if (elements.autoLoginMenuButton) {
+    elements.autoLoginMenuButton.disabled = Boolean(nextState.isPatching || nextState.isInstallingPrerequisites || nextState.isAutoLoginRunning || !autoLoginAvailable);
+    elements.autoLoginMenuButton.title = selectedProfile
+      ? `Selected account profile: ${selectedProfile.label || selectedProfile.username}`
+      : "Manage account profiles";
+  }
+  if (elements.autoLoginToggle) {
+    elements.autoLoginToggle.checked = Boolean(nextState.autoLogin && canUseAutoLogin);
+    elements.autoLoginToggle.disabled = Boolean(locked || !canUseAutoLogin);
+    elements.autoLoginToggle.title = canUseAutoLogin
+      ? "Automatically log in with the selected account profile when launching."
+      : "Add an account profile to enable auto-login.";
+  }
+
+  if (modalOpen && (!state.autoLoginFormDirty || previousSelectedId !== selectedId || nextState.isAutoLoginRunning)) {
+    setAutoLoginFormProfile(selectedProfile);
+  } else if (modalOpen) {
+    elements.autoLoginPasswordInput.placeholder = selectedProfile
+      ? "Leave blank to keep saved password"
+      : "Required for new or changed password";
+  }
+
+  elements.autoLoginProfileSelect.disabled = locked;
+  if (elements.autoLoginProfileList) {
+    elements.autoLoginProfileList.setAttribute("aria-disabled", String(locked));
+  }
+  elements.autoLoginManageButton.disabled = locked;
+  elements.autoLoginManageProfileSelect.disabled = locked;
+  elements.autoLoginLabelInput.disabled = locked;
+  elements.autoLoginUsernameInput.disabled = locked;
+  elements.autoLoginPasswordInput.disabled = locked;
+  elements.autoLoginDefaultInput.disabled = locked || (!selectedProfile && profiles.length === 0);
+  if (modalOpen && !selectedProfile && profiles.length === 0) {
+    elements.autoLoginDefaultInput.checked = true;
+  }
+  elements.autoLoginSaveButton.disabled = locked;
+  elements.autoLoginDeleteButton.disabled = locked || !selectedProfile;
+  elements.autoLoginLaunchButton.disabled = launchLocked;
+  elements.autoLoginLaunchButton.textContent = nextState.isAutoLoginRunning ? "Launching..." : "Launch Profile";
+  positionAutoLoginPopover();
+}
 function setBusy(button, busyText, busy) {
   if (button.classList.contains("refresh-button")) {
     button.disabled = busy;
@@ -3346,14 +3676,21 @@ function renderState(nextState) {
   });
   const presentation = derivePresentation(nextState);
   const prerequisiteInstallLocked = Boolean(nextState.isInstallingPrerequisites);
+  const operationLocked = prerequisiteInstallLocked || Boolean(nextState.isAutoLoginRunning);
   const resolvedTitle = nextState.serverName || "Launcher";
-  if (nextState.isPatching || nextState.isInstallingPrerequisites) {
+  if (nextState.isPatching || nextState.isInstallingPrerequisites || nextState.isAutoLoginRunning) {
     showConsole();
   }
   if (prerequisiteInstallLocked) {
     closeSettingsModal();
     closeUiManagerConfirmModal();
     closeUiManagerPackageContextMenu();
+  }
+  if (operationLocked && elements.autoLoginModal && !elements.autoLoginModal.classList.contains("hidden")) {
+    closeAutoLoginModal();
+  }
+  if (operationLocked) {
+    closeAutoLoginPopover();
   }
   elements.statusChip.textContent = presentation.chipText;
   elements.statusChip.dataset.tone = presentation.chipTone;
@@ -3407,7 +3744,7 @@ function renderState(nextState) {
   elements.patchButton.dataset.originalText = presentation.patchLabel;
   elements.patchButton.textContent = presentation.patchLabel;
   elements.patchButton.dataset.action = presentation.patchAction;
-  elements.patchButton.disabled = prerequisiteInstallLocked || (presentation.patchAction === "cancel" ? false : !nextState.canPatch);
+  elements.patchButton.disabled = operationLocked || (presentation.patchAction === "cancel" ? false : !nextState.canPatch);
   const isLaunchReadyState = presentation.actionButtonAction === "launch" && !presentation.showActionStatus && Boolean(nextState.manifestVersion);
   const showStandalonePrimaryAction =
     ["launch", "patch", "install-prerequisites"].includes(presentation.actionButtonAction) &&
@@ -3429,26 +3766,27 @@ function renderState(nextState) {
   elements.launchButton.classList.toggle("attention-pulse", presentation.actionButtonAction === "patch" && showStandalonePrimaryAction);
   elements.launchButton.disabled =
     nextState.isPatching ||
+    nextState.isAutoLoginRunning ||
     (presentation.actionButtonAction === "launch" && !nextState.canLaunch) ||
     (presentation.actionButtonAction === "patch" && !nextState.canPatch) ||
     (presentation.actionButtonAction === "install-prerequisites" && nextState.isInstallingPrerequisites) ||
     !["launch", "patch", "install-prerequisites"].includes(presentation.actionButtonAction);
   elements.autoPatchToggle.checked = nextState.autoPatch;
   elements.autoPlayToggle.checked = nextState.autoPlay;
-  elements.autoPatchToggle.disabled = prerequisiteInstallLocked;
-  elements.autoPlayToggle.disabled = prerequisiteInstallLocked;
+  elements.autoPatchToggle.disabled = operationLocked;
+  elements.autoPlayToggle.disabled = operationLocked;
   elements.onGameLaunchSelect.value = nextState.onGameLaunch === "close" ? "close" : "minimize";
-  elements.onGameLaunchSelect.disabled = prerequisiteInstallLocked;
-  elements.refreshButton.disabled = prerequisiteInstallLocked;
-  elements.settingsButton.disabled = prerequisiteInstallLocked;
-  elements.openConfigButton.disabled = prerequisiteInstallLocked;
-  elements.openGameDirectoryButton.disabled = prerequisiteInstallLocked || !nextState.gameDirectory;
-  elements.uiManagerRefreshButton.disabled = prerequisiteInstallLocked;
-  elements.uiManagerModalRefreshButton.disabled = prerequisiteInstallLocked;
-  elements.uiManagerImportButton.disabled = prerequisiteInstallLocked;
+  elements.onGameLaunchSelect.disabled = operationLocked;
+  elements.refreshButton.disabled = operationLocked;
+  elements.settingsButton.disabled = operationLocked;
+  elements.openConfigButton.disabled = operationLocked;
+  elements.openGameDirectoryButton.disabled = operationLocked || !nextState.gameDirectory;
+  elements.uiManagerRefreshButton.disabled = operationLocked;
+  elements.uiManagerModalRefreshButton.disabled = operationLocked;
+  elements.uiManagerImportButton.disabled = operationLocked;
   const hasManualPrerequisiteFallback = Boolean(nextState.canInstallPrerequisites && nextState.prerequisiteDirectXUrl && nextState.prerequisiteVcUrl);
   elements.manualPrerequisitesButton.classList.toggle("hidden", !hasManualPrerequisiteFallback);
-  elements.manualPrerequisitesButton.disabled = prerequisiteInstallLocked || !hasManualPrerequisiteFallback;
+  elements.manualPrerequisitesButton.disabled = operationLocked || !hasManualPrerequisiteFallback;
   if (nextState.reportUrl) {
     elements.reportLink.classList.remove("hidden");
     elements.reportLink.href = nextState.reportUrl;
@@ -3469,6 +3807,7 @@ function renderState(nextState) {
     max: nextState.progressMax,
     label: nextState.progressLabel
   });
+  renderAutoLogin(nextState);
   renderUiManager();
 }
 function renderProgress(progress) {
@@ -3661,6 +4000,164 @@ function handleLoginServerContextMenu(event) {
   event.stopPropagation();
   openLoginServerContextMenu(event.clientX || 0, event.clientY || 0);
 }
+async function handleAutoLoginProfileSelectChange() {
+  const selectedId = elements.autoLoginProfileSelect.value || "";
+  await selectAutoLoginProfileById(selectedId);
+}
+async function selectAutoLoginProfileById(selectedId) {
+  state.autoLoginSelectedProfileId = selectedId;
+  elements.autoLoginProfileSelect.value = selectedId;
+
+  if (!selectedId || !window.launcher?.selectAutoLoginProfile) {
+    renderAutoLogin(state.current);
+    return;
+  }
+
+  try {
+    const nextState = await window.launcher.selectAutoLoginProfile({ id: selectedId });
+    if (nextState) {
+      renderState(nextState);
+    }
+  } catch (error) {
+    pushLog({
+      text: `Account profile selection failed: ${error.message}`,
+      tone: "warning",
+      timestamp: new Date().toISOString()
+    });
+  }
+}
+async function handleAutoLoginProfileListClick(event) {
+  const option = event.target?.dataset?.autoLoginProfileId !== undefined
+    ? event.target
+    : closestElement(event.target, "[data-auto-login-profile-id]");
+  if (!option || option.disabled) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+  await selectAutoLoginProfileById(option.dataset.autoLoginProfileId || "");
+}
+async function handleAutoLoginManageProfileSelectChange() {
+  const selectedId = elements.autoLoginManageProfileSelect.value || "";
+  state.autoLoginSelectedProfileId = selectedId;
+  state.autoLoginFormDirty = false;
+  setAutoLoginFormProfile(
+    getAutoLoginProfiles().find((profile) => profile.id === selectedId) || null
+  );
+
+  if (!selectedId || !window.launcher?.selectAutoLoginProfile) {
+    renderAutoLogin(state.current);
+    return;
+  }
+
+  try {
+    const nextState = await window.launcher.selectAutoLoginProfile({ id: selectedId });
+    if (nextState) {
+      renderState(nextState);
+    }
+  } catch (error) {
+    pushLog({
+      text: `Account profile selection failed: ${error.message}`,
+      tone: "warning",
+      timestamp: new Date().toISOString()
+    });
+  }
+}
+async function handleAutoLoginSave() {
+  if (!window.launcher?.saveAutoLoginProfile) {
+    return;
+  }
+
+  const profileId = state.autoLoginSelectedProfileId || "";
+  const payload = {
+    id: profileId,
+    label: elements.autoLoginLabelInput.value || "",
+    username: elements.autoLoginUsernameInput.value || "",
+    password: elements.autoLoginPasswordInput.value || "",
+    isDefault: Boolean(elements.autoLoginDefaultInput.checked)
+  };
+
+  elements.autoLoginSaveButton.disabled = true;
+  elements.autoLoginSaveButton.textContent = "Saving...";
+  try {
+    const nextState = await window.launcher.saveAutoLoginProfile(payload);
+    state.autoLoginFormDirty = false;
+    elements.autoLoginPasswordInput.value = "";
+    if (nextState) {
+      renderState(nextState);
+    }
+  } catch (error) {
+    pushLog({
+      text: `Account profile save failed: ${error.message}`,
+      tone: "error",
+      timestamp: new Date().toISOString()
+    });
+  } finally {
+    elements.autoLoginSaveButton.textContent = "Save Profile";
+    renderAutoLogin(state.current);
+  }
+}
+async function handleAutoLoginDelete() {
+  if (!window.launcher?.deleteAutoLoginProfile) {
+    return;
+  }
+
+  const selectedProfile = getSelectedAutoLoginProfile();
+  if (!selectedProfile) {
+    return;
+  }
+
+  if (typeof window.confirm === "function" && !window.confirm(`Delete account profile '${selectedProfile.label || selectedProfile.username}'?`)) {
+    return;
+  }
+
+  elements.autoLoginDeleteButton.disabled = true;
+  try {
+    const nextState = await window.launcher.deleteAutoLoginProfile({ id: selectedProfile.id });
+    state.autoLoginSelectedProfileId = null;
+    state.autoLoginFormDirty = false;
+    if (nextState) {
+      renderState(nextState);
+    }
+  } catch (error) {
+    pushLog({
+      text: `Account profile delete failed: ${error.message}`,
+      tone: "error",
+      timestamp: new Date().toISOString()
+    });
+  } finally {
+    renderAutoLogin(state.current);
+  }
+}
+async function handleAutoLoginLaunch() {
+  if (!window.launcher?.launchAutoLoginProfile) {
+    return;
+  }
+
+  const selectedProfile = getSelectedAutoLoginProfile();
+  if (!selectedProfile || state.current?.isAutoLoginRunning) {
+    return;
+  }
+
+  showConsole();
+  closeAutoLoginPopover();
+  elements.autoLoginLaunchButton.disabled = true;
+  try {
+    const nextState = await window.launcher.launchAutoLoginProfile({ id: selectedProfile.id });
+    if (nextState) {
+      renderState(nextState);
+    }
+  } catch (error) {
+    pushLog({
+      text: `Account profile launch failed: ${error.message}`,
+      tone: "error",
+      timestamp: new Date().toISOString()
+    });
+  } finally {
+    renderAutoLogin(state.current);
+  }
+}
 function wireEvents() {
   document.addEventListener("mousedown", beginWindowDrag, true);
   document.addEventListener("mousemove", updateWindowDrag, true);
@@ -3670,6 +4167,7 @@ function wireEvents() {
   document.addEventListener("contextmenu", handleLoginServerContextMenu, true);
   if (typeof window.addEventListener === "function") {
     window.addEventListener("beforeunload", stopServerStatusPolling);
+    window.addEventListener("resize", positionAutoLoginPopover);
   }
 
   wireStatusBadgeTooltip(elements.gameServerStatusBadge);
@@ -4256,6 +4754,36 @@ function wireEvents() {
       await window.launcher.launchGame();
     }
   });
+  elements.autoLoginMenuButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleAutoLoginPopover();
+  });
+  elements.autoLoginProfileSelect?.addEventListener("change", handleAutoLoginProfileSelectChange);
+  elements.autoLoginProfileList?.addEventListener("click", handleAutoLoginProfileListClick);
+  elements.autoLoginManageProfileSelect?.addEventListener("change", handleAutoLoginManageProfileSelectChange);
+  elements.autoLoginManageButton?.addEventListener("click", openAutoLoginModal);
+  elements.autoLoginCloseButton?.addEventListener("click", closeAutoLoginModal);
+  elements.autoLoginBackdrop?.addEventListener("click", closeAutoLoginModal);
+  elements.autoLoginPopover?.addEventListener("click", stopAutoLoginPopoverEvent);
+  elements.autoLoginPopover?.addEventListener("mousedown", stopAutoLoginPopoverEvent);
+  elements.autoLoginPopover?.addEventListener("pointerdown", stopAutoLoginPopoverEvent);
+  document.addEventListener("pointerdown", rememberAutoLoginInteractionTarget, true);
+  elements.autoLoginLabelInput?.addEventListener("input", () => {
+    state.autoLoginFormDirty = true;
+  });
+  elements.autoLoginUsernameInput?.addEventListener("input", () => {
+    state.autoLoginFormDirty = true;
+  });
+  elements.autoLoginPasswordInput?.addEventListener("input", () => {
+    state.autoLoginFormDirty = true;
+  });
+  elements.autoLoginDefaultInput?.addEventListener("change", () => {
+    state.autoLoginFormDirty = true;
+  });
+  elements.autoLoginSaveButton?.addEventListener("click", handleAutoLoginSave);
+  elements.autoLoginDeleteButton?.addEventListener("click", handleAutoLoginDelete);
+  elements.autoLoginLaunchButton?.addEventListener("click", handleAutoLoginLaunch);
   elements.manualPrerequisitesButton.addEventListener("click", async () => {
     const directxUrl = state.current?.prerequisiteDirectXUrl || "";
     const vcUrl = state.current?.prerequisiteVcUrl || "";
@@ -4284,6 +4812,13 @@ function wireEvents() {
       return;
     }
     const nextState = await window.launcher.updateSettings({ autoPlay: elements.autoPlayToggle.checked });
+    renderState(nextState);
+  });
+  elements.autoLoginToggle.addEventListener("change", async () => {
+    if (state.current?.isPatching || state.current?.isInstallingPrerequisites || state.current?.isAutoLoginRunning) {
+      return;
+    }
+    const nextState = await window.launcher.updateSettings({ autoLogin: elements.autoLoginToggle.checked });
     renderState(nextState);
   });
   elements.onGameLaunchSelect.addEventListener("change", async () => {
@@ -4346,6 +4881,10 @@ function wireEvents() {
       closeToolsMenu();
       return;
     }
+    if (elements.autoLoginPopover && !elements.autoLoginPopover.classList.contains("hidden")) {
+      closeAutoLoginPopover();
+      return;
+    }
     if (!elements.unsupportedClientModal.classList.contains("hidden")) {
       closeUnsupportedClientModal();
       return;
@@ -4380,19 +4919,28 @@ function wireEvents() {
       closeUiManagerModal();
       return;
     }
+    if (!elements.autoLoginModal.classList.contains("hidden")) {
+      closeAutoLoginModal();
+      return;
+    }
     if (!elements.settingsModal.classList.contains("hidden")) {
       closeSettingsModal();
     }
   });
   document.addEventListener("click", (event) => {
-    if (event.target.closest(".tools-menu")) {
+    if (closestElement(event.target, ".tools-menu")) {
       return;
     }
     closeToolsMenu();
-    if (event.target.closest("#uiManagerPackageContextMenu")) {
+    const autoLoginClickStartedInside = state.autoLoginPointerStartedInside;
+    state.autoLoginPointerStartedInside = false;
+    if (!autoLoginClickStartedInside && !isAutoLoginControlTarget(event.target)) {
+      closeAutoLoginPopover();
+    }
+    if (closestElement(event.target, "#uiManagerPackageContextMenu")) {
       return;
     }
-    if (event.target.closest("#loginServerContextMenu")) {
+    if (closestElement(event.target, "#loginServerContextMenu")) {
       return;
     }
     if (!elements.uiManagerPackageContextMenu.classList.contains("hidden")) {

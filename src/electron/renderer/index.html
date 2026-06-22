@@ -88,7 +88,7 @@
                 <div class="patch-section">
                   <p class="eyebrow section-heading">Session Status</p>
                   <div class="summary-stack">
-                    <article class="summary-item summary-item-rich">
+                    <article class="summary-item summary-item-rich summary-item-server">
                       <div class="summary-icon" aria-hidden="true">
                         <svg viewBox="0 0 24 24" focusable="false">
                           <rect x="5" y="4" width="14" height="4" rx="1"></rect>
@@ -114,6 +114,9 @@
                               </svg>
                             </button>
                           </span>
+                          <div id="autoLoginPanel" class="auto-login-panel" aria-live="polite">
+                            <button id="autoLoginMenuButton" class="ghost-button auto-login-menu-button" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="autoLoginPopover">Account</button>
+                          </div>
                         </div>
                         <small id="gameServerStatusDetail" class="server-status-detail">Set gameServerHost in launcher-config.yml.</small>
                       </div>
@@ -225,6 +228,12 @@
                       <input id="autoPlayToggle" type="checkbox" />
                       <span class="toggle-track"></span>
                       <span class="toggle-label">Auto Play</span>
+                    </label>
+                    <label class="toggle auto-login-toggle-control">
+                      <input id="autoLoginToggle" type="checkbox" />
+                      <span class="toggle-track"></span>
+                      <span class="toggle-label">Auto Login</span>
+                      <span class="auto-login-beta-badge auto-login-toggle-beta-badge" aria-label="Auto Login beta feature">Beta</span>
                     </label>
                   </div>
                   <div class="support-links">
@@ -357,6 +366,26 @@
       <button id="loginServerUseBackupAction" class="login-server-context-action" type="button" role="menuitemradio" data-login-server-role="backup">Use Backup</button>
     </div>
 
+    <div id="autoLoginPopover" class="auto-login-popover hidden" role="dialog" aria-label="Account profile launch">
+      <div class="auto-login-popover-heading">
+        <p id="autoLoginStatusText" class="auto-login-status">No saved profiles</p>
+        <span class="auto-login-beta-badge auto-login-popover-beta-badge" aria-label="Account profile launch beta feature">Beta</span>
+      </div>
+      <div class="auto-login-field auto-login-profile-field">
+        <span id="autoLoginProfileLabel">Profile</span>
+        <div id="autoLoginProfileList" class="auto-login-profile-list" role="listbox" aria-labelledby="autoLoginProfileLabel">
+          <button class="auto-login-profile-option" type="button" role="option" aria-selected="false" disabled>No profiles saved</button>
+        </div>
+        <select id="autoLoginProfileSelect" class="auto-login-input auto-login-profile-select hidden" aria-label="Account profile" tabindex="-1">
+          <option value="">No profiles saved</option>
+        </select>
+      </div>
+      <div class="auto-login-popover-actions">
+        <button id="autoLoginLaunchButton" class="primary-button auto-login-launch-button" type="button" disabled>Launch Profile</button>
+        <button id="autoLoginManageButton" class="secondary-button auto-login-button" type="button">Manage</button>
+      </div>
+    </div>
+
     <div id="settingsModal" class="modal-shell hidden" aria-hidden="true">
       <div id="settingsBackdrop" class="modal-backdrop"></div>
       <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
@@ -379,6 +408,53 @@
           </label>
           <button id="openConfigButton" class="secondary-button utility-button" type="button">Open Config File</button>
           <button id="openGameDirectoryButton" class="secondary-button utility-button" type="button">Open Game Directory</button>
+        </div>
+      </section>
+    </div>
+
+    <div id="autoLoginModal" class="modal-shell hidden" aria-hidden="true">
+      <div id="autoLoginBackdrop" class="modal-backdrop"></div>
+      <section class="modal-panel auto-login-modal-panel" role="dialog" aria-modal="true" aria-labelledby="autoLoginTitle">
+        <div class="modal-header">
+          <div>
+            <p class="eyebrow">Account Profiles</p>
+            <h2 id="autoLoginTitle" class="section-title">Manage Login Profiles</h2>
+          </div>
+          <button id="autoLoginCloseButton" class="icon-button modal-close-button" type="button" aria-label="Close account profiles">
+            <span aria-hidden="true">×</span>
+          </button>
+        </div>
+        <div class="auto-login-modal-body">
+          <label class="auto-login-field" for="autoLoginManageProfileSelect">
+            <span>Profile</span>
+            <select id="autoLoginManageProfileSelect" class="auto-login-input">
+              <option value="">New profile</option>
+            </select>
+          </label>
+          <div class="auto-login-grid">
+            <label class="auto-login-field" for="autoLoginLabelInput">
+              <span>Name</span>
+              <input id="autoLoginLabelInput" class="auto-login-input" type="text" autocomplete="off" placeholder="Display name">
+            </label>
+            <label class="auto-login-field" for="autoLoginUsernameInput">
+              <span>Username</span>
+              <input id="autoLoginUsernameInput" class="auto-login-input" type="text" autocomplete="username" placeholder="Login username">
+            </label>
+            <label class="auto-login-field auto-login-field-wide" for="autoLoginPasswordInput">
+              <span>Password</span>
+              <input id="autoLoginPasswordInput" class="auto-login-input" type="password" autocomplete="off" placeholder="Required for new or changed password">
+            </label>
+            <label class="auto-login-default-toggle auto-login-field-wide">
+              <input id="autoLoginDefaultInput" type="checkbox">
+              <span class="auto-login-default-box" aria-hidden="true"></span>
+              <span>Default profile</span>
+            </label>
+          </div>
+          <p id="autoLoginModalStatusText" class="modal-copy auto-login-modal-status">Stored passwords are protected by Windows for this user account.</p>
+          <div class="auto-login-actions">
+            <button id="autoLoginSaveButton" class="primary-button auto-login-button" type="button">Save Profile</button>
+            <button id="autoLoginDeleteButton" class="secondary-button auto-login-button" type="button" disabled>Delete</button>
+          </div>
         </div>
       </section>
     </div>

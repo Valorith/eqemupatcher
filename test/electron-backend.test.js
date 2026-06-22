@@ -105,6 +105,7 @@ test("initialize without a selected game directory reports selection state", asy
   assert.equal(state.patchActionLabel, "Deploy Patch");
   assert.equal(state.autoPatch, false);
   assert.equal(state.autoPlay, false);
+  assert.equal(state.autoLogin, false);
   assert.equal(state.onGameLaunch, "minimize");
 
   const appStatePath = path.join(appUserDataPath, "launcher-state.yml");
@@ -1346,7 +1347,7 @@ test("refreshState treats legacy string patch versions as up to date", async (t)
   assert.equal(state.statusBadge, "Ready");
 });
 
-test("updateSettings persists the on game launch preference", async (t) => {
+test("updateSettings persists launch preferences", async (t) => {
   const { backend, appUserDataPath } = await createBackendHarness(t, { platform: "win32" });
   const gameDirectory = await createTempDir("eqemu-game-");
 
@@ -1358,11 +1359,25 @@ test("updateSettings persists the on game launch preference", async (t) => {
 
   await backend.initialize();
   await backend.setGameDirectory(gameDirectory);
-  const state = await backend.updateSettings({ onGameLaunch: "close" });
+  backend.autoLoginProfiles = [{
+    id: "profile-1",
+    label: "Vayle Box",
+    username: "vayle2",
+    secret: "protected-secret",
+    isDefault: true,
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z"
+  }];
+  backend.syncAutoLoginProfilesState();
+
+  const state = await backend.updateSettings({ onGameLaunch: "close", autoLogin: true });
   const savedState = await fsp.readFile(path.join(appUserDataPath, "launcher-state.yml"), "utf8");
+  const savedGameSettings = await fsp.readFile(path.join(gameDirectory, "eqemupatcher.yml"), "utf8");
 
   assert.equal(state.onGameLaunch, "close");
+  assert.equal(state.autoLogin, true);
   assert.match(savedState, /onGameLaunch: close/);
+  assert.match(savedGameSettings, /autoLogin: true/);
 });
 
 test("unknown clients remain non-launchable even on Windows", async (t) => {
@@ -1775,6 +1790,227 @@ test("launchGame invokes the selected window action callback after a successful 
   await backend.launchGame();
 
   assert.deepEqual(launchActions, [{ action: "close", autoTriggered: false }]);
+});
+
+test("auto-login profiles store protected secrets and expose sanitized state", async (t) => {
+  const { backend, appUserDataPath } = await createBackendHarness(t, {
+    platform: "win32"
+  });
+  backend.protectAutoLoginSecret = async (password) => `protected:${Buffer.from(password, "utf8").toString("base64")}`;
+  backend.unprotectAutoLoginSecret = async (secret) => Buffer.from(secret.replace(/^protected:/, ""), "base64").toString("utf8");
+
+  let state = await backend.saveAutoLoginProfile({
+    label: "Vayle Box",
+    username: "vayle2",
+    password: "not-the-real-password"
+  });
+
+  assert.equal(state.autoLoginProfiles.length, 1);
+  assert.equal(state.autoLoginProfiles[0].label, "Vayle Box");
+  assert.equal(state.autoLoginProfiles[0].username, "vayle2");
+  assert.equal(Object.hasOwn(state.autoLoginProfiles[0], "secret"), false);
+  assert.equal(JSON.stringify(state).includes("not-the-real-password"), false);
+
+  const storePath = path.join(appUserDataPath, "auto-login-profiles.json");
+  const savedStore = await fsp.readFile(storePath, "utf8");
+  assert.match(savedStore, /protected:/);
+  assert.equal(savedStore.includes("not-the-real-password"), false);
+
+  const profileId = state.autoLoginProfiles[0].id;
+  state = await backend.saveAutoLoginProfile({
+    id: profileId,
+    label: "Vayle Main",
+    username: "vayle2",
+    password: ""
+  });
+
+  assert.equal(state.autoLoginProfiles[0].label, "Vayle Main");
+  assert.equal(await backend.unprotectAutoLoginSecret(backend.autoLoginProfiles[0].secret), "not-the-real-password");
+
+  state = await backend.deleteAutoLoginProfile({ id: profileId });
+  assert.deepEqual(state.autoLoginProfiles, []);
+});
+
+test("auto-login profile defaults persist and become the startup selection", async (t) => {
+  const { backend, appUserDataPath, projectRoot } = await createBackendHarness(t, {
+    platform: "win32"
+  });
+  backend.protectAutoLoginSecret = async (password) => `protected:${Buffer.from(password, "utf8").toString("base64")}`;
+
+  let state = await backend.saveAutoLoginProfile({
+    label: "Vayle Box",
+    username: "vayle2",
+    password: "first-password"
+  });
+  const firstProfileId = state.autoLoginProfiles[0].id;
+
+  state = await backend.saveAutoLoginProfile({
+    label: "Valgor",
+    username: "valgor",
+    password: "second-password",
+    isDefault: true
+  });
+  const secondProfileId = state.autoLoginProfiles.find((profile) => profile.username === "valgor").id;
+
+  assert.equal(state.autoLoginProfiles.find((profile) => profile.id === firstProfileId).isDefault, false);
+  assert.equal(state.autoLoginProfiles.find((profile) => profile.id === secondProfileId).isDefault, true);
+  assert.equal(state.selectedAutoLoginProfileId, secondProfileId);
+
+  const restartedBackend = new LauncherBackend({
+    appUserDataPath,
+    projectRoot,
+    platform: "win32"
+  });
+  const restartedState = await restartedBackend.initialize();
+
+  assert.equal(restartedState.selectedAutoLoginProfileId, secondProfileId);
+  assert.equal(restartedState.autoLoginProfiles.find((profile) => profile.id === secondProfileId).isDefault, true);
+});
+
+test("auto-login helper uses DPI-aware client-area click coordinates", async () => {
+  const helperSource = await fsp.readFile(
+    path.join(__dirname, "..", "src", "electron", "assets", "auto-login", "Invoke-EqAutoLogin.ps1"),
+    "utf8"
+  );
+
+  assert.match(helperSource, /SetProcessDpiAwarenessContext/);
+  assert.match(helperSource, /SetThreadDpiAwarenessContext/);
+  assert.match(helperSource, /GetClientRect/);
+  assert.match(helperSource, /ClientToScreen/);
+  assert.match(helperSource, /LEGACY_EQ_UI_WIDTH = 1024/);
+  assert.match(helperSource, /LEGACY_EQ_UI_HEIGHT = 768/);
+  assert.match(helperSource, /GetCenteredLegacyEqUiRect/);
+  assert.match(helperSource, /GetWindowRelativePixel/);
+  assert.match(helperSource, /GetPixel/);
+  assert.match(helperSource, /Get-LoginCanvasState/);
+  assert.match(helperSource, /Test-DarkPixel/);
+  assert.match(helperSource, /Test-MainMenuLoginButtonPixel/);
+  assert.match(helperSource, /Wait-ForLoginFormReady/);
+  assert.match(helperSource, /Wait-ForLoginOutcome/);
+  assert.match(helperSource, /\[Console\]::InputEncoding = \[System\.Text\.Encoding\]::UTF8/);
+  assert.match(helperSource, /\[int\]\$LoginFormWaitSeconds = 30/);
+  assert.match(helperSource, /login-error/);
+  assert.match(helperSource, /main-menu/);
+  assert.match(helperSource, /\$passwordField = Get-WindowRelativePixel/);
+  assert.match(helperSource, /Waiting for the login form/);
+  assert.match(helperSource, /ClickWindowRelative\(\$WindowHandle, 0\.497, 0\.456/);
+  assert.match(helperSource, /public static void ClickWindowRelative[\s\S]*GetClientRect[\s\S]*ClientToScreen/);
+  assert.match(helperSource, /public static void ClickWindowRelative[\s\S]*GetCenteredLegacyEqUiRect/);
+  assert.match(helperSource, /ClickWindowRelative\(\$window\.Handle, 0\.661, 0\.757/);
+  assert.doesNotMatch(helperSource, /Wait-ForStableUdpEndpoint/);
+  assert.doesNotMatch(helperSource, /ShowWindow\(hWnd, SW_RESTORE\);\s*IntPtr foreground/);
+});
+
+test("launchAutoLoginProfile prepares INI files and invokes the helper with the decrypted password", async (t) => {
+  const launchActions = [];
+  let helperRequest = null;
+  const { backend } = await createBackendHarness(t, {
+    platform: "win32",
+    onGameLaunched: async (payload) => {
+      launchActions.push(payload);
+    }
+  });
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+  await fsp.writeFile(path.join(gameDirectory, "eqclient.ini"), "[Defaults]\nWindowedMode=FALSE\nMaximized=0\n", "utf8");
+  await fsp.writeFile(path.join(gameDirectory, "eqlsPlayerData.ini"), "[PLAYER]\nUsername=olduser\n", "utf8");
+
+  backend.state.gameDirectory = gameDirectory;
+  backend.state.clientVersion = "Rain_Of_Fear_2";
+  backend.state.clientLabel = "Rain of Fear 2";
+  backend.state.clientSupported = true;
+  backend.state.canLaunch = true;
+  backend.state.onGameLaunch = "minimize";
+  backend.autoLoginProfiles = [{
+    id: "profile-1",
+    label: "Vayle Box",
+    username: "vayle2",
+    secret: "protected-secret",
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z"
+  }];
+  backend.syncAutoLoginProfilesState();
+  backend.unprotectAutoLoginSecret = async (secret) => {
+    assert.equal(secret, "protected-secret");
+    return "not-the-real-password";
+  };
+  backend.runAutoLoginHelper = async (request) => {
+    helperRequest = { ...request };
+    return { confirmed: true };
+  };
+
+  const state = await backend.launchAutoLoginProfile({ id: "profile-1" });
+  const eqclient = await fsp.readFile(path.join(gameDirectory, "eqclient.ini"), "utf8");
+  const eqlsPlayerData = await fsp.readFile(path.join(gameDirectory, "eqlsPlayerData.ini"), "utf8");
+
+  assert.match(eqclient, /^WindowedMode=TRUE$/m);
+  assert.match(eqclient, /^Maximized=1$/m);
+  assert.match(eqlsPlayerData, /^Username=vayle2$/m);
+  assert.equal(helperRequest.eqGamePath, path.join(gameDirectory, "eqgame.exe"));
+  assert.equal(helperRequest.username, "vayle2");
+  assert.equal(helperRequest.password, "not-the-real-password");
+  assert.equal(state.statusBadge, "Auto Login");
+  assert.equal(state.isAutoLoginRunning, false);
+  assert.equal(JSON.stringify(state).includes("not-the-real-password"), false);
+  assert.deepEqual(launchActions, [{ action: "minimize", autoTriggered: false }]);
+});
+
+test("launchGame routes through auto-login when Auto Login is enabled", async (t) => {
+  const launchActions = [];
+  let spawnCalls = 0;
+  let helperRequest = null;
+  const { backend } = await createBackendHarness(t, {
+    platform: "win32",
+    spawnImpl: () => {
+      spawnCalls += 1;
+      throw new Error("plain launch should not be used");
+    },
+    onGameLaunched: async (payload) => {
+      launchActions.push(payload);
+    }
+  });
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+  await fsp.writeFile(path.join(gameDirectory, "eqclient.ini"), "[Defaults]\nWindowedMode=FALSE\nMaximized=0\n", "utf8");
+
+  backend.state.gameDirectory = gameDirectory;
+  backend.state.clientVersion = "Rain_Of_Fear_2";
+  backend.state.clientLabel = "Rain of Fear 2";
+  backend.state.clientSupported = true;
+  backend.state.canLaunch = true;
+  backend.state.autoLogin = true;
+  backend.autoLoginProfiles = [{
+    id: "profile-1",
+    label: "Vayle Box",
+    username: "vayle2",
+    secret: "protected-secret",
+    isDefault: true,
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z"
+  }];
+  backend.syncAutoLoginProfilesState();
+  backend.unprotectAutoLoginSecret = async () => "not-the-real-password";
+  backend.runAutoLoginHelper = async (request) => {
+    helperRequest = { ...request };
+    return { confirmed: true };
+  };
+
+  const state = await backend.launchGame({ autoTriggered: true });
+
+  assert.equal(spawnCalls, 0);
+  assert.equal(helperRequest.username, "vayle2");
+  assert.equal(state.statusBadge, "Auto Login");
+  assert.deepEqual(launchActions, [{ action: "minimize", autoTriggered: true }]);
 });
 
 test("launchGame reports an immediate exit instead of claiming success", async (t) => {

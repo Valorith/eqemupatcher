@@ -375,6 +375,7 @@ body {
   max-width: 100%;
   height: 100%;
   box-sizing: border-box;
+  overflow: visible;
 }
 
 .summary-status-text {
@@ -396,6 +397,11 @@ body {
 .summary-status-layout .server-status-badge {
   align-self: stretch;
   justify-content: center;
+}
+
+.summary-status-layout .auto-login-panel {
+  align-self: stretch;
+  align-items: stretch;
 }
 
 .login-server-context-target,
@@ -915,12 +921,21 @@ body {
   letter-spacing: 0.16em;
 }
 
+.toggle.auto-login-toggle-control {
+  grid-template-columns: 3.6rem auto auto;
+  min-width: 14rem;
+}
+
 .support-links {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
   gap: 0.7rem;
   margin-top: 0.95rem;
+}
+
+.support-links:has(.manual-prerequisites-button.hidden):has(.report-link.hidden) {
+  display: none;
 }
 
 .manual-prerequisites-button {
@@ -937,6 +952,298 @@ body {
   font-size: 0.8rem;
   letter-spacing: 0.14em;
   text-transform: uppercase;
+}
+
+.auto-login-panel {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  -webkit-app-region: no-drag;
+}
+
+.auto-login-panel *,
+.auto-login-popover,
+.auto-login-popover * {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
+}
+
+.auto-login-status {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #cbbba4;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auto-login-menu-button {
+  min-height: 2.1rem;
+  padding: 0 0.82rem;
+  border-radius: 0.34rem;
+  font-size: 0.72rem;
+  letter-spacing: 0.14em;
+}
+
+.auto-login-popover {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 2000;
+  display: grid;
+  width: min(21rem, calc(100vw - 2rem));
+  gap: 0.66rem;
+  padding: 0.82rem;
+  border: 1px solid rgba(186, 141, 72, 0.26);
+  border-radius: 0.42rem;
+  background:
+    linear-gradient(180deg, rgba(24, 23, 22, 0.98), rgba(10, 10, 12, 0.98));
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.03),
+    0 18px 42px rgba(0, 0, 0, 0.34);
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+.auto-login-popover.hidden {
+  display: none;
+}
+
+.auto-login-popover-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.auto-login-beta-badge {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 1rem;
+  padding: 0 0.38rem;
+  border: 1px solid rgba(126, 184, 238, 0.58);
+  border-radius: 999px;
+  background:
+    linear-gradient(180deg, rgba(52, 95, 146, 0.92), rgba(29, 58, 102, 0.96));
+  box-shadow: none;
+  color: #f4f9ff;
+  font-family: "Avenir Next Condensed", "Gill Sans", sans-serif;
+  font-size: 0.54rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  line-height: 1;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.auto-login-popover-beta-badge {
+  margin-top: 0.02rem;
+}
+
+.auto-login-popover-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(6rem, 0.5fr);
+  gap: 0.5rem;
+}
+
+.auto-login-modal-panel {
+  width: min(35rem, calc(100vw - 32px));
+}
+
+.auto-login-modal-body {
+  display: grid;
+  gap: 0.78rem;
+  margin-top: 1rem;
+}
+
+.auto-login-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.58rem;
+}
+
+.auto-login-field {
+  display: grid;
+  gap: 0.28rem;
+  min-width: 0;
+}
+
+.auto-login-field span {
+  color: #b8a691;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+.auto-login-field-wide {
+  grid-column: 1 / -1;
+}
+
+.auto-login-profile-list {
+  display: grid;
+  max-height: 7.4rem;
+  gap: 0.34rem;
+  overflow-y: auto;
+  padding: 0.24rem;
+  border: 1px solid rgba(186, 141, 72, 0.22);
+  border-radius: 0.34rem;
+  background: rgba(12, 12, 14, 0.74);
+}
+
+.auto-login-profile-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 2.18rem;
+  width: 100%;
+  padding: 0.38rem 0.52rem;
+  border: 1px solid rgba(186, 141, 72, 0.16);
+  border-radius: 0.28rem;
+  background: rgba(22, 20, 19, 0.76);
+  color: #e8d7bb;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.auto-login-profile-option strong {
+  min-width: 0;
+  overflow: hidden;
+  color: inherit;
+  font-size: 0.84rem;
+  font-weight: 700;
+  line-height: 1.15;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auto-login-profile-option span {
+  flex: 0 0 auto;
+  color: #d7b16d;
+  font-size: 0.6rem;
+  letter-spacing: 0.12em;
+}
+
+.auto-login-profile-option:hover:not(:disabled),
+.auto-login-profile-option[aria-selected="true"] {
+  border-color: rgba(226, 188, 111, 0.42);
+  background:
+    linear-gradient(180deg, rgba(83, 61, 31, 0.72), rgba(31, 26, 20, 0.92));
+  color: #f4e7cd;
+}
+
+.auto-login-profile-option:disabled {
+  opacity: 0.58;
+  cursor: default;
+}
+
+.auto-login-default-toggle {
+  display: inline-grid;
+  grid-template-columns: 1.2rem auto;
+  align-items: center;
+  gap: 0.52rem;
+  width: fit-content;
+  min-height: 1.8rem;
+  color: #e5d4b8;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.auto-login-default-toggle input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.auto-login-default-box {
+  width: 1rem;
+  height: 1rem;
+  border: 1px solid rgba(207, 171, 104, 0.42);
+  border-radius: 0.22rem;
+  background: rgba(12, 12, 14, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.auto-login-default-toggle input:checked + .auto-login-default-box {
+  background:
+    linear-gradient(180deg, rgba(225, 188, 113, 0.98), rgba(167, 121, 53, 0.96));
+  border-color: rgba(239, 205, 139, 0.72);
+}
+
+.auto-login-default-toggle input:checked + .auto-login-default-box::after {
+  content: "";
+  display: block;
+  width: 0.46rem;
+  height: 0.24rem;
+  margin: 0.26rem 0 0 0.22rem;
+  border-bottom: 2px solid #17130d;
+  border-left: 2px solid #17130d;
+  transform: rotate(-45deg);
+}
+
+.auto-login-default-toggle input:disabled + .auto-login-default-box,
+.auto-login-default-toggle input:disabled ~ span:last-child {
+  opacity: 0.58;
+  cursor: default;
+}
+
+.auto-login-input {
+  width: 100%;
+  min-height: 2.42rem;
+  padding: 0 0.72rem;
+  border: 1px solid rgba(186, 141, 72, 0.22);
+  border-radius: 0.34rem;
+  background: rgba(12, 12, 14, 0.74);
+  color: #ecd9bb;
+  font: inherit;
+  box-sizing: border-box;
+}
+
+select.auto-login-input {
+  color-scheme: dark;
+}
+
+select.auto-login-input option {
+  background-color: #111014;
+  color: #ead7b8;
+}
+
+select.auto-login-input option:checked {
+  background-color: #7c5c2e;
+  color: #fff3da;
+}
+
+.auto-login-input:focus-visible {
+  outline: 2px solid rgba(214, 175, 102, 0.36);
+  outline-offset: 2px;
+}
+
+.auto-login-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(8rem, 0.45fr);
+  gap: 0.58rem;
+}
+
+.auto-login-button,
+.auto-login-launch-button {
+  min-height: 2.72rem;
+  justify-content: center;
 }
 
 .hero-stage {
@@ -6078,6 +6385,13 @@ body .summary-stack .summary-item.summary-item-rich {
   );
 }
 
+body .summary-stack .summary-item.summary-item-server {
+  position: relative;
+  z-index: 30;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
 body .summary-icon {
   width: 1.92rem;
   height: 1.92rem;
@@ -6111,6 +6425,7 @@ body .summary-label {
 body .summary-status-layout {
   gap: 0.42rem;
   min-height: 100%;
+  overflow: visible;
 }
 
 body .summary-status-text {
@@ -6120,6 +6435,21 @@ body .summary-status-text {
 
 body .summary-status-layout .server-status-badge {
   min-height: 100%;
+}
+
+body .summary-status-layout .auto-login-panel {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: stretch;
+  z-index: 31;
+}
+
+body .summary-status-layout .auto-login-menu-button {
+  min-height: 0;
+  height: 100%;
+  padding: 0 0.68rem;
+  font-size: 0.66rem;
+  letter-spacing: 0.11em;
 }
 
 body .summary-stack .summary-item strong,
@@ -6318,39 +6648,136 @@ body .toggle-row {
   align-items: center;
   min-height: 0;
   margin-top: 0.38rem;
-  gap: 1.1rem;
+  gap: 0.78rem;
   justify-content: flex-start;
 }
 
 body .toggle {
-  grid-template-columns: 54px auto;
-  gap: 0.7rem;
+  grid-template-columns: 50px auto;
+  gap: 0.56rem;
   width: auto;
-  min-width: 11.5rem;
+  min-width: 9.55rem;
   padding: 0.18rem 0;
   border: 0;
   border-radius: 0;
   background: transparent;
 }
 
+body .toggle.auto-login-toggle-control {
+  grid-template-columns: 50px auto auto;
+  min-width: 12.7rem;
+  gap: 0.5rem;
+}
+
 body .toggle-track {
-  width: 54px;
-  height: 28px;
+  width: 50px;
+  height: 26px;
 }
 
 body .toggle-track::after {
   top: 3px;
   left: 3px;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 
 body .toggle input:checked + .toggle-track::after {
   transform: translateX(24px);
 }
 
+body .toggle input:disabled + .toggle-track,
+body .toggle input:disabled ~ .toggle-label {
+  opacity: 0.48;
+  cursor: default;
+}
+
+body .toggle input:disabled ~ .auto-login-beta-badge {
+  opacity: 0.48;
+}
+
 body .toggle-label {
-  font-size: 0.78rem;
+  font-size: 0.7rem;
+  letter-spacing: 0.11em;
+}
+
+body .auto-login-toggle-beta-badge {
+  align-self: center;
+  min-height: 0.95rem;
+  padding: 0 0.34rem;
+  font-size: 0.48rem;
+  letter-spacing: 0.08em;
+}
+
+body .auto-login-panel {
+  flex: 0 0 auto;
+}
+
+body .auto-login-status {
+  color: rgba(213, 196, 169, 0.78);
+  font-size: 0.74rem;
+}
+
+body .auto-login-menu-button {
+  min-height: 2rem;
+  padding: 0 0.78rem;
+  border-color: rgba(207, 171, 104, 0.22);
+  color: rgba(231, 219, 207, 0.82);
+  background:
+    linear-gradient(180deg, rgba(24, 23, 22, 0.82), rgba(12, 12, 13, 0.9));
+  font-size: 0.68rem;
+  letter-spacing: 0.13em;
+}
+
+body .auto-login-menu-button[aria-expanded="true"],
+body .auto-login-menu-button:hover:not(:disabled) {
+  border-color: rgba(229, 195, 126, 0.36);
+  color: #f0dfc1;
+}
+
+body .auto-login-modal-body {
+  gap: 0.68rem;
+}
+
+body .auto-login-popover {
+  width: min(20rem, calc(100vw - 2rem));
+  gap: 0.54rem;
+  padding: 0.72rem;
+  border-radius: 0.36rem;
+}
+
+body .auto-login-popover-heading {
+  gap: 0.58rem;
+}
+
+body .auto-login-grid {
+  gap: 0.46rem;
+}
+
+body .auto-login-field span {
+  font-size: 0.62rem;
+}
+
+body .auto-login-input {
+  min-height: 2.24rem;
+  border-color: rgba(207, 171, 104, 0.22);
+  border-radius: 0.3rem;
+  background:
+    linear-gradient(180deg, rgba(24, 23, 22, 0.92), rgba(12, 12, 13, 0.96));
+  color: #ead7b8;
+  font-size: 0.86rem;
+}
+
+body .auto-login-actions {
+  gap: 0.46rem;
+}
+
+body .auto-login-button,
+body .auto-login-launch-button {
+  min-height: 2.08rem;
+  padding: 0 0.72rem;
+  border-radius: 0.34rem;
+  font-size: 0.68rem;
+  letter-spacing: 0.12em;
 }
 
 body .hero-stage {
@@ -6794,6 +7221,11 @@ body .ui-manager-stage-tab:focus-visible {
 
 /* Auto Patch / Auto Play toggles are now keyboard-focusable - surface it. */
 body .toggle input:focus-visible + .toggle-track {
+  outline: 2px solid rgba(214, 175, 102, 0.75);
+  outline-offset: 3px;
+}
+
+body .auto-login-default-toggle input:focus-visible + .auto-login-default-box {
   outline: 2px solid rgba(214, 175, 102, 0.75);
   outline-offset: 3px;
 }

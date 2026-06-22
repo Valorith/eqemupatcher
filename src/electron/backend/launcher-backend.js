@@ -41,6 +41,7 @@ const DEFAULTS = {
   tools: [],
   defaultAutoPatch: false,
   defaultAutoPlay: false,
+  defaultAutoLogin: false,
   defaultOnGameLaunch: "minimize",
   supportedClients: ["Rain_Of_Fear_2", "Rain_Of_Fear_2_4GB"]
 };
@@ -125,6 +126,13 @@ const PE_MACHINE_ARCHITECTURES = {
   0xAA64: "arm64"
 };
 const WINDOWS_API_SET_DLL_PREFIXES = ["api-ms-win-", "ext-ms-win-"];
+const AUTO_LOGIN_PROFILE_STORE_FILE = "auto-login-profiles.json";
+const AUTO_LOGIN_SECRET_ENTROPY = "eqemupatcher:auto-login:v1";
+const AUTO_LOGIN_HELPER_FILE_NAME = "Invoke-EqAutoLogin.ps1";
+const AUTO_LOGIN_CONFIRMATION_TIMEOUT_EXIT_CODE = 2;
+const AUTO_LOGIN_LOGIN_REJECTED_EXIT_CODE = 3;
+const AUTO_LOGIN_HELPER_TIMEOUT_MS = 60 * 1000;
+const AUTO_LOGIN_HELPER_SOURCE_PATH = path.join(__dirname, "..", "assets", "auto-login", AUTO_LOGIN_HELPER_FILE_NAME);
 
 function boolToLegacyString(value) {
   return value ? "true" : "false";
@@ -132,6 +140,51 @@ function boolToLegacyString(value) {
 
 function isTrue(value) {
   return value === true || value === "true";
+}
+
+function createAutoLoginStatus(state, label, detail = "") {
+  return {
+    state,
+    label,
+    detail
+  };
+}
+
+function normalizeAutoLoginText(value, maxLength = 128) {
+  return String(value || "").replace(/[\r\n]+/g, " ").trim().slice(0, maxLength);
+}
+
+function normalizeAutoLoginProfileId(value) {
+  return String(value || "").trim().replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 64);
+}
+
+function createAutoLoginProfileId() {
+  if (typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return crypto.randomBytes(16).toString("hex");
+}
+
+function sanitizeAutoLoginProfile(profile) {
+  return {
+    id: normalizeAutoLoginProfileId(profile?.id),
+    label: normalizeAutoLoginText(profile?.label),
+    username: normalizeAutoLoginText(profile?.username),
+    isDefault: profile?.isDefault === true,
+    createdAt: String(profile?.createdAt || ""),
+    updatedAt: String(profile?.updatedAt || "")
+  };
+}
+
+function sanitizeAutoLoginProfiles(profiles) {
+  return (Array.isArray(profiles) ? profiles : [])
+    .map(sanitizeAutoLoginProfile)
+    .filter((profile) => profile.id && profile.username);
+}
+
+function sanitizeIniValue(value) {
+  return String(value || "").replace(/[\r\n]/g, "").trim();
 }
 
 async function exists(filePath) {
@@ -1337,6 +1390,7 @@ class LauncherBackend {
     this.testSimulation = getEffectivePrerequisiteSimulationConfig(this.environment, this.isPackaged);
     this.appStatePath = path.join(this.appUserDataPath, "launcher-state.yml");
     this.patchNotesCachePath = path.join(this.appUserDataPath, "patch-notes-cache.json");
+    this.autoLoginProfilesPath = path.join(this.appUserDataPath, AUTO_LOGIN_PROFILE_STORE_FILE);
     this.configPath = path.join(this.projectRoot, "launcher-config.yml");
     this.gameConfigPath = "";
     this.launchConfigPath = this.launchDirectory ? path.join(this.launchDirectory, "launcher-config.yml") : "";
@@ -1352,6 +1406,7 @@ class LauncherBackend {
     this.resolvedConfigPath = this.configPath;
     this.patchNotesCache = createEmptyPatchNotesCache();
     this.patchNotesCacheLoaded = false;
+    this.autoLoginProfiles = [];
     this.initializePromise = null;
 
     this.state = {
@@ -1387,6 +1442,7 @@ class LauncherBackend {
       branding: this.getBrandingState("Unknown"),
       autoPatch: this.config.defaultAutoPatch,
       autoPlay: this.config.defaultAutoPlay,
+      autoLogin: false,
       onGameLaunch: normalizeOnGameLaunch(this.config.defaultOnGameLaunch),
       isPatching: false,
       progressValue: 0,
@@ -1397,6 +1453,17 @@ class LauncherBackend {
       launchSupported: this.platform === "win32",
       canInstallPrerequisites: false,
       isInstallingPrerequisites: false,
+      autoLoginAvailable: this.platform === "win32",
+      autoLoginProfiles: [],
+      selectedAutoLoginProfileId: "",
+      isAutoLoginRunning: false,
+      autoLoginStatus: createAutoLoginStatus(
+        this.platform === "win32" ? "idle" : "unavailable",
+        this.platform === "win32" ? "Ready" : "Windows only",
+        this.platform === "win32"
+          ? "Account profile launch is ready."
+          : "Account profile launch is only available on Windows."
+      ),
       prerequisiteInstallArch: "",
       prerequisiteInstallReason: "",
       prerequisiteDirectXUrl: "",
@@ -2506,6 +2573,7 @@ class LauncherBackend {
   async performInitialize() {
     await this.loadConfig();
     await this.loadAppState();
+    await this.loadAutoLoginProfiles();
     await this.useLaunchDirectory();
     await this.ensureGameDirectoryConfig();
     await this.loadConfig();
@@ -2872,6 +2940,541 @@ class LauncherBackend {
     await this.saveYaml(this.appStatePath, this.appState);
   }
 
+  normalizeAutoLoginProfileDefaults() {
+    if (!Array.isArray(this.autoLoginProfiles) || this.autoLoginProfiles.length === 0) {
+      return;
+    }
+
+    let defaultAssigned = false;
+    this.autoLoginProfiles = this.autoLoginProfiles.map((profile, index) => {
+      const shouldBeDefault = profile.isDefault === true && !defaultAssigned;
+      if (shouldBeDefault) {
+        defaultAssigned = true;
+      }
+      return {
+        ...profile,
+        isDefault: shouldBeDefault
+      };
+    });
+
+    if (!defaultAssigned) {
+      this.autoLoginProfiles[0] = {
+        ...this.autoLoginProfiles[0],
+        isDefault: true
+      };
+    }
+  }
+
+  syncAutoLoginProfilesState() {
+    this.normalizeAutoLoginProfileDefaults();
+    const sanitizedProfiles = sanitizeAutoLoginProfiles(this.autoLoginProfiles);
+    const selectedId = normalizeAutoLoginProfileId(this.state.selectedAutoLoginProfileId);
+    const selectedExists = sanitizedProfiles.some((profile) => profile.id === selectedId);
+    const defaultProfile = sanitizedProfiles.find((profile) => profile.isDefault);
+    this.state.autoLoginProfiles = sanitizedProfiles;
+    this.state.selectedAutoLoginProfileId = selectedExists
+      ? selectedId
+      : defaultProfile?.id || sanitizedProfiles[0]?.id || "";
+    if (!sanitizedProfiles.length) {
+      this.state.autoLogin = false;
+    }
+  }
+
+  async loadAutoLoginProfiles() {
+    await fsp.mkdir(this.appUserDataPath, { recursive: true });
+
+    if (!(await exists(this.autoLoginProfilesPath))) {
+      this.autoLoginProfiles = [];
+      this.syncAutoLoginProfilesState();
+      return;
+    }
+
+    try {
+      const parsed = JSON.parse(await fsp.readFile(this.autoLoginProfilesPath, "utf8"));
+      const profiles = Array.isArray(parsed?.profiles) ? parsed.profiles : [];
+      this.autoLoginProfiles = profiles
+        .map((profile) => ({
+          id: normalizeAutoLoginProfileId(profile?.id),
+          label: normalizeAutoLoginText(profile?.label),
+          username: normalizeAutoLoginText(profile?.username),
+          secret: String(profile?.secret || ""),
+          isDefault: profile?.isDefault === true,
+          createdAt: String(profile?.createdAt || ""),
+          updatedAt: String(profile?.updatedAt || "")
+        }))
+        .filter((profile) => profile.id && profile.username && profile.secret);
+      this.syncAutoLoginProfilesState();
+    } catch (error) {
+      this.autoLoginProfiles = [];
+      this.syncAutoLoginProfilesState();
+      this.emitLog(`Account profile store could not be read: ${error.message}`, "warning");
+    }
+  }
+
+  async saveAutoLoginProfiles() {
+    await fsp.mkdir(path.dirname(this.autoLoginProfilesPath), { recursive: true });
+    const payload = {
+      version: 1,
+      profiles: this.autoLoginProfiles
+    };
+    await fsp.writeFile(this.autoLoginProfilesPath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    await fsp.chmod(this.autoLoginProfilesPath, 0o600).catch(() => {});
+    this.syncAutoLoginProfilesState();
+  }
+
+  getAutoLoginProfiles() {
+    this.syncAutoLoginProfilesState();
+    return this.getState();
+  }
+
+  async selectAutoLoginProfile(options = {}) {
+    const requestedId = normalizeAutoLoginProfileId(options.id);
+    if (requestedId && !this.autoLoginProfiles.some((profile) => profile.id === requestedId)) {
+      throw new Error("The selected account profile no longer exists.");
+    }
+
+    this.state.selectedAutoLoginProfileId = requestedId;
+    this.syncAutoLoginProfilesState();
+    this.emitState();
+    return this.getState();
+  }
+
+  async saveAutoLoginProfile(options = {}) {
+    if (this.platform !== "win32") {
+      throw new Error("Account profile storage is only available on Windows.");
+    }
+
+    const requestedId = normalizeAutoLoginProfileId(options.id);
+    const username = normalizeAutoLoginText(options.username, 64);
+    const label = normalizeAutoLoginText(options.label, 80) || username;
+    const password = typeof options.password === "string" ? options.password : "";
+    const existingIndex = requestedId
+      ? this.autoLoginProfiles.findIndex((profile) => profile.id === requestedId)
+      : -1;
+    const existingProfile = existingIndex >= 0 ? this.autoLoginProfiles[existingIndex] : null;
+
+    if (!username) {
+      throw new Error("A login username is required.");
+    }
+
+    if (!existingProfile && !password) {
+      throw new Error("A password is required when creating a new account profile.");
+    }
+
+    const now = new Date().toISOString();
+    const profile = {
+      id: existingProfile?.id || requestedId || createAutoLoginProfileId(),
+      label,
+      username,
+      secret: existingProfile?.secret || "",
+      isDefault: existingProfile?.isDefault === true,
+      createdAt: existingProfile?.createdAt || now,
+      updatedAt: now
+    };
+
+    if (password) {
+      profile.secret = await this.protectAutoLoginSecret(password);
+    }
+
+    if (!profile.secret) {
+      throw new Error("The account profile password could not be protected.");
+    }
+
+    if (options.isDefault === true) {
+      this.autoLoginProfiles = this.autoLoginProfiles.map((candidate) => ({
+        ...candidate,
+        isDefault: false
+      }));
+      profile.isDefault = true;
+    }
+
+    if (existingIndex >= 0) {
+      this.autoLoginProfiles.splice(existingIndex, 1, profile);
+    } else {
+      this.autoLoginProfiles.push(profile);
+    }
+
+    this.state.selectedAutoLoginProfileId = profile.id;
+    await this.saveAutoLoginProfiles();
+    this.state.autoLoginStatus = createAutoLoginStatus("idle", "Profile saved", `${profile.label} is ready to launch.`);
+    this.emitLog(`Saved account profile '${profile.label}' for ${profile.username}.`, "success");
+    this.emitState();
+    return this.getState();
+  }
+
+  async deleteAutoLoginProfile(options = {}) {
+    const requestedId = normalizeAutoLoginProfileId(options.id);
+    const existingIndex = this.autoLoginProfiles.findIndex((profile) => profile.id === requestedId);
+    if (existingIndex < 0) {
+      throw new Error("The account profile no longer exists.");
+    }
+
+    const [removedProfile] = this.autoLoginProfiles.splice(existingIndex, 1);
+    await this.saveAutoLoginProfiles();
+    await this.saveGameSettings();
+    this.state.autoLoginStatus = createAutoLoginStatus("idle", "Profile deleted", `${removedProfile.label || removedProfile.username} was removed.`);
+    this.emitLog(`Deleted account profile '${removedProfile.label || removedProfile.username}'.`, "warning");
+    this.emitState();
+    return this.getState();
+  }
+
+  async protectAutoLoginSecret(plainText) {
+    if (this.platform !== "win32") {
+      throw new Error("Secure account profile storage requires Windows DPAPI.");
+    }
+
+    const script = `
+$ErrorActionPreference = 'Stop'
+[Console]::InputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Security
+$plainText = [Console]::In.ReadToEnd()
+$plainBytes = [System.Text.Encoding]::UTF8.GetBytes($plainText)
+$entropy = [System.Text.Encoding]::UTF8.GetBytes('${AUTO_LOGIN_SECRET_ENTROPY}')
+$protectedBytes = [System.Security.Cryptography.ProtectedData]::Protect($plainBytes, $entropy, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
+[Console]::Out.Write([Convert]::ToBase64String($protectedBytes))
+`;
+    const result = await this.spawnAndCapture(this.resolvePowerShellCommand(), [
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      script
+    ], {
+      input: plainText,
+      windowsHide: true
+    }, {
+      label: "Windows credential protector",
+      timeoutMs: 15000
+    });
+
+    const protectedSecret = String(result.stdout || "").trim();
+    if (!protectedSecret) {
+      throw new Error("Windows credential protector did not return an encrypted secret.");
+    }
+
+    return protectedSecret;
+  }
+
+  async unprotectAutoLoginSecret(protectedSecret) {
+    if (this.platform !== "win32") {
+      throw new Error("Secure account profile storage requires Windows DPAPI.");
+    }
+
+    const script = `
+$ErrorActionPreference = 'Stop'
+[Console]::InputEncoding = [System.Text.Encoding]::UTF8
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+Add-Type -AssemblyName System.Security
+$protectedText = [Console]::In.ReadToEnd().Trim()
+$protectedBytes = [Convert]::FromBase64String($protectedText)
+$entropy = [System.Text.Encoding]::UTF8.GetBytes('${AUTO_LOGIN_SECRET_ENTROPY}')
+$plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protectedBytes, $entropy, [System.Security.Cryptography.DataProtectionScope]::CurrentUser)
+[Console]::Out.Write([System.Text.Encoding]::UTF8.GetString($plainBytes))
+`;
+    const result = await this.spawnAndCapture(this.resolvePowerShellCommand(), [
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+      script
+    ], {
+      input: String(protectedSecret || ""),
+      windowsHide: true
+    }, {
+      label: "Windows credential reader",
+      timeoutMs: 15000
+    });
+
+    return String(result.stdout || "");
+  }
+
+  resolvePowerShellCommand() {
+    const systemRoot = this.environment.SystemRoot || this.environment.windir || "";
+    const windowsPowerShell = systemRoot
+      ? path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe")
+      : "";
+    return windowsPowerShell || "powershell.exe";
+  }
+
+  async setIniSectionValues(filePath, sectionName, values) {
+    const sectionPattern = /^\s*\[([^\]]+)\]\s*$/;
+    const assignmentPattern = /^\s*([^=;#][^=]*?)\s*=/;
+    const normalizedSection = String(sectionName || "").trim().toLowerCase();
+    const requestedValues = new Map(
+      Object.entries(values || {}).map(([key, value]) => [
+        String(key).trim().toLowerCase(),
+        {
+          key: String(key).trim(),
+          value: sanitizeIniValue(value)
+        }
+      ])
+    );
+
+    if (!normalizedSection || requestedValues.size === 0) {
+      return;
+    }
+
+    const existingContent = (await exists(filePath)) ? await fsp.readFile(filePath, "utf8") : "";
+    const newline = existingContent.includes("\r\n") ? "\r\n" : "\n";
+    const lines = existingContent ? existingContent.split(/\r?\n/) : [];
+    if (lines.length === 1 && lines[0] === "") {
+      lines.pop();
+    }
+
+    let sectionStart = -1;
+    let sectionEnd = lines.length;
+    for (let index = 0; index < lines.length; index += 1) {
+      const match = sectionPattern.exec(lines[index]);
+      if (!match) {
+        continue;
+      }
+
+      const currentSection = match[1].trim().toLowerCase();
+      if (sectionStart >= 0) {
+        sectionEnd = index;
+        break;
+      }
+
+      if (currentSection === normalizedSection) {
+        sectionStart = index;
+      }
+    }
+
+    if (sectionStart < 0) {
+      if (lines.length && lines[lines.length - 1] !== "") {
+        lines.push("");
+      }
+      lines.push(`[${sectionName}]`);
+      sectionStart = lines.length - 1;
+      sectionEnd = lines.length;
+    }
+
+    for (let index = sectionStart + 1; index < sectionEnd; index += 1) {
+      const match = assignmentPattern.exec(lines[index]);
+      if (!match) {
+        continue;
+      }
+
+      const existingKey = match[1].trim().toLowerCase();
+      const requestedValue = requestedValues.get(existingKey);
+      if (!requestedValue) {
+        continue;
+      }
+
+      lines[index] = `${requestedValue.key}=${requestedValue.value}`;
+      requestedValues.delete(existingKey);
+    }
+
+    for (const requestedValue of requestedValues.values()) {
+      lines.splice(sectionEnd, 0, `${requestedValue.key}=${requestedValue.value}`);
+      sectionEnd += 1;
+    }
+
+    await fsp.mkdir(path.dirname(filePath), { recursive: true });
+    const nextContent = lines.join(newline);
+    await fsp.writeFile(filePath, nextContent.endsWith(newline) ? nextContent : `${nextContent}${newline}`, "utf8");
+  }
+
+  async configureAutoLoginClient(username) {
+    const safeUsername = sanitizeIniValue(username);
+    if (!safeUsername) {
+      throw new Error("A login username is required.");
+    }
+
+    await this.setIniSectionValues(path.join(this.state.gameDirectory, "eqlsPlayerData.ini"), "PLAYER", {
+      Username: safeUsername
+    });
+    await this.setIniSectionValues(path.join(this.state.gameDirectory, "eqclient.ini"), "Defaults", {
+      Maximized: "1",
+      WindowedMode: "TRUE"
+    });
+  }
+
+  async ensureAutoLoginHelperScript() {
+    const helperContent = await fsp.readFile(AUTO_LOGIN_HELPER_SOURCE_PATH, "utf8");
+    const helperDirectory = path.join(this.appUserDataPath, "auto-login");
+    const helperPath = path.join(helperDirectory, AUTO_LOGIN_HELPER_FILE_NAME);
+    await fsp.mkdir(helperDirectory, { recursive: true });
+
+    const existingContent = (await exists(helperPath)) ? await fsp.readFile(helperPath, "utf8").catch(() => "") : "";
+    if (existingContent !== helperContent) {
+      await fsp.writeFile(helperPath, helperContent, "utf8");
+      await fsp.chmod(helperPath, 0o600).catch(() => {});
+    }
+
+    return helperPath;
+  }
+
+  handleAutoLoginHelperEvent(event) {
+    const message = normalizeAutoLoginText(event?.message, 240);
+    const tone = ["success", "warning", "error"].includes(event?.tone) ? event.tone : "info";
+    const statusState = normalizeAutoLoginText(event?.statusState, 32);
+    const statusLabel = normalizeAutoLoginText(event?.statusLabel, 80);
+    const statusDetail = normalizeAutoLoginText(event?.statusDetail, 240);
+    const progressValue = Number(event?.progressValue);
+    const progressMax = Number(event?.progressMax);
+    const progressLabel = normalizeAutoLoginText(event?.progressLabel, 120);
+
+    if (message) {
+      this.emitLog(`Auto login: ${message}`, tone);
+    }
+
+    if (statusState || statusLabel || statusDetail) {
+      this.state.autoLoginStatus = createAutoLoginStatus(
+        statusState || this.state.autoLoginStatus.state,
+        statusLabel || this.state.autoLoginStatus.label,
+        statusDetail || this.state.autoLoginStatus.detail
+      );
+    }
+
+    if (Number.isFinite(progressValue) && Number.isFinite(progressMax) && progressMax > 0) {
+      this.state.progressValue = progressValue;
+      this.state.progressMax = progressMax;
+      this.state.progressLabel = progressLabel || this.state.progressLabel;
+      this.emitProgress();
+    }
+
+    this.emitState();
+  }
+
+  async runAutoLoginHelper({ eqGamePath, username, password }) {
+    const helperPath = await this.ensureAutoLoginHelperScript();
+    const args = [
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-File",
+      helperPath,
+      "-EqGamePath",
+      eqGamePath,
+      "-Username",
+      username,
+      "-WindowWaitSeconds",
+      "45",
+      "-UdpWaitSeconds",
+      "10"
+    ];
+
+    return new Promise((resolve, reject) => {
+      let child;
+      try {
+        child = this.spawnImpl(this.resolvePowerShellCommand(), args, {
+          cwd: this.state.gameDirectory,
+          windowsHide: true,
+          stdio: ["pipe", "pipe", "pipe"]
+        });
+      } catch (error) {
+        reject(error);
+        return;
+      }
+
+      let settled = false;
+      let timeoutId = null;
+      let stdoutRemainder = "";
+      let stderrOutput = "";
+      const finish = (callback, value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        callback(value);
+      };
+      const handleLine = (line) => {
+        const trimmedLine = line.trim();
+        if (!trimmedLine) {
+          return;
+        }
+
+        try {
+          this.handleAutoLoginHelperEvent(JSON.parse(trimmedLine));
+        } catch (_error) {
+          this.emitLog(`Auto login: ${trimmedLine}`, "info");
+        }
+      };
+
+      timeoutId = setTimeout(() => {
+        timeoutId = null;
+        if (typeof child.kill === "function") {
+          try {
+            child.kill();
+          } catch (_error) {
+            // Ignore termination errors and surface the timeout itself.
+          }
+        }
+        finish(reject, new Error("Auto login did not finish within 60 seconds."));
+      }, AUTO_LOGIN_HELPER_TIMEOUT_MS);
+
+      child.stdout?.on?.("data", (chunk) => {
+        stdoutRemainder += chunk.toString("utf8");
+        let newlineIndex = stdoutRemainder.search(/\r?\n/);
+        while (newlineIndex >= 0) {
+          const line = stdoutRemainder.slice(0, newlineIndex);
+          stdoutRemainder = stdoutRemainder.slice(
+            stdoutRemainder[newlineIndex] === "\r" && stdoutRemainder[newlineIndex + 1] === "\n"
+              ? newlineIndex + 2
+              : newlineIndex + 1
+          );
+          handleLine(line);
+          newlineIndex = stdoutRemainder.search(/\r?\n/);
+        }
+      });
+
+      child.stderr?.on?.("data", (chunk) => {
+        stderrOutput += chunk.toString("utf8");
+        if (stderrOutput.length > 16000) {
+          stderrOutput = stderrOutput.slice(-16000);
+        }
+      });
+
+      child.once("error", (error) => {
+        finish(reject, error);
+      });
+
+      child.once("exit", (code, signal) => {
+        if (stdoutRemainder.trim()) {
+          handleLine(stdoutRemainder);
+          stdoutRemainder = "";
+        }
+
+        if (signal) {
+          finish(reject, new Error(`Auto login helper was terminated by signal ${signal}.`));
+          return;
+        }
+
+        const normalizedCode = Number.isFinite(code) ? code : 0;
+        if (normalizedCode === 0) {
+          finish(resolve, { confirmed: true });
+          return;
+        }
+
+        if (normalizedCode === AUTO_LOGIN_CONFIRMATION_TIMEOUT_EXIT_CODE) {
+          finish(resolve, { confirmed: false });
+          return;
+        }
+
+        if (normalizedCode === AUTO_LOGIN_LOGIN_REJECTED_EXIT_CODE) {
+          finish(resolve, { confirmed: false, loginRejected: true });
+          return;
+        }
+
+        const detail = stderrOutput.trim();
+        finish(reject, new Error(detail || `Auto login helper exited with code ${normalizedCode}.`));
+      });
+
+      if (child.stdin) {
+        child.stdin.end(String(password || ""), "utf8");
+      }
+    });
+  }
+
   getGameSettingsPath() {
     if (!this.state.gameDirectory) {
       return "";
@@ -2901,11 +3504,13 @@ class LauncherBackend {
       this.gameSettings = {
         autoPatch: boolToLegacyString(this.config.defaultAutoPatch),
         autoPlay: boolToLegacyString(this.config.defaultAutoPlay),
+        autoLogin: boolToLegacyString(false),
         clientVersion: "Unknown",
         lastPatchedVersion: ""
       };
       this.state.autoPatch = this.config.defaultAutoPatch;
       this.state.autoPlay = this.config.defaultAutoPlay;
+      this.state.autoLogin = false;
       return;
     }
 
@@ -2913,6 +3518,7 @@ class LauncherBackend {
     const defaults = {
       autoPatch: boolToLegacyString(this.config.defaultAutoPatch),
       autoPlay: boolToLegacyString(this.config.defaultAutoPlay),
+      autoLogin: boolToLegacyString(false),
       clientVersion: "Unknown",
       lastPatchedVersion: ""
     };
@@ -2926,6 +3532,7 @@ class LauncherBackend {
 
     this.state.autoPatch = isTrue(this.gameSettings.autoPatch);
     this.state.autoPlay = isTrue(this.gameSettings.autoPlay);
+    this.state.autoLogin = this.state.autoLoginAvailable && this.autoLoginProfiles.length > 0 && isTrue(this.gameSettings.autoLogin);
     this.state.lastPatchedVersion = normalizeVersion(this.gameSettings.lastPatchedVersion);
 
     await this.saveGameSettings();
@@ -2938,6 +3545,8 @@ class LauncherBackend {
 
     this.gameSettings.autoPatch = boolToLegacyString(this.state.autoPatch);
     this.gameSettings.autoPlay = boolToLegacyString(this.state.autoPlay);
+    this.state.autoLogin = this.state.autoLoginAvailable && this.autoLoginProfiles.length > 0 && Boolean(this.state.autoLogin);
+    this.gameSettings.autoLogin = boolToLegacyString(this.state.autoLogin);
     this.gameSettings.clientVersion = this.state.clientVersion;
     this.gameSettings.lastPatchedVersion = normalizeVersion(this.state.lastPatchedVersion);
     await this.saveYaml(this.getGameSettingsPath(), this.gameSettings);
@@ -2962,6 +3571,10 @@ class LauncherBackend {
 
     if (typeof patch.autoPlay === "boolean") {
       this.state.autoPlay = patch.autoPlay;
+    }
+
+    if (typeof patch.autoLogin === "boolean") {
+      this.state.autoLogin = this.state.autoLoginAvailable && this.autoLoginProfiles.length > 0 && patch.autoLogin;
     }
 
     if (typeof patch.onGameLaunch === "string") {
@@ -3367,9 +3980,148 @@ class LauncherBackend {
     return this.getState();
   }
 
+  async launchAutoLoginProfile(options = {}) {
+    const { autoTriggered = false } = options;
+    const profileId = normalizeAutoLoginProfileId(options.id || this.state.selectedAutoLoginProfileId);
+    const profile = this.autoLoginProfiles.find((candidate) => candidate.id === profileId);
+    this.clearPrerequisiteInstallOffer();
+
+    if (this.state.isAutoLoginRunning) {
+      return this.getState();
+    }
+
+    if (!profile) {
+      this.state.autoLoginStatus = createAutoLoginStatus("error", "Profile missing", "Select a saved account profile before launching.");
+      this.emitState();
+      return this.getState();
+    }
+
+    if (!this.state.gameDirectory) {
+      this.setStatus("Run In Folder", "Run this launcher from the EverQuest directory before launching.");
+      this.emitState();
+      return this.getState();
+    }
+
+    if (this.platform !== "win32") {
+      this.setStatus("Windows Only", "Account profile launch is only supported on Windows.");
+      this.emitLog("Account profile launch blocked: auto-login input is only supported on Windows.", "warning");
+      this.emitState();
+      return this.getState();
+    }
+
+    if (this.state.clientVersion === "Unknown") {
+      this.setStatus("Client Unknown", "This EverQuest executable does not match a known client hash.");
+      this.emitLog("Account profile launch blocked: the selected EverQuest client is unknown.", "warning");
+      this.emitState();
+      return this.getState();
+    }
+
+    if (!this.state.clientSupported) {
+      this.setStatus("Unsupported", `${this.state.serverName} does not publish patches for ${this.state.clientLabel}.`);
+      this.emitLog(`Account profile launch blocked: ${this.state.clientLabel} is not supported by ${this.state.serverName}.`, "warning");
+      this.emitState();
+      return this.getState();
+    }
+
+    const eqGamePath = this.getEqGamePath();
+    if (!(await exists(eqGamePath))) {
+      this.setStatus("No Client", "eqgame.exe was not found in the selected folder.");
+      this.emitState();
+      return this.getState();
+    }
+
+    if (this.testSimulation.launchExitCode != null) {
+      this.setStatus("Launch Error", "Simulated launch failure.");
+      this.emitState();
+      return this.getState();
+    }
+
+    let password = "";
+    try {
+      this.state.isAutoLoginRunning = true;
+      this.state.selectedAutoLoginProfileId = profile.id;
+      this.state.autoLoginStatus = createAutoLoginStatus("running", "Preparing", `Preparing ${profile.label || profile.username}.`);
+      this.state.progressValue = 0;
+      this.state.progressMax = 100;
+      this.state.progressLabel = "Preparing account profile launch";
+      this.setStatus("Auto Login", `Preparing account profile '${profile.label || profile.username}'.`);
+      this.emitLog(`Preparing account profile launch for '${profile.label || profile.username}'.`);
+      this.emitProgress();
+      this.emitState();
+
+      password = await this.unprotectAutoLoginSecret(profile.secret);
+      if (!password) {
+        throw new Error("The saved account password could not be read.");
+      }
+
+      await this.configureAutoLoginClient(profile.username);
+      this.emitLog("Prepared EverQuest login settings for the selected account profile.");
+      this.state.autoLoginStatus = createAutoLoginStatus("running", "Launching", "Starting EverQuest and sending the login sequence.");
+      this.state.progressValue = 10;
+      this.state.progressLabel = "Launching EverQuest";
+      this.emitProgress();
+      this.emitState();
+
+      const result = await this.runAutoLoginHelper({
+        eqGamePath,
+        username: profile.username,
+        password
+      });
+
+      if (result.confirmed) {
+        this.state.progressValue = 100;
+        this.state.progressLabel = "Account profile launch complete";
+        this.emitProgress();
+        this.state.autoLoginStatus = createAutoLoginStatus("success", "Login advanced", `${profile.label || profile.username} advanced past the login form.`);
+        this.setStatus("Auto Login", "EverQuest advanced past the login form.");
+        this.emitLog(`Account profile '${profile.label || profile.username}' advanced past the login form.`, "success");
+        if (this.onGameLaunched) {
+          await this.onGameLaunched({
+            action: normalizeOnGameLaunch(this.state.onGameLaunch),
+            autoTriggered
+          });
+        }
+      } else if (result.loginRejected) {
+        this.state.autoLoginStatus = createAutoLoginStatus(
+          "warning",
+          "Login rejected",
+          "The game client reported a login error. Check the saved username and password."
+        );
+        this.setStatus("Auto Login Check", "The game client reported a login error.");
+        this.emitLog("Auto login was rejected by the game client. Check the saved username and password.", "warning");
+      } else {
+        this.state.autoLoginStatus = createAutoLoginStatus(
+          "warning",
+          "Login not confirmed",
+          "The login sequence was sent, but the client did not appear to advance past the login form."
+        );
+        this.setStatus("Auto Login Check", "Login input was sent, but the client did not appear to advance past the login form.");
+        this.emitLog("Auto login sent the credential sequence, but the client did not appear to advance past the login form.", "warning");
+      }
+    } catch (error) {
+      this.state.autoLoginStatus = createAutoLoginStatus("error", "Launch failed", error.message);
+      this.setStatus("Auto Login Error", error.message, error.message);
+      this.emitLog(`Account profile launch failed: ${error.message}`, "error");
+    } finally {
+      password = "";
+      this.state.isAutoLoginRunning = false;
+      this.syncAutoLoginProfilesState();
+      this.emitState();
+    }
+
+    return this.getState();
+  }
+
   async launchGame(options = {}) {
     const { autoTriggered = false } = options;
     this.clearPrerequisiteInstallOffer();
+
+    if (this.state.autoLogin && this.autoLoginProfiles.length > 0) {
+      return this.launchAutoLoginProfile({
+        id: this.state.selectedAutoLoginProfileId,
+        autoTriggered
+      });
+    }
 
     if (!this.state.gameDirectory) {
       this.setStatus("Run In Folder", "Run this launcher from the EverQuest directory before launching.");
@@ -3837,6 +4589,101 @@ class LauncherBackend {
         child.unref();
         finish(resolve);
       });
+    });
+  }
+
+  async spawnAndCapture(command, args, options = {}, behavior = {}) {
+    const acceptedExitCodes = new Set(
+      Array.isArray(behavior.acceptedExitCodes) && behavior.acceptedExitCodes.length
+        ? behavior.acceptedExitCodes
+        : [0]
+    );
+    const label = behavior.label || path.basename(command || "process");
+    const timeoutMs = Number.isFinite(behavior.timeoutMs) && behavior.timeoutMs > 0
+      ? behavior.timeoutMs
+      : 0;
+    const input = options.input == null ? null : String(options.input);
+    const spawnOptions = { ...options, stdio: ["pipe", "pipe", "pipe"] };
+    delete spawnOptions.input;
+
+    return new Promise((resolve, reject) => {
+      let child;
+      try {
+        child = this.spawnImpl(command, args, spawnOptions);
+      } catch (error) {
+        reject(error);
+        return;
+      }
+
+      let settled = false;
+      let timeoutId = null;
+      let stdout = "";
+      let stderr = "";
+      const finish = (callback, value) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
+        }
+        callback(value);
+      };
+      const appendOutput = (current, chunk) => {
+        const next = `${current}${chunk.toString("utf8")}`;
+        return next.length > 64000 ? next.slice(-64000) : next;
+      };
+
+      if (timeoutMs > 0) {
+        timeoutId = setTimeout(() => {
+          timeoutId = null;
+          if (typeof child.kill === "function") {
+            try {
+              child.kill();
+            } catch (_error) {
+              // Ignore termination errors and surface the timeout itself.
+            }
+          }
+          finish(reject, new Error(`${label} did not finish within ${formatDurationForDisplay(timeoutMs)}.`));
+        }, timeoutMs);
+      }
+
+      child.stdout?.on?.("data", (chunk) => {
+        stdout = appendOutput(stdout, chunk);
+      });
+
+      child.stderr?.on?.("data", (chunk) => {
+        stderr = appendOutput(stderr, chunk);
+      });
+
+      child.once("error", (error) => {
+        finish(reject, error);
+      });
+
+      child.once("exit", (code, signal) => {
+        if (signal) {
+          finish(reject, new Error(`${label} was terminated by signal ${signal}.`));
+          return;
+        }
+
+        const normalizedCode = Number.isFinite(code) ? code : 0;
+        if (!acceptedExitCodes.has(normalizedCode)) {
+          const detail = stderr.trim();
+          finish(reject, new Error(detail || `${label} exited with code ${normalizedCode}.`));
+          return;
+        }
+
+        finish(resolve, {
+          code: normalizedCode,
+          stdout,
+          stderr
+        });
+      });
+
+      if (child.stdin) {
+        child.stdin.end(input || "", "utf8");
+      }
     });
   }
 

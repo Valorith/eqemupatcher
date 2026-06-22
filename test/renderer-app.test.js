@@ -10,6 +10,8 @@ const {
 } = require("../src/electron/renderer/patch-notes-state");
 
 const APP_SOURCE = fs.readFileSync(path.join(__dirname, "..", "src", "electron", "renderer", "app.js"), "utf8");
+const INDEX_SOURCE = fs.readFileSync(path.join(__dirname, "..", "src", "electron", "renderer", "index.html"), "utf8");
+const STYLE_SOURCE = fs.readFileSync(path.join(__dirname, "..", "src", "electron", "renderer", "styles.css"), "utf8");
 const PATCH_NOTES_READ_STORAGE_KEY = "eqemu-launcher.patchNotesRead";
 const PATCH_NOTES_READ_INITIALIZED_STORAGE_KEY = "eqemu-launcher.patchNotesReadInitialized";
 
@@ -93,6 +95,16 @@ class FakeElement extends FakeNode {
     this.className = "";
     this.scrollTop = 0;
     this.clientHeight = 0;
+    this.offsetWidth = 0;
+    this.offsetHeight = 0;
+    this.boundingClientRect = {
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      width: 0,
+      height: 0
+    };
   }
 
   setAttribute(name, value) {
@@ -161,7 +173,10 @@ class FakeElement extends FakeNode {
   }
 
   contains(node) {
-    return node === this || this.children.includes(node);
+    return node === this || this.children.some((child) => (
+      child === node ||
+      (child && typeof child.contains === "function" && child.contains(node))
+    ));
   }
 
   closest(_selector) {
@@ -173,10 +188,7 @@ class FakeElement extends FakeNode {
   }
 
   getBoundingClientRect() {
-    return {
-      top: 0,
-      height: 0
-    };
+    return this.boundingClientRect;
   }
 
   scrollTo(options = {}) {
@@ -255,6 +267,22 @@ class FakeDocument {
       this.listeners.set(type, []);
     }
     this.listeners.get(type).push(listener);
+  }
+
+  async dispatch(type, overrides = {}) {
+    const listeners = this.listeners.get(type) || [];
+    const event = {
+      type,
+      target: overrides.target || this,
+      currentTarget: this,
+      key: overrides.key,
+      preventDefault: typeof overrides.preventDefault === "function" ? overrides.preventDefault : function preventDefault() {},
+      stopPropagation: typeof overrides.stopPropagation === "function" ? overrides.stopPropagation : function stopPropagation() {}
+    };
+
+    for (const listener of listeners) {
+      await listener(event);
+    }
   }
 }
 
@@ -362,7 +390,17 @@ function createLauncherState(patchNotesUrl, options = {}) {
     canLaunch: false,
     autoPatch: false,
     autoPlay: false,
+    autoLogin: false,
     onGameLaunch: "minimize",
+    autoLoginAvailable: true,
+    autoLoginProfiles: [],
+    selectedAutoLoginProfileId: "",
+    isAutoLoginRunning: false,
+    autoLoginStatus: {
+      state: "idle",
+      label: "Ready",
+      detail: "Account profile launch is ready."
+    },
     gameDirectory: options.gameDirectory || "",
     reportUrl: "",
     prerequisiteDirectXUrl: "",
@@ -535,6 +573,10 @@ async function createRendererHarness(options = {}) {
     importUiPackageFolder: [],
     startPatch: 0,
     launchGame: 0,
+    selectAutoLoginProfile: [],
+    saveAutoLoginProfile: [],
+    deleteAutoLoginProfile: [],
+    launchAutoLoginProfile: [],
     updateSettings: [],
     minimizeWindow: 0,
     toggleMaximizeWindow: 0,
@@ -639,6 +681,51 @@ async function createRendererHarness(options = {}) {
     },
     async launchGame() {
       calls.launchGame += 1;
+      return launcherState;
+    },
+    async getAutoLoginProfiles() {
+      return launcherState;
+    },
+    async selectAutoLoginProfile(requestOptions = {}) {
+      calls.selectAutoLoginProfile.push({ ...requestOptions });
+      launcherState.selectedAutoLoginProfileId = requestOptions.id || "";
+      return launcherState;
+    },
+    async saveAutoLoginProfile(requestOptions = {}) {
+      calls.saveAutoLoginProfile.push({ ...requestOptions });
+      const id = requestOptions.id || `profile-${calls.saveAutoLoginProfile.length}`;
+      const existingIndex = launcherState.autoLoginProfiles.findIndex((profile) => profile.id === id);
+      if (requestOptions.isDefault === true) {
+        launcherState.autoLoginProfiles = launcherState.autoLoginProfiles.map((profile) => ({
+          ...profile,
+          isDefault: false
+        }));
+      }
+      const profile = {
+        id,
+        label: requestOptions.label || requestOptions.username || "Profile",
+        username: requestOptions.username || "",
+        isDefault: requestOptions.isDefault === true || launcherState.autoLoginProfiles.length === 0,
+        createdAt: "2026-06-21T00:00:00.000Z",
+        updatedAt: "2026-06-21T00:00:00.000Z"
+      };
+      if (existingIndex >= 0) {
+        launcherState.autoLoginProfiles.splice(existingIndex, 1, profile);
+      } else {
+        launcherState.autoLoginProfiles.push(profile);
+      }
+      launcherState.selectedAutoLoginProfileId = id;
+      return launcherState;
+    },
+    async deleteAutoLoginProfile(requestOptions = {}) {
+      calls.deleteAutoLoginProfile.push({ ...requestOptions });
+      launcherState.autoLoginProfiles = launcherState.autoLoginProfiles.filter((profile) => profile.id !== requestOptions.id);
+      launcherState.selectedAutoLoginProfileId = launcherState.autoLoginProfiles[0]?.id || "";
+      launcherState.autoLogin = launcherState.autoLogin && launcherState.autoLoginProfiles.length > 0;
+      return launcherState;
+    },
+    async launchAutoLoginProfile(requestOptions = {}) {
+      calls.launchAutoLoginProfile.push({ ...requestOptions });
       return launcherState;
     },
     async updateSettings(patch = {}) {
@@ -754,7 +841,9 @@ async function createRendererHarness(options = {}) {
     window: {
       launcher,
       localStorage,
-      PatchNotesState: require("../src/electron/renderer/patch-notes-state")
+      PatchNotesState: require("../src/electron/renderer/patch-notes-state"),
+      innerWidth: options.viewportWidth || 1280,
+      innerHeight: options.viewportHeight || 720
     },
     document,
     NodeFilter: {
@@ -777,10 +866,12 @@ async function createRendererHarness(options = {}) {
   document.getElementById("unsupportedClientModal").classList.add("hidden");
   document.getElementById("launcherUpdateModal").classList.add("hidden");
   document.getElementById("patchNotesPromptModal").classList.add("hidden");
+  document.getElementById("autoLoginModal").classList.add("hidden");
   document.getElementById("uiManagerModal").classList.add("hidden");
   document.getElementById("uiManagerConfirmModal").classList.add("hidden");
   document.getElementById("toolsMenu").classList.add("hidden");
   document.getElementById("loginServerContextMenu").classList.add("hidden");
+  document.getElementById("autoLoginPopover").classList.add("hidden");
   document.getElementById("launcherUpdatePanel").classList.add("hidden");
 
   vm.runInNewContext(APP_SOURCE, context, {
@@ -860,7 +951,23 @@ async function createRendererHarness(options = {}) {
       patchNotesPromptViewButton: document.getElementById("patchNotesPromptViewButton"),
       launcherUpdateModal: document.getElementById("launcherUpdateModal"),
       launcherUpdateLaterButton: document.getElementById("launcherUpdateLaterButton"),
-      launcherUpdateReleaseNotes: document.getElementById("launcherUpdateReleaseNotes")
+      launcherUpdateReleaseNotes: document.getElementById("launcherUpdateReleaseNotes"),
+      autoLoginMenuButton: document.getElementById("autoLoginMenuButton"),
+      autoLoginPopover: document.getElementById("autoLoginPopover"),
+      autoLoginProfileSelect: document.getElementById("autoLoginProfileSelect"),
+      autoLoginProfileList: document.getElementById("autoLoginProfileList"),
+      autoLoginManageButton: document.getElementById("autoLoginManageButton"),
+      autoLoginModal: document.getElementById("autoLoginModal"),
+      autoLoginManageProfileSelect: document.getElementById("autoLoginManageProfileSelect"),
+      autoLoginLabelInput: document.getElementById("autoLoginLabelInput"),
+      autoLoginUsernameInput: document.getElementById("autoLoginUsernameInput"),
+      autoLoginPasswordInput: document.getElementById("autoLoginPasswordInput"),
+      autoLoginDefaultInput: document.getElementById("autoLoginDefaultInput"),
+      autoLoginSaveButton: document.getElementById("autoLoginSaveButton"),
+      autoLoginDeleteButton: document.getElementById("autoLoginDeleteButton"),
+      autoLoginLaunchButton: document.getElementById("autoLoginLaunchButton"),
+      autoLoginToggle: document.getElementById("autoLoginToggle"),
+      autoLoginStatusText: document.getElementById("autoLoginStatusText")
     },
     localStorage,
     setRefreshedNotes(value) {
@@ -914,6 +1021,387 @@ test("clicking Verify Integrity in the ready state reuses the existing verificat
   await flushAsyncWork();
 
   assert.equal(harness.calls.startPatch, 1);
+});
+
+test("renderer launches the selected auto-login profile through the profile bridge", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    statusDetail: "Manifest and local patch version are aligned.",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoLoginProfiles: [{
+      id: "profile-1",
+      label: "Vayle Box",
+      username: "vayle2",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }],
+    selectedAutoLoginProfileId: "profile-1"
+  });
+
+  await harness.elements.autoLoginLaunchButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.launchAutoLoginProfile, [{ id: "profile-1" }]);
+  assert.equal(harness.calls.launchGame, 0);
+});
+
+test("renderer keeps account profile controls in a popover and management modal", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    statusDetail: "Manifest and local patch version are aligned.",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoLoginProfiles: [{
+      id: "profile-1",
+      label: "Vayle Box",
+      username: "vayle2",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }],
+    selectedAutoLoginProfileId: "profile-1"
+  });
+
+  assert.equal(harness.elements.autoLoginPopover.classList.contains("hidden"), true);
+  assert.equal(harness.elements.autoLoginModal.classList.contains("hidden"), true);
+
+  await harness.elements.autoLoginMenuButton.dispatch("click");
+  assert.equal(harness.elements.autoLoginPopover.classList.contains("hidden"), false);
+  assert.equal(harness.elements.autoLoginMenuButton.attributes["aria-expanded"], "true");
+
+  await harness.elements.autoLoginMenuButton.dispatch("click");
+  assert.equal(harness.elements.autoLoginPopover.classList.contains("hidden"), true);
+  assert.equal(harness.elements.autoLoginMenuButton.attributes["aria-expanded"], "false");
+
+  await harness.elements.autoLoginMenuButton.dispatch("click");
+  await harness.elements.autoLoginManageButton.dispatch("click");
+  assert.equal(harness.elements.autoLoginPopover.classList.contains("hidden"), true);
+  assert.equal(harness.elements.autoLoginModal.classList.contains("hidden"), false);
+  assert.equal(harness.elements.autoLoginModal.attributes["aria-hidden"], "false");
+});
+
+test("renderer anchors account profile popover above the Account button with CSS", async () => {
+  assert.match(INDEX_SOURCE, /summary-item-server[\s\S]*?gameServerStatusBadge[\s\S]*?autoLoginPanel/);
+  assert.doesNotMatch(INDEX_SOURCE, /toggle-row[\s\S]*?autoLoginPanel/);
+  assert.doesNotMatch(INDEX_SOURCE, /<div id="autoLoginPanel"[^>]*>[\s\S]{0,600}<div id="autoLoginPopover"/);
+  assert.match(INDEX_SOURCE, /loginServerContextMenu[\s\S]*?autoLoginPopover/);
+  assert.match(INDEX_SOURCE, /autoLoginProfileList/);
+  assert.match(INDEX_SOURCE, /autoLoginProfileSelect" class="auto-login-input auto-login-profile-select hidden"/);
+  assert.match(INDEX_SOURCE, /auto-login-popover-heading[\s\S]*?auto-login-popover-beta-badge/);
+  assert.match(INDEX_SOURCE, /toggle auto-login-toggle-control[\s\S]*?auto-login-toggle-beta-badge/);
+  assert.match(STYLE_SOURCE, /\.auto-login-panel\s*{[\s\S]*?position:\s*relative;/);
+  assert.match(STYLE_SOURCE, /\.auto-login-popover\s*{[\s\S]*?position:\s*fixed;/);
+  assert.match(STYLE_SOURCE, /\.auto-login-popover\s*{[\s\S]*?z-index:\s*2000;/);
+  assert.match(STYLE_SOURCE, /\.auto-login-beta-badge\s*{[\s\S]*?border-radius:\s*999px;/);
+  assert.match(STYLE_SOURCE, /\.auto-login-beta-badge\s*{[\s\S]*?rgba\(52, 95, 146, 0\.92\)/);
+  assert.match(STYLE_SOURCE, /\.auto-login-beta-badge\s*{[\s\S]*?box-shadow:\s*none;/);
+  assert.match(STYLE_SOURCE, /body \.toggle\.auto-login-toggle-control\s*{[\s\S]*?grid-template-columns:\s*50px auto auto;/);
+  assert.match(STYLE_SOURCE, /\.auto-login-profile-list\s*{[\s\S]*?display:\s*grid;/);
+  assert.match(STYLE_SOURCE, /body \.summary-stack \.summary-item\.summary-item-server\s*{[\s\S]*?z-index:\s*30;/);
+  assert.match(STYLE_SOURCE, /body \.summary-status-layout \.auto-login-panel\s*{[\s\S]*?z-index:\s*31;/);
+  assert.match(APP_SOURCE, /positionAutoLoginPopover/);
+});
+
+test("renderer opens account profile popover at the Account button anchor", async () => {
+  const harness = await createRendererHarness({
+    viewportWidth: 500,
+    viewportHeight: 500,
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoLoginProfiles: [{
+      id: "profile-1",
+      label: "Vayle Box",
+      username: "vayle2",
+      isDefault: true,
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }],
+    selectedAutoLoginProfileId: "profile-1"
+  });
+  harness.elements.autoLoginMenuButton.boundingClientRect = {
+    left: 440,
+    top: 300,
+    right: 520,
+    bottom: 332,
+    width: 80,
+    height: 32
+  };
+  harness.elements.autoLoginPopover.boundingClientRect = {
+    left: 0,
+    top: 0,
+    right: 320,
+    bottom: 220,
+    width: 320,
+    height: 220
+  };
+
+  await harness.elements.autoLoginMenuButton.dispatch("click");
+
+  assert.equal(harness.elements.autoLoginPopover.classList.contains("hidden"), false);
+  assert.equal(harness.elements.autoLoginPopover.style.left, "168px");
+  assert.equal(harness.elements.autoLoginPopover.style.top, "80px");
+});
+
+test("renderer keeps account profile popover open for clicks inside it", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoLoginProfiles: [{
+      id: "profile-1",
+      label: "Vayle Box",
+      username: "vayle2",
+      isDefault: true,
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }],
+    selectedAutoLoginProfileId: "profile-1"
+  });
+  let stopped = false;
+
+  await harness.elements.autoLoginMenuButton.dispatch("click");
+  await harness.elements.autoLoginPopover.dispatch("click", {
+    stopPropagation: () => {
+      stopped = true;
+    }
+  });
+  await harness.document.dispatch("click", {
+    target: harness.elements.autoLoginPopover
+  });
+
+  assert.equal(stopped, true);
+  assert.equal(harness.elements.autoLoginPopover.classList.contains("hidden"), false);
+});
+
+test("renderer keeps account profile popover open when profile select retargets the final click", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoLoginProfiles: [{
+      id: "profile-1",
+      label: "Vayle Box",
+      username: "vayle2",
+      isDefault: true,
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }],
+    selectedAutoLoginProfileId: "profile-1"
+  });
+  const nativeSelectTarget = { id: "native-profile-option" };
+  const outsideTarget = new FakeElement("outside");
+
+  harness.elements.autoLoginPopover.appendChild(harness.elements.autoLoginProfileSelect);
+  await harness.elements.autoLoginMenuButton.dispatch("click");
+  await harness.document.dispatch("pointerdown", {
+    target: harness.elements.autoLoginProfileSelect
+  });
+  await harness.document.dispatch("click", {
+    target: nativeSelectTarget
+  });
+
+  assert.equal(harness.elements.autoLoginPopover.classList.contains("hidden"), false);
+
+  await harness.document.dispatch("pointerdown", {
+    target: outsideTarget
+  });
+  await harness.document.dispatch("click", {
+    target: outsideTarget
+  });
+
+  assert.equal(harness.elements.autoLoginPopover.classList.contains("hidden"), true);
+});
+
+test("renderer selects account profile from inline popover list without closing it", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoLoginProfiles: [{
+      id: "profile-1",
+      label: "Druid",
+      username: "vayle04",
+      isDefault: true,
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }, {
+      id: "profile-2",
+      label: "Cleric",
+      username: "bgondaway",
+      isDefault: false,
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }],
+    selectedAutoLoginProfileId: "profile-1"
+  });
+  const [, clericOption] = harness.elements.autoLoginProfileList.children;
+
+  harness.elements.autoLoginPopover.appendChild(harness.elements.autoLoginProfileList);
+  await harness.elements.autoLoginMenuButton.dispatch("click");
+  await harness.elements.autoLoginProfileList.dispatch("click", {
+    target: clericOption
+  });
+  await flushAsyncWork();
+  const selectedClericOption = harness.elements.autoLoginProfileList.children[1];
+  await harness.document.dispatch("pointerdown", {
+    target: selectedClericOption
+  });
+  await harness.document.dispatch("click", {
+    target: selectedClericOption
+  });
+
+  assert.deepEqual(harness.calls.selectAutoLoginProfile, [{ id: "profile-2" }]);
+  assert.equal(harness.elements.autoLoginProfileSelect.value, "profile-2");
+  assert.equal(harness.elements.autoLoginPopover.classList.contains("hidden"), false);
+  assert.equal(selectedClericOption.attributes["aria-selected"], "true");
+});
+
+test("renderer closes account profile popover for outside clicks", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoLoginProfiles: [{
+      id: "profile-1",
+      label: "Vayle Box",
+      username: "vayle2",
+      isDefault: true,
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }],
+    selectedAutoLoginProfileId: "profile-1"
+  });
+  const outsideTarget = new FakeElement("outside");
+
+  await harness.elements.autoLoginMenuButton.dispatch("click");
+  await harness.document.dispatch("click", {
+    target: outsideTarget
+  });
+
+  assert.equal(harness.elements.autoLoginPopover.classList.contains("hidden"), true);
+});
+
+test("renderer disables Auto Login until a saved account profile exists", async () => {
+  const emptyHarness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true
+  });
+
+  assert.equal(emptyHarness.elements.autoLoginToggle.checked, false);
+  assert.equal(emptyHarness.elements.autoLoginToggle.disabled, true);
+
+  const profileHarness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoLoginProfiles: [{
+      id: "profile-1",
+      label: "Vayle Box",
+      username: "vayle2",
+      isDefault: true,
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }],
+    selectedAutoLoginProfileId: "profile-1"
+  });
+
+  assert.equal(profileHarness.elements.autoLoginToggle.checked, false);
+  assert.equal(profileHarness.elements.autoLoginToggle.disabled, false);
+
+  profileHarness.elements.autoLoginToggle.checked = true;
+  await profileHarness.elements.autoLoginToggle.dispatch("change");
+  await flushAsyncWork();
+
+  assert.deepEqual(profileHarness.calls.updateSettings.at(-1), { autoLogin: true });
+  assert.equal(profileHarness.elements.autoLoginToggle.checked, true);
+});
+
+test("renderer saves the default account profile flag", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoLoginProfiles: [{
+      id: "profile-1",
+      label: "Vayle Box",
+      username: "vayle2",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }],
+    selectedAutoLoginProfileId: "profile-1"
+  });
+
+  await harness.elements.autoLoginMenuButton.dispatch("click");
+  await harness.elements.autoLoginManageButton.dispatch("click");
+  harness.elements.autoLoginDefaultInput.checked = true;
+  await harness.elements.autoLoginSaveButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.calls.saveAutoLoginProfile.at(-1).id, "profile-1");
+  assert.equal(harness.calls.saveAutoLoginProfile.at(-1).isDefault, true);
+  assert.equal(harness.elements.autoLoginManageProfileSelect.children[1].textContent, "Vayle Box (Default)");
 });
 
 test("renderer bootstrap defers patch notes loading until they are needed", async () => {
