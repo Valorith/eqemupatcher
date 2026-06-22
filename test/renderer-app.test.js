@@ -1094,6 +1094,11 @@ test("renderer batch launches checked auto-login profiles in profile order", asy
     selectedAutoLoginProfileId: "profile-1"
   });
 
+  const firstProfileMeta = harness.elements.autoLoginProfileList.children[0].children[1];
+  assert.equal(firstProfileMeta.className, "auto-login-profile-meta");
+  assert.equal(firstProfileMeta.children[0].textContent, "Druid");
+  assert.equal(firstProfileMeta.children[1].textContent, "vayle04");
+
   await harness.elements.autoLoginSelectAllButton.dispatch("click");
   await flushAsyncWork();
   assert.equal(harness.elements.autoLoginLaunchButton.textContent, "Launch 3 Profiles");
@@ -1139,6 +1144,7 @@ test("renderer primary launch uses checked profiles when auto-login is enabled",
 
   await harness.elements.autoLoginSelectAllButton.dispatch("click");
   await flushAsyncWork();
+  assert.equal(harness.elements.launchButton.textContent, "Launch (2) Ready");
   await harness.elements.launchButton.dispatch("click");
   await flushAsyncWork();
 
@@ -1205,6 +1211,9 @@ test("renderer anchors account profile popover above the Account button with CSS
   assert.match(STYLE_SOURCE, /body \.auto-login-popover\s*{[\s\S]*?min-height:\s*min\(25rem, calc\(100vh - 2rem\)\);/);
   assert.match(STYLE_SOURCE, /\.auto-login-profile-field\s*{[\s\S]*?grid-template-rows:\s*auto minmax\(0, 1fr\);/);
   assert.match(STYLE_SOURCE, /\.auto-login-selection-action\s*{[\s\S]*?border-radius:\s*999px;/);
+  assert.match(STYLE_SOURCE, /\.auto-login-profile-option\s*{[\s\S]*?grid-template-columns:\s*auto minmax\(0, 1fr\) auto;/);
+  assert.match(STYLE_SOURCE, /\.auto-login-profile-meta\s*{[\s\S]*?display:\s*grid;/);
+  assert.match(STYLE_SOURCE, /\.auto-login-profile-username\s*{[\s\S]*?text-transform:\s*uppercase;/);
   assert.match(STYLE_SOURCE, /\.auto-login-profile-checkbox\s*{[\s\S]*?border-radius:\s*0\.22rem;/);
   assert.match(STYLE_SOURCE, /\.auto-login-beta-badge\s*{[\s\S]*?border-radius:\s*999px;/);
   assert.match(STYLE_SOURCE, /\.auto-login-beta-badge\s*{[\s\S]*?rgba\(52, 95, 146, 0\.92\)/);

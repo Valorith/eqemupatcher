@@ -3018,7 +3018,12 @@ function isCheckingPatch(nextState) {
       nextState.statusBadge !== "Manifest Error"
   );
 }
+function getLaunchReadyActionLabel(nextState) {
+  const launchProfileCount = nextState?.autoLogin ? getAutoLoginLaunchProfiles(nextState).length : 0;
+  return launchProfileCount > 1 ? `Launch (${launchProfileCount}) Ready` : "Launch Ready";
+}
 function derivePresentation(nextState) {
+  const launchReadyActionLabel = getLaunchReadyActionLabel(nextState);
   const presentation = {
     chipText: nextState.statusBadge,
     chipTone: "neutral",
@@ -3027,7 +3032,7 @@ function derivePresentation(nextState) {
     patchStateText: nextState.needsPatch ? "Update Ready" : nextState.manifestVersion ? "Ready" : "Idle",
     patchLabel: "Verify Integrity",
     patchAction: "verify",
-    actionButtonLabel: "Launch Ready",
+    actionButtonLabel: launchReadyActionLabel,
     actionButtonAction: "launch",
     actionButtonTone: "launch",
     blockedClient: false,
@@ -3167,7 +3172,7 @@ function derivePresentation(nextState) {
     presentation.chipTone = "success";
     presentation.patchStateText = "Ready";
     presentation.patchLabel = "Verify Integrity";
-    presentation.actionButtonLabel = "Launch Ready";
+    presentation.actionButtonLabel = launchReadyActionLabel;
     return presentation;
   }
   return presentation;
@@ -3551,9 +3556,21 @@ function renderAutoLoginProfileList(list, profiles, selectedIds, locked) {
     checkbox.setAttribute("aria-hidden", "true");
     option.appendChild(checkbox);
 
+    const profileMeta = document.createElement("span");
+    profileMeta.className = "auto-login-profile-meta";
+
     const labelText = document.createElement("strong");
     labelText.textContent = label;
-    option.appendChild(labelText);
+    profileMeta.appendChild(labelText);
+
+    if (profile.username && profile.username !== label) {
+      const usernameText = document.createElement("span");
+      usernameText.className = "auto-login-profile-username";
+      usernameText.textContent = profile.username;
+      profileMeta.appendChild(usernameText);
+    }
+
+    option.appendChild(profileMeta);
 
     if (profile.isDefault) {
       const defaultText = document.createElement("span");
@@ -4067,7 +4084,11 @@ async function selectAutoLoginProfileById(selectedId, options = {}) {
   elements.autoLoginProfileSelect.value = selectedId;
 
   if (!selectedId || !window.launcher?.selectAutoLoginProfile) {
-    renderAutoLogin(state.current);
+    if (state.current) {
+      renderState(state.current);
+    } else {
+      renderAutoLogin(state.current);
+    }
     return;
   }
 
@@ -4111,7 +4132,7 @@ async function handleAutoLoginProfileListClick(event) {
   if (nextActiveId) {
     await selectAutoLoginProfileById(nextActiveId, { preserveMultiSelection: true });
   } else {
-    renderAutoLogin(state.current);
+    renderState(state.current);
   }
 }
 async function handleAutoLoginSelectAll() {
@@ -4129,7 +4150,7 @@ function handleAutoLoginSelectNone() {
   }
 
   setAutoLoginSelectedProfileIds([]);
-  renderAutoLogin(state.current);
+  renderState(state.current);
 }
 async function handleAutoLoginManageProfileSelectChange() {
   const selectedId = elements.autoLoginManageProfileSelect.value || "";
