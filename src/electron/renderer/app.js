@@ -149,6 +149,7 @@ const elements = {
   autoLoginProfileList: document.getElementById("autoLoginProfileList"),
   autoLoginSelectAllButton: document.getElementById("autoLoginSelectAllButton"),
   autoLoginSelectNoneButton: document.getElementById("autoLoginSelectNoneButton"),
+  autoLoginEnterWorldInput: document.getElementById("autoLoginEnterWorldInput"),
   autoLoginManageButton: document.getElementById("autoLoginManageButton"),
   autoLoginModal: document.getElementById("autoLoginModal"),
   autoLoginBackdrop: document.getElementById("autoLoginBackdrop"),
@@ -3491,6 +3492,14 @@ function getAutoLoginLaunchProfiles(nextState = state.current) {
   const selectedIds = new Set(getAutoLoginSelectedProfileIds(nextState));
   return getAutoLoginProfiles(nextState).filter((profile) => selectedIds.has(profile.id));
 }
+function getAutoLoginEnterWorldEnabled(nextState = state.current) {
+  return nextState?.autoLoginEnterWorld === true;
+}
+function getAutoLoginLaunchOptions(baseOptions = {}) {
+  return getAutoLoginEnterWorldEnabled()
+    ? { ...baseOptions, enterWorld: true }
+    : { ...baseOptions };
+}
 function getSelectedAutoLoginProfile(nextState = state.current) {
   const profiles = getAutoLoginProfiles(nextState);
   const defaultProfile = profiles.find((profile) => profile.isDefault);
@@ -3693,6 +3702,13 @@ function renderAutoLogin(nextState) {
   }
   if (elements.autoLoginSelectNoneButton) {
     elements.autoLoginSelectNoneButton.disabled = Boolean(locked || profiles.length === 0 || selectedProfileIds.length === 0);
+  }
+  if (elements.autoLoginEnterWorldInput) {
+    elements.autoLoginEnterWorldInput.checked = Boolean(profiles.length > 0 && getAutoLoginEnterWorldEnabled(nextState));
+    elements.autoLoginEnterWorldInput.disabled = Boolean(locked || profiles.length === 0);
+    elements.autoLoginEnterWorldInput.title = profiles.length > 0
+      ? "Press Play EverQuest after reaching server select."
+      : "Add an account profile to enable this option.";
   }
   elements.autoLoginManageButton.disabled = locked;
   elements.autoLoginManageProfileSelect.disabled = locked;
@@ -4233,6 +4249,28 @@ async function handleAutoLoginSelectNone() {
     });
   }
 }
+async function handleAutoLoginEnterWorldChange() {
+  if (!elements.autoLoginEnterWorldInput || !window.launcher?.updateSettings) {
+    return;
+  }
+
+  const enabled = Boolean(elements.autoLoginEnterWorldInput.checked);
+  try {
+    const nextState = await window.launcher.updateSettings({
+      autoLoginEnterWorld: enabled
+    });
+    if (nextState) {
+      renderState(nextState);
+    }
+  } catch (error) {
+    pushLog({
+      text: `Auto Login option update failed: ${error.message}`,
+      tone: "warning",
+      timestamp: new Date().toISOString()
+    });
+    renderAutoLogin(state.current);
+  }
+}
 async function handleAutoLoginProfileListKeydown(event) {
   if (event.key !== "Enter" && event.key !== " ") {
     return;
@@ -4355,8 +4393,8 @@ async function handleAutoLoginLaunch() {
   elements.autoLoginLaunchButton.disabled = true;
   try {
     const nextState = launchProfiles.length > 1 && window.launcher.launchAutoLoginProfiles
-      ? await window.launcher.launchAutoLoginProfiles({ ids: launchProfiles.map((profile) => profile.id) })
-      : await window.launcher.launchAutoLoginProfile({ id: launchProfiles[0].id });
+      ? await window.launcher.launchAutoLoginProfiles(getAutoLoginLaunchOptions({ ids: launchProfiles.map((profile) => profile.id) }))
+      : await window.launcher.launchAutoLoginProfile(getAutoLoginLaunchOptions({ id: launchProfiles[0].id }));
     if (nextState) {
       renderState(nextState);
     }
@@ -4976,11 +5014,11 @@ function wireEvents() {
 
         showConsole();
         if (launchProfiles.length > 1 && window.launcher.launchAutoLoginProfiles) {
-          await window.launcher.launchAutoLoginProfiles({ ids: launchProfiles.map((profile) => profile.id) });
+          await window.launcher.launchAutoLoginProfiles(getAutoLoginLaunchOptions({ ids: launchProfiles.map((profile) => profile.id) }));
           return;
         }
 
-        await window.launcher.launchAutoLoginProfile({ id: launchProfiles[0].id });
+        await window.launcher.launchAutoLoginProfile(getAutoLoginLaunchOptions({ id: launchProfiles[0].id }));
         return;
       }
 
@@ -4997,6 +5035,7 @@ function wireEvents() {
   elements.autoLoginProfileList?.addEventListener("keydown", handleAutoLoginProfileListKeydown);
   elements.autoLoginSelectAllButton?.addEventListener("click", handleAutoLoginSelectAll);
   elements.autoLoginSelectNoneButton?.addEventListener("click", handleAutoLoginSelectNone);
+  elements.autoLoginEnterWorldInput?.addEventListener("change", handleAutoLoginEnterWorldChange);
   elements.autoLoginManageProfileSelect?.addEventListener("change", handleAutoLoginManageProfileSelectChange);
   elements.autoLoginManageButton?.addEventListener("click", openAutoLoginModal);
   elements.autoLoginCloseButton?.addEventListener("click", closeAutoLoginModal);

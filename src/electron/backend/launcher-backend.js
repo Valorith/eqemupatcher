@@ -1418,6 +1418,7 @@ class LauncherBackend {
     this.appState = {
       gameDirectory: "",
       onGameLaunch: normalizeOnGameLaunch(DEFAULTS.defaultOnGameLaunch),
+      autoLoginEnterWorld: false,
       selectedAutoLoginProfileId: "",
       selectedAutoLoginProfileIds: []
     };
@@ -1463,6 +1464,7 @@ class LauncherBackend {
       autoPatch: this.config.defaultAutoPatch,
       autoPlay: this.config.defaultAutoPlay,
       autoLogin: false,
+      autoLoginEnterWorld: false,
       onGameLaunch: normalizeOnGameLaunch(this.config.defaultOnGameLaunch),
       isPatching: false,
       progressValue: 0,
@@ -2958,19 +2960,23 @@ class LauncherBackend {
       this.appState = { ...this.appState, ...(parsed || {}) };
       this.state.gameDirectory = this.appState.gameDirectory || "";
       this.state.onGameLaunch = normalizeOnGameLaunch(this.appState.onGameLaunch);
+      this.state.autoLoginEnterWorld = this.appState.autoLoginEnterWorld === true;
       this.state.selectedAutoLoginProfileId = normalizeAutoLoginProfileId(this.appState.selectedAutoLoginProfileId);
       this.state.selectedAutoLoginProfileIds = normalizeAutoLoginProfileIds(this.appState.selectedAutoLoginProfileIds);
       this.appState.onGameLaunch = this.state.onGameLaunch;
+      this.appState.autoLoginEnterWorld = this.state.autoLoginEnterWorld;
       this.appState.selectedAutoLoginProfileId = this.state.selectedAutoLoginProfileId;
       this.appState.selectedAutoLoginProfileIds = [...this.state.selectedAutoLoginProfileIds];
     } catch (_error) {
       this.appState = {
         gameDirectory: "",
         onGameLaunch: normalizeOnGameLaunch(DEFAULTS.defaultOnGameLaunch),
+        autoLoginEnterWorld: false,
         selectedAutoLoginProfileId: "",
         selectedAutoLoginProfileIds: []
       };
       this.state.onGameLaunch = this.appState.onGameLaunch;
+      this.state.autoLoginEnterWorld = false;
       this.state.selectedAutoLoginProfileId = "";
       this.state.selectedAutoLoginProfileIds = [];
       await this.saveYaml(this.appStatePath, this.appState);
@@ -3454,7 +3460,7 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
     this.emitState();
   }
 
-  async runAutoLoginHelper({ eqGamePath, username, password }) {
+  async runAutoLoginHelper({ eqGamePath, username, password, enterWorld = false }) {
     const helperPath = await this.ensureAutoLoginHelperScript();
     const args = [
       "-NoProfile",
@@ -3472,6 +3478,9 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
       "-UdpWaitSeconds",
       "10"
     ];
+    if (enterWorld) {
+      args.push("-EnterWorld", "-ServerSelectWaitSeconds", "15");
+    }
 
     return new Promise((resolve, reject) => {
       let child;
@@ -3490,6 +3499,7 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
       let timeoutId = null;
       let stdoutRemainder = "";
       let stderrOutput = "";
+      let enteredWorld = false;
       const finish = (callback, value) => {
         if (settled) {
           return;
@@ -3508,7 +3518,11 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
         }
 
         try {
-          this.handleAutoLoginHelperEvent(JSON.parse(trimmedLine));
+          const helperEvent = JSON.parse(trimmedLine);
+          if (helperEvent?.stage === "enter-world-complete") {
+            enteredWorld = true;
+          }
+          this.handleAutoLoginHelperEvent(helperEvent);
         } catch (_error) {
           this.emitLog(`Auto login: ${trimmedLine}`, "info");
         }
@@ -3565,7 +3579,7 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
 
         const normalizedCode = Number.isFinite(code) ? code : 0;
         if (normalizedCode === 0) {
-          finish(resolve, { confirmed: true });
+          finish(resolve, { confirmed: true, enteredWorld });
           return;
         }
 
@@ -3689,6 +3703,11 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
 
     if (typeof patch.autoLogin === "boolean") {
       this.state.autoLogin = this.state.autoLoginAvailable && this.autoLoginProfiles.length > 0 && patch.autoLogin;
+    }
+
+    if (typeof patch.autoLoginEnterWorld === "boolean") {
+      this.state.autoLoginEnterWorld = patch.autoLoginEnterWorld;
+      this.appState.autoLoginEnterWorld = this.state.autoLoginEnterWorld;
     }
 
     if (typeof patch.onGameLaunch === "string") {
@@ -4141,8 +4160,10 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
   async runAutoLoginProfile(profile, eqGamePath, options = {}) {
     const {
       batchIndex = 1,
-      batchTotal = 1
+      batchTotal = 1,
+      enterWorld = this.state.autoLoginEnterWorld
     } = options;
+    const shouldEnterWorld = enterWorld === true;
     const normalizedBatchIndex = Math.max(1, Number(batchIndex) || 1);
     const normalizedBatchTotal = Math.max(1, Number(batchTotal) || 1);
     const batchPrefix = normalizedBatchTotal > 1 ? `${normalizedBatchIndex}/${normalizedBatchTotal} ` : "";
@@ -4189,17 +4210,24 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
       const result = await this.runAutoLoginHelper({
         eqGamePath,
         username: profile.username,
-        password
+        password,
+        enterWorld: shouldEnterWorld
       });
 
       if (result.confirmed) {
+        const successDetail = result.enteredWorld
+          ? `${profileLabel} pressed Play EverQuest on the server select screen.`
+          : `${profileLabel} advanced past the login form.`;
+        const successLog = result.enteredWorld
+          ? `Account profile '${profileLabel}' pressed Play EverQuest.`
+          : `Account profile '${profileLabel}' advanced past the login form.`;
         this.state.progressValue = progressValue(100);
         this.state.progressLabel = normalizedBatchTotal > 1 ? `${profileLabel} complete` : "Account profile launch complete";
         this.emitProgress();
-        this.state.autoLoginStatus = createAutoLoginStatus("success", "Login advanced", `${profileLabel} advanced past the login form.`);
+        this.state.autoLoginStatus = createAutoLoginStatus("success", result.enteredWorld ? "Entering world" : "Login advanced", successDetail);
         this.setAutoLoginOverlayState(overlayText, overlaySuccessProgress, "success");
-        this.setStatus("Auto Login", "EverQuest advanced past the login form.");
-        this.emitLog(`Account profile '${profileLabel}' advanced past the login form.`, "success");
+        this.setStatus("Auto Login", result.enteredWorld ? "Play EverQuest was pressed." : "EverQuest advanced past the login form.");
+        this.emitLog(successLog, "success");
         this.emitState();
         return { outcome: "success" };
       }
@@ -4230,6 +4258,7 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
 
   async launchAutoLoginProfile(options = {}) {
     const { autoTriggered = false } = options;
+    const enterWorld = options.enterWorld === true || (options.enterWorld == null && this.state.autoLoginEnterWorld === true);
     const profileId = normalizeAutoLoginProfileId(options.id || this.state.selectedAutoLoginProfileId);
     const profile = this.autoLoginProfiles.find((candidate) => candidate.id === profileId);
     this.clearPrerequisiteInstallOffer();
@@ -4255,7 +4284,8 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
       this.state.isAutoLoginRunning = true;
       result = await this.runAutoLoginProfile(profile, eqGamePath, {
         batchIndex: 1,
-        batchTotal: 1
+        batchTotal: 1,
+        enterWorld
       });
       if (result?.outcome === "success") {
         if (this.onGameLaunched) {
@@ -4281,6 +4311,7 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
 
   async launchAutoLoginProfiles(options = {}) {
     const { autoTriggered = false } = options;
+    const enterWorld = options.enterWorld === true || (options.enterWorld == null && this.state.autoLoginEnterWorld === true);
     const requestedIds = new Set(
       (Array.isArray(options.ids) ? options.ids : [])
         .map((id) => normalizeAutoLoginProfileId(id))
@@ -4303,7 +4334,8 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
     if (profiles.length === 1) {
       return this.launchAutoLoginProfile({
         id: profiles[0].id,
-        autoTriggered
+        autoTriggered,
+        enterWorld
       });
     }
 
@@ -4329,7 +4361,8 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
         const profile = profiles[index];
         const result = await this.runAutoLoginProfile(profile, eqGamePath, {
           batchIndex: index + 1,
-          batchTotal: profiles.length
+          batchTotal: profiles.length,
+          enterWorld
         });
 
         if (result?.outcome !== "success") {
@@ -4357,9 +4390,12 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
       this.state.progressValue = 100;
       this.state.progressLabel = "Account profile batch complete";
       this.emitProgress();
-      this.state.autoLoginStatus = createAutoLoginStatus("success", "Batch complete", `${completedCount} selected profiles advanced past the login form.`);
-      this.setStatus("Auto Login", `${completedCount} selected profiles advanced past the login form.`);
-      this.emitLog(`Account profile batch complete: ${completedCount} profiles advanced past the login form.`, "success");
+      const batchCompleteDetail = enterWorld
+        ? `${completedCount} selected profiles pressed Play EverQuest.`
+        : `${completedCount} selected profiles advanced past the login form.`;
+      this.state.autoLoginStatus = createAutoLoginStatus("success", "Batch complete", batchCompleteDetail);
+      this.setStatus("Auto Login", batchCompleteDetail);
+      this.emitLog(`Account profile batch complete: ${batchCompleteDetail}`, "success");
       if (this.onGameLaunched) {
         await this.onGameLaunched({
           action: normalizeOnGameLaunch(this.state.onGameLaunch),
@@ -4387,7 +4423,8 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
     if (this.state.autoLogin && this.autoLoginProfiles.length > 0) {
       return this.launchAutoLoginProfile({
         id: this.state.selectedAutoLoginProfileId,
-        autoTriggered
+        autoTriggered,
+        enterWorld: this.state.autoLoginEnterWorld
       });
     }
 

@@ -11,6 +11,8 @@ param(
   [ValidateRange(1, 60)]
   [int]$LoginFormWaitSeconds = 30,
   [ValidateRange(1, 30)]
+  [int]$FocusWaitSeconds = 10,
+  [ValidateRange(1, 30)]
   [int]$EulaClickAttempts = 10,
   [ValidateRange(0, 5000)]
   [int]$EulaRetryDelayMilliseconds = 100,
@@ -19,7 +21,14 @@ param(
   [ValidateRange(0, 1000)]
   [int]$ClickHoldDelayMilliseconds = 20,
   [ValidateRange(0, 1000)]
-  [int]$KeyDelayMilliseconds = 2
+  [int]$CredentialFocusDelayMilliseconds = 120,
+  [ValidateRange(0, 1000)]
+  [int]$KeyDelayMilliseconds = 8,
+  [ValidateRange(0, 1000)]
+  [int]$PostPasswordDelayMilliseconds = 150,
+  [switch]$EnterWorld,
+  [ValidateRange(1, 60)]
+  [int]$ServerSelectWaitSeconds = 15
 )
 
 Set-StrictMode -Version Latest
@@ -30,6 +39,8 @@ $ErrorActionPreference = "Stop"
 $stopwatch = [Diagnostics.Stopwatch]::StartNew()
 $LoginOutcomeMinimumAgeMilliseconds = 2500
 $LoginOutcomeStableMilliseconds = 1200
+$ServerSelectPlayButtonXRatio = 0.724
+$ServerSelectPlayButtonYRatio = 0.700
 
 function Write-AutoLoginEvent {
   param(
@@ -338,6 +349,11 @@ namespace EqAutoLogin
                     AttachThreadInput(currentThread, targetThread, false);
                 }
             }
+        }
+
+        public static bool IsForegroundWindow(IntPtr hWnd)
+        {
+            return GetForegroundWindow() == hWnd;
         }
 
         public static void ClickWindowRelative(IntPtr hWnd, double xRatio, double yRatio, int moveDelayMilliseconds, int holdDelayMilliseconds)
@@ -693,6 +709,32 @@ function Wait-ForProcessWindow {
   throw "Timed out waiting for a visible EverQuest window."
 }
 
+function Wait-ForTargetWindowForeground {
+  param(
+    [Parameter(Mandatory = $true)]
+    [IntPtr]$WindowHandle,
+    [Parameter(Mandatory = $true)]
+    [int]$TimeoutSeconds,
+    [string]$Stage = "focus"
+  )
+
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  do {
+    if ([EqAutoLogin.Native]::IsForegroundWindow($WindowHandle)) {
+      return
+    }
+
+    [void][EqAutoLogin.Native]::FocusWindow($WindowHandle)
+    if ([EqAutoLogin.Native]::IsForegroundWindow($WindowHandle)) {
+      return
+    }
+
+    Start-Sleep -Milliseconds 100
+  } while ((Get-Date) -lt $deadline)
+
+  throw "Timed out waiting for the new EverQuest window to become foreground during $Stage."
+}
+
 function Convert-ColorRef {
   param(
     [Parameter(Mandatory = $true)]
@@ -768,6 +810,41 @@ function Test-MainMenuLoginButtonPixel {
   return (Test-BlueButtonPixel -Pixel $Pixel) -or (Test-BrightPixel -Pixel $Pixel)
 }
 
+function Test-ServerSelectPlayButtonPixel {
+  param(
+    [Parameter(Mandatory = $true)]
+    $Pixel
+  )
+
+  return (Test-MutedGrayPixel -Pixel $Pixel) -or (Test-BlueButtonPixel -Pixel $Pixel) -or (Test-BrightPixel -Pixel $Pixel)
+}
+
+function Get-ServerSelectPlayButtonProbePoints {
+  @(
+    @{ X = $ServerSelectPlayButtonXRatio; Y = $ServerSelectPlayButtonYRatio },
+    @{ X = $ServerSelectPlayButtonXRatio - 0.040; Y = $ServerSelectPlayButtonYRatio },
+    @{ X = $ServerSelectPlayButtonXRatio + 0.040; Y = $ServerSelectPlayButtonYRatio },
+    @{ X = $ServerSelectPlayButtonXRatio; Y = $ServerSelectPlayButtonYRatio - 0.012 },
+    @{ X = $ServerSelectPlayButtonXRatio; Y = $ServerSelectPlayButtonYRatio + 0.012 }
+  )
+}
+
+function Test-ServerSelectPlayButtonReady {
+  param(
+    [Parameter(Mandatory = $true)]
+    [IntPtr]$WindowHandle
+  )
+
+  foreach ($point in Get-ServerSelectPlayButtonProbePoints) {
+    $pixel = Get-WindowRelativePixel -WindowHandle $WindowHandle -XRatio $point.X -YRatio $point.Y
+    if (Test-ServerSelectPlayButtonPixel -Pixel $pixel) {
+      return $true
+    }
+  }
+
+  return $false
+}
+
 function Get-LoginCanvasState {
   param(
     [Parameter(Mandatory = $true)]
@@ -801,13 +878,16 @@ function Wait-ForLoginOutcome {
     [Parameter(Mandatory = $true)]
     [IntPtr]$WindowHandle,
     [Parameter(Mandatory = $true)]
-    [int]$TimeoutSeconds
+    [int]$TimeoutSeconds,
+    [Parameter(Mandatory = $true)]
+    [int]$FocusWaitSeconds
   )
 
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
   $eligibleAt = (Get-Date).AddMilliseconds($LoginOutcomeMinimumAgeMilliseconds)
   $advancedSince = $null
   do {
+    Wait-ForTargetWindowForeground -WindowHandle $WindowHandle -TimeoutSeconds $FocusWaitSeconds -Stage "login result"
     try {
       $state = Get-LoginCanvasState -WindowHandle $WindowHandle
     } catch {
@@ -846,6 +926,8 @@ function Wait-ForLoginFormReady {
     [Parameter(Mandatory = $true)]
     [int]$TimeoutSeconds,
     [Parameter(Mandatory = $true)]
+    [int]$FocusWaitSeconds,
+    [Parameter(Mandatory = $true)]
     [int]$ClickMoveDelayMilliseconds,
     [Parameter(Mandatory = $true)]
     [int]$ClickHoldDelayMilliseconds
@@ -854,6 +936,7 @@ function Wait-ForLoginFormReady {
   $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
   $lastMenuClick = [DateTime]::MinValue
   do {
+    Wait-ForTargetWindowForeground -WindowHandle $WindowHandle -TimeoutSeconds $FocusWaitSeconds -Stage "login form"
     $state = Get-LoginCanvasState -WindowHandle $WindowHandle
     if ($state -eq "login-form") {
       return
@@ -868,6 +951,33 @@ function Wait-ForLoginFormReady {
   } while ((Get-Date) -lt $deadline)
 
   throw "Timed out waiting for the EverQuest login form."
+}
+
+function Wait-ForServerSelectReady {
+  param(
+    [Parameter(Mandatory = $true)]
+    [IntPtr]$WindowHandle,
+    [Parameter(Mandatory = $true)]
+    [int]$TimeoutSeconds,
+    [Parameter(Mandatory = $true)]
+    [int]$FocusWaitSeconds
+  )
+
+  $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+  do {
+    Wait-ForTargetWindowForeground -WindowHandle $WindowHandle -TimeoutSeconds $FocusWaitSeconds -Stage "server select"
+    try {
+      if (Test-ServerSelectPlayButtonReady -WindowHandle $WindowHandle) {
+        return
+      }
+    } catch {
+      # The client may briefly resize or swap surfaces while loading server select.
+    }
+
+    Start-Sleep -Milliseconds 100
+  } while ((Get-Date) -lt $deadline)
+
+  throw "Timed out waiting for the EverQuest server select screen."
 }
 
 $password = ""
@@ -885,12 +995,12 @@ try {
   Write-AutoLoginEvent -Stage "window-wait" -Message "Waiting for the EverQuest window." -StatusState "running" -StatusLabel "Waiting" -StatusDetail "Waiting for the EverQuest window." -ProgressValue 25 -ProgressLabel "Waiting for EverQuest window"
   $window = Wait-ForProcessWindow -TargetProcessId $process.Id -TimeoutSeconds $WindowWaitSeconds
 
-  if (-not [EqAutoLogin.Native]::FocusWindow($window.Handle)) {
-    Write-AutoLoginEvent -Stage "focus" -Message "Windows did not confirm foreground focus; continuing with input." -Tone "warning"
-  }
+  Write-AutoLoginEvent -Stage "focus" -Message "Waiting for the new EverQuest window to become foreground." -StatusState "running" -StatusLabel "Focusing" -StatusDetail "Waiting for the newly launched EverQuest client before sending input." -ProgressValue 30 -ProgressLabel "Focusing EverQuest"
+  Wait-ForTargetWindowForeground -WindowHandle $window.Handle -TimeoutSeconds $FocusWaitSeconds -Stage "initial launch"
 
   Write-AutoLoginEvent -Stage "eula" -Message "Clicking the EULA accept position." -StatusState "running" -StatusLabel "Accepting" -StatusDetail "Advancing through the EULA screen." -ProgressValue 40 -ProgressLabel "Accepting EULA"
   for ($attempt = 1; $attempt -le $EulaClickAttempts; $attempt += 1) {
+    Wait-ForTargetWindowForeground -WindowHandle $window.Handle -TimeoutSeconds $FocusWaitSeconds -Stage "EULA"
     [EqAutoLogin.Native]::ClickWindowRelative($window.Handle, 0.661, 0.757, $ClickMoveDelayMilliseconds, $ClickHoldDelayMilliseconds)
     if ($attempt -lt $EulaClickAttempts -and $EulaRetryDelayMilliseconds -gt 0) {
       Start-Sleep -Milliseconds $EulaRetryDelayMilliseconds
@@ -898,19 +1008,43 @@ try {
   }
 
   Write-AutoLoginEvent -Stage "splash" -Message "Clicking the SOE splash/menu center." -StatusState "running" -StatusLabel "Advancing" -StatusDetail "Advancing through the loading splash." -ProgressValue 58 -ProgressLabel "Advancing login splash"
+  Wait-ForTargetWindowForeground -WindowHandle $window.Handle -TimeoutSeconds $FocusWaitSeconds -Stage "splash"
   [EqAutoLogin.Native]::ClickWindowRelative($window.Handle, 0.5, 0.5, $ClickMoveDelayMilliseconds, $ClickHoldDelayMilliseconds)
 
   Write-AutoLoginEvent -Stage "login-form" -Message "Waiting for the login form." -StatusState "running" -StatusLabel "Waiting" -StatusDetail "Waiting for the EverQuest login form before typing." -ProgressValue 66 -ProgressLabel "Waiting for login form"
-  Wait-ForLoginFormReady -WindowHandle $window.Handle -TimeoutSeconds $LoginFormWaitSeconds -ClickMoveDelayMilliseconds $ClickMoveDelayMilliseconds -ClickHoldDelayMilliseconds $ClickHoldDelayMilliseconds
+  Wait-ForLoginFormReady -WindowHandle $window.Handle -TimeoutSeconds $LoginFormWaitSeconds -FocusWaitSeconds $FocusWaitSeconds -ClickMoveDelayMilliseconds $ClickMoveDelayMilliseconds -ClickHoldDelayMilliseconds $ClickHoldDelayMilliseconds
 
   Write-AutoLoginEvent -Stage "credentials" -Message "Sending the password and pressing Enter." -StatusState "running" -StatusLabel "Signing in" -StatusDetail "Sending account credentials." -ProgressValue 72 -ProgressLabel "Sending credentials"
+  Wait-ForTargetWindowForeground -WindowHandle $window.Handle -TimeoutSeconds $FocusWaitSeconds -Stage "credentials"
   [EqAutoLogin.Native]::ClickWindowRelative($window.Handle, 0.497, 0.486, $ClickMoveDelayMilliseconds, $ClickHoldDelayMilliseconds)
+  if ($CredentialFocusDelayMilliseconds -gt 0) {
+    Start-Sleep -Milliseconds $CredentialFocusDelayMilliseconds
+  }
+  Wait-ForTargetWindowForeground -WindowHandle $window.Handle -TimeoutSeconds $FocusWaitSeconds -Stage "password entry"
   [EqAutoLogin.Native]::SendText($password, $KeyDelayMilliseconds)
+  if ($PostPasswordDelayMilliseconds -gt 0) {
+    Start-Sleep -Milliseconds $PostPasswordDelayMilliseconds
+  }
+  Wait-ForTargetWindowForeground -WindowHandle $window.Handle -TimeoutSeconds $FocusWaitSeconds -Stage "login submit"
   [EqAutoLogin.Native]::SendEnter($KeyDelayMilliseconds)
 
   Write-AutoLoginEvent -Stage "confirm" -Message "Checking the EverQuest login screen state." -StatusState "running" -StatusLabel "Confirming" -StatusDetail "Checking whether the client advanced past the login form." -ProgressValue 86 -ProgressLabel "Confirming login result"
-  $loginOutcome = Wait-ForLoginOutcome -WindowHandle $window.Handle -TimeoutSeconds $UdpWaitSeconds
+  $loginOutcome = Wait-ForLoginOutcome -WindowHandle $window.Handle -TimeoutSeconds $UdpWaitSeconds -FocusWaitSeconds $FocusWaitSeconds
   if ($loginOutcome -eq "advanced") {
+    if ($EnterWorld) {
+      Write-AutoLoginEvent -Stage "server-select" -Message "Waiting for the server select Play EverQuest button." -StatusState "running" -StatusLabel "Server select" -StatusDetail "Waiting for Play EverQuest before entering the selected server." -ProgressValue 94 -ProgressLabel "Waiting for Play EverQuest"
+      try {
+        Wait-ForServerSelectReady -WindowHandle $window.Handle -TimeoutSeconds $ServerSelectWaitSeconds -FocusWaitSeconds $FocusWaitSeconds
+        Wait-ForTargetWindowForeground -WindowHandle $window.Handle -TimeoutSeconds $FocusWaitSeconds -Stage "Play EverQuest"
+        Write-AutoLoginEvent -Stage "enter-world" -Message "Clicking Play EverQuest." -StatusState "running" -StatusLabel "Entering" -StatusDetail "Clicking Play EverQuest on the server select screen." -ProgressValue 98 -ProgressLabel "Clicking Play EverQuest"
+        [EqAutoLogin.Native]::ClickWindowRelative($window.Handle, $ServerSelectPlayButtonXRatio, $ServerSelectPlayButtonYRatio, $ClickMoveDelayMilliseconds, $ClickHoldDelayMilliseconds)
+        Write-AutoLoginEvent -Stage "enter-world-complete" -Message "Play EverQuest was pressed." -Tone "success" -StatusState "success" -StatusLabel "Entering world" -StatusDetail "Play EverQuest was pressed on the server select screen." -ProgressValue 100 -ProgressLabel "Entering world"
+        exit 0
+      } catch {
+        Write-AutoLoginEvent -Stage "enter-world-timeout" -Message $_.Exception.Message -Tone "warning" -StatusState "warning" -StatusLabel "Server select" -StatusDetail "The login succeeded, but Play EverQuest could not be pressed automatically." -ProgressValue 100 -ProgressLabel "Server select ready"
+      }
+    }
+
     Write-AutoLoginEvent -Stage "complete" -Message "EverQuest advanced past the login form." -Tone "success" -StatusState "success" -StatusLabel "Login advanced" -StatusDetail "EverQuest advanced past the login form." -ProgressValue 100 -ProgressLabel "Auto login complete"
     exit 0
   }

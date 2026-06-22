@@ -1370,13 +1370,15 @@ test("updateSettings persists launch preferences", async (t) => {
   }];
   backend.syncAutoLoginProfilesState();
 
-  const state = await backend.updateSettings({ onGameLaunch: "close", autoLogin: true });
+  const state = await backend.updateSettings({ onGameLaunch: "close", autoLogin: true, autoLoginEnterWorld: true });
   const savedState = await fsp.readFile(path.join(appUserDataPath, "launcher-state.yml"), "utf8");
   const savedGameSettings = await fsp.readFile(path.join(gameDirectory, "eqemupatcher.yml"), "utf8");
 
   assert.equal(state.onGameLaunch, "close");
   assert.equal(state.autoLogin, true);
+  assert.equal(state.autoLoginEnterWorld, true);
   assert.match(savedState, /onGameLaunch: close/);
+  assert.match(savedState, /autoLoginEnterWorld: true/);
   assert.match(savedGameSettings, /autoLogin: true/);
 });
 
@@ -1938,10 +1940,29 @@ test("auto-login helper uses DPI-aware client-area click coordinates", async () 
   assert.match(helperSource, /Test-MainMenuLoginButtonPixel/);
   assert.match(helperSource, /Wait-ForLoginFormReady/);
   assert.match(helperSource, /Wait-ForLoginOutcome/);
+  assert.match(helperSource, /\[switch\]\$EnterWorld/);
+  assert.match(helperSource, /Wait-ForServerSelectReady/);
+  assert.match(helperSource, /Test-ServerSelectPlayButtonPixel/);
+  assert.match(helperSource, /\$ServerSelectPlayButtonXRatio = 0\.724/);
+  assert.match(helperSource, /\$ServerSelectPlayButtonYRatio = 0\.700/);
+  assert.match(helperSource, /Test-ServerSelectPlayButtonReady/);
+  assert.match(helperSource, /ClickWindowRelative\(\$window\.Handle, \$ServerSelectPlayButtonXRatio, \$ServerSelectPlayButtonYRatio/);
+  assert.match(helperSource, /enter-world-complete/);
   assert.match(helperSource, /catch\s*{\s*\$state = "advanced"/);
   assert.match(helperSource, /catch\s*{\s*return "advanced"/);
   assert.match(helperSource, /\[Console\]::InputEncoding = \[System\.Text\.Encoding\]::UTF8/);
   assert.match(helperSource, /\[int\]\$LoginFormWaitSeconds = 30/);
+  assert.match(helperSource, /\[int\]\$FocusWaitSeconds = 10/);
+  assert.match(helperSource, /public static bool IsForegroundWindow/);
+  assert.match(helperSource, /function Wait-ForTargetWindowForeground/);
+  assert.match(helperSource, /Timed out waiting for the new EverQuest window to become foreground/);
+  assert.match(helperSource, /Wait-ForTargetWindowForeground -WindowHandle \$window\.Handle -TimeoutSeconds \$FocusWaitSeconds -Stage "credentials"/);
+  assert.match(helperSource, /Wait-ForTargetWindowForeground -WindowHandle \$window\.Handle -TimeoutSeconds \$FocusWaitSeconds -Stage "login submit"/);
+  assert.match(helperSource, /\[int\]\$CredentialFocusDelayMilliseconds = 120/);
+  assert.match(helperSource, /\[int\]\$KeyDelayMilliseconds = 8/);
+  assert.match(helperSource, /\[int\]\$PostPasswordDelayMilliseconds = 150/);
+  assert.match(helperSource, /Start-Sleep -Milliseconds \$CredentialFocusDelayMilliseconds[\s\S]*SendText\(\$password, \$KeyDelayMilliseconds\)/);
+  assert.match(helperSource, /SendText\(\$password, \$KeyDelayMilliseconds\)[\s\S]*Start-Sleep -Milliseconds \$PostPasswordDelayMilliseconds[\s\S]*SendEnter\(\$KeyDelayMilliseconds\)/);
   assert.match(helperSource, /login-error/);
   assert.match(helperSource, /main-menu/);
   assert.match(helperSource, /\$passwordField = Get-WindowRelativePixel/);
@@ -1951,7 +1972,7 @@ test("auto-login helper uses DPI-aware client-area click coordinates", async () 
   assert.match(helperSource, /public static void ClickWindowRelative[\s\S]*GetCenteredLegacyEqUiRect/);
   assert.match(helperSource, /ClickWindowRelative\(\$window\.Handle, 0\.661, 0\.757/);
   assert.doesNotMatch(helperSource, /Wait-ForStableUdpEndpoint/);
-  assert.doesNotMatch(helperSource, /ShowWindow\(hWnd, SW_RESTORE\);\s*IntPtr foreground/);
+  assert.doesNotMatch(helperSource, /continuing with input/);
 });
 
 test("launchAutoLoginProfile prepares INI files and invokes the helper with the decrypted password", async (t) => {
@@ -1994,10 +2015,10 @@ test("launchAutoLoginProfile prepares INI files and invokes the helper with the 
   };
   backend.runAutoLoginHelper = async (request) => {
     helperRequest = { ...request };
-    return { confirmed: true };
+    return { confirmed: true, enteredWorld: request.enterWorld === true };
   };
 
-  const state = await backend.launchAutoLoginProfile({ id: "profile-1" });
+  const state = await backend.launchAutoLoginProfile({ id: "profile-1", enterWorld: true });
   const eqclient = await fsp.readFile(path.join(gameDirectory, "eqclient.ini"), "utf8");
   const eqlsPlayerData = await fsp.readFile(path.join(gameDirectory, "eqlsPlayerData.ini"), "utf8");
 
@@ -2007,7 +2028,9 @@ test("launchAutoLoginProfile prepares INI files and invokes the helper with the 
   assert.equal(helperRequest.eqGamePath, path.join(gameDirectory, "eqgame.exe"));
   assert.equal(helperRequest.username, "vayle2");
   assert.equal(helperRequest.password, "not-the-real-password");
+  assert.equal(helperRequest.enterWorld, true);
   assert.equal(state.statusBadge, "Auto Login");
+  assert.match(state.statusDetail, /Play EverQuest/);
   assert.equal(state.isAutoLoginRunning, false);
   assert.equal(state.autoLoginOverlayText, "");
   assert.equal(state.autoLoginOverlayProgress, 0);
@@ -2077,20 +2100,22 @@ test("launchAutoLoginProfiles runs selected profiles sequentially in saved order
   backend.unprotectAutoLoginSecret = async (secret) => `password-for-${secret}`;
   backend.runAutoLoginHelper = async (request) => {
     helperRequests.push({ ...request });
-    return { confirmed: true };
+    return { confirmed: true, enteredWorld: request.enterWorld === true };
   };
 
   const state = await backend.launchAutoLoginProfiles({
     ids: ["profile-3", "profile-1"],
-    autoTriggered: true
+    autoTriggered: true,
+    enterWorld: true
   });
   const eqlsPlayerData = await fsp.readFile(path.join(gameDirectory, "eqlsPlayerData.ini"), "utf8");
 
   assert.deepEqual(helperRequests.map((request) => request.username), ["vayle04", "vayle3"]);
   assert.deepEqual(helperRequests.map((request) => request.password), ["password-for-protected-druid", "password-for-protected-bard"]);
+  assert.deepEqual(helperRequests.map((request) => request.enterWorld), [true, true]);
   assert.match(eqlsPlayerData, /^Username=vayle3$/m);
   assert.equal(state.statusBadge, "Auto Login");
-  assert.match(state.statusDetail, /2 selected profiles advanced/);
+  assert.match(state.statusDetail, /2 selected profiles pressed Play EverQuest/);
   assert.equal(state.isAutoLoginRunning, false);
   assert.equal(state.autoLoginOverlayText, "");
   assert.equal(state.autoLoginOverlayProgress, 0);
@@ -2138,6 +2163,7 @@ test("launchGame routes through auto-login when Auto Login is enabled", async (t
   backend.state.clientSupported = true;
   backend.state.canLaunch = true;
   backend.state.autoLogin = true;
+  backend.state.autoLoginEnterWorld = true;
   backend.autoLoginProfiles = [{
     id: "profile-1",
     label: "Vayle Box",
@@ -2158,6 +2184,7 @@ test("launchGame routes through auto-login when Auto Login is enabled", async (t
 
   assert.equal(spawnCalls, 0);
   assert.equal(helperRequest.username, "vayle2");
+  assert.equal(helperRequest.enterWorld, true);
   assert.equal(state.statusBadge, "Auto Login");
   assert.deepEqual(launchActions, [{ action: "minimize", autoTriggered: true }]);
 });

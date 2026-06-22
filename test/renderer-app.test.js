@@ -391,6 +391,7 @@ function createLauncherState(patchNotesUrl, options = {}) {
     autoPatch: false,
     autoPlay: false,
     autoLogin: false,
+    autoLoginEnterWorld: false,
     onGameLaunch: "minimize",
     autoLoginAvailable: true,
     autoLoginProfiles: [],
@@ -991,6 +992,7 @@ async function createRendererHarness(options = {}) {
       autoLoginProfileList: document.getElementById("autoLoginProfileList"),
       autoLoginSelectAllButton: document.getElementById("autoLoginSelectAllButton"),
       autoLoginSelectNoneButton: document.getElementById("autoLoginSelectNoneButton"),
+      autoLoginEnterWorldInput: document.getElementById("autoLoginEnterWorldInput"),
       autoLoginManageButton: document.getElementById("autoLoginManageButton"),
       autoLoginModal: document.getElementById("autoLoginModal"),
       autoLoginManageProfileSelect: document.getElementById("autoLoginManageProfileSelect"),
@@ -1182,6 +1184,55 @@ test("renderer primary launch uses checked profiles when auto-login is enabled",
   assert.equal(harness.calls.launchGame, 0);
 });
 
+test("renderer can opt auto-login into pressing Play EverQuest", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    statusDetail: "Manifest and local patch version are aligned.",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoLogin: true,
+    autoLoginProfiles: [{
+      id: "profile-1",
+      label: "Druid",
+      username: "vayle04",
+      isDefault: true,
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }, {
+      id: "profile-2",
+      label: "Cleric",
+      username: "bgondaway",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }],
+    selectedAutoLoginProfileId: "profile-1",
+    selectedAutoLoginProfileIds: ["profile-1", "profile-2"]
+  });
+
+  assert.equal(harness.elements.autoLoginEnterWorldInput.checked, false);
+  harness.elements.autoLoginEnterWorldInput.checked = true;
+  await harness.elements.autoLoginEnterWorldInput.dispatch("change");
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.updateSettings.at(-1), { autoLoginEnterWorld: true });
+  assert.equal(harness.elements.autoLoginEnterWorldInput.checked, true);
+
+  await harness.elements.launchButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.launchAutoLoginProfiles, [{
+    ids: ["profile-1", "profile-2"],
+    enterWorld: true
+  }]);
+  assert.equal(harness.calls.launchGame, 0);
+});
+
 test("renderer restores saved multi-profile auto-login selection", async () => {
   const harness = await createRendererHarness({
     gameDirectory: "C:\\EQ",
@@ -1272,6 +1323,7 @@ test("renderer anchors account profile popover above the Account button with CSS
   assert.match(INDEX_SOURCE, /loginServerContextMenu[\s\S]*?autoLoginPopover/);
   assert.match(INDEX_SOURCE, /autoLoginProfileList/);
   assert.match(INDEX_SOURCE, /autoLoginProfileSelect" class="auto-login-input auto-login-profile-select hidden"/);
+  assert.match(INDEX_SOURCE, /autoLoginEnterWorldInput[\s\S]*?Press Play EverQuest/);
   assert.match(INDEX_SOURCE, /auto-login-popover-heading[\s\S]*?auto-login-popover-beta-badge/);
   assert.match(INDEX_SOURCE, /toggle auto-login-toggle-control[\s\S]*?auto-login-toggle-beta-badge/);
   assert.match(INDEX_SOURCE, /autoLoginSelectAllButton[\s\S]*?autoLoginSelectNoneButton/);
@@ -1288,6 +1340,8 @@ test("renderer anchors account profile popover above the Account button with CSS
   assert.match(STYLE_SOURCE, /\.auto-login-profile-move-controls\s*{[\s\S]*?display:\s*inline-flex;/);
   assert.match(STYLE_SOURCE, /\.auto-login-profile-move-button\s*{[\s\S]*?place-items:\s*center;/);
   assert.match(STYLE_SOURCE, /\.auto-login-profile-checkbox\s*{[\s\S]*?border-radius:\s*0\.22rem;/);
+  assert.match(STYLE_SOURCE, /\.auto-login-enter-world-toggle\s*{[\s\S]*?grid-template-columns:\s*1\.05rem auto;/);
+  assert.match(STYLE_SOURCE, /\.auto-login-enter-world-box\s*{[\s\S]*?border-radius:\s*0\.22rem;/);
   assert.match(STYLE_SOURCE, /\.auto-login-beta-badge\s*{[\s\S]*?border-radius:\s*999px;/);
   assert.match(STYLE_SOURCE, /\.auto-login-beta-badge\s*{[\s\S]*?rgba\(52, 95, 146, 0\.92\)/);
   assert.match(STYLE_SOURCE, /\.auto-login-beta-badge\s*{[\s\S]*?box-shadow:\s*none;/);
