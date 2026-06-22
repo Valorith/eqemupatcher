@@ -1957,11 +1957,20 @@ test("auto-login helper uses DPI-aware client-area click coordinates", async () 
   assert.match(helperSource, /function Wait-ForTargetWindowForeground/);
   assert.match(helperSource, /Timed out waiting for the new EverQuest window to become foreground/);
   assert.match(helperSource, /Wait-ForTargetWindowForeground -WindowHandle \$window\.Handle -TimeoutSeconds \$FocusWaitSeconds -Stage "credentials"/);
+  assert.match(helperSource, /Wait-ForTargetWindowForeground -WindowHandle \$window\.Handle -TimeoutSeconds \$FocusWaitSeconds -Stage "username entry"/);
   assert.match(helperSource, /Wait-ForTargetWindowForeground -WindowHandle \$window\.Handle -TimeoutSeconds \$FocusWaitSeconds -Stage "login submit"/);
   assert.match(helperSource, /\[int\]\$CredentialFocusDelayMilliseconds = 120/);
   assert.match(helperSource, /\[int\]\$KeyDelayMilliseconds = 8/);
   assert.match(helperSource, /\[int\]\$PostPasswordDelayMilliseconds = 150/);
-  assert.match(helperSource, /Start-Sleep -Milliseconds \$CredentialFocusDelayMilliseconds[\s\S]*SendText\(\$password, \$KeyDelayMilliseconds\)/);
+  assert.match(helperSource, /public static void ClearText/);
+  assert.match(helperSource, /private const ushort VK_BACK = 0x08/);
+  assert.match(helperSource, /\$CredentialClearBackspaceCount = 64/);
+  assert.match(helperSource, /\$LoginUsernameXRatio = 0\.560/);
+  assert.match(helperSource, /\$LoginUsernameYRatio = 0\.390/);
+  assert.match(helperSource, /\$LoginPasswordXRatio = 0\.560/);
+  assert.match(helperSource, /\$LoginPasswordYRatio = 0\.474/);
+  assert.match(helperSource, /ClickWindowRelative\(\$window\.Handle, \$LoginUsernameXRatio, \$LoginUsernameYRatio[\s\S]*ClearText\(\$CredentialClearBackspaceCount, \$KeyDelayMilliseconds\)[\s\S]*SendText\(\$Username, \$KeyDelayMilliseconds\)/);
+  assert.match(helperSource, /ClickWindowRelative\(\$window\.Handle, \$LoginPasswordXRatio, \$LoginPasswordYRatio[\s\S]*ClearText\(\$CredentialClearBackspaceCount, \$KeyDelayMilliseconds\)[\s\S]*SendText\(\$password, \$KeyDelayMilliseconds\)/);
   assert.match(helperSource, /SendText\(\$password, \$KeyDelayMilliseconds\)[\s\S]*Start-Sleep -Milliseconds \$PostPasswordDelayMilliseconds[\s\S]*SendEnter\(\$KeyDelayMilliseconds\)/);
   assert.match(helperSource, /login-error/);
   assert.match(helperSource, /main-menu/);
@@ -2134,6 +2143,69 @@ test("launchAutoLoginProfiles runs selected profiles sequentially in saved order
   assert.deepEqual(launchActions, [{ action: "minimize", autoTriggered: true }]);
 });
 
+test("launchAutoLoginProfiles keeps credentials paired across a large selected batch", async (t) => {
+  const helperRequests = [];
+  const profileCount = 64;
+  const { backend } = await createBackendHarness(t, {
+    platform: "win32",
+    autoLoginBatchDelayMs: 0
+  });
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+  await fsp.writeFile(path.join(gameDirectory, "eqclient.ini"), "[Defaults]\nWindowedMode=FALSE\nMaximized=0\n", "utf8");
+  await fsp.writeFile(path.join(gameDirectory, "eqlsPlayerData.ini"), "[PLAYER]\nUsername=olduser\n", "utf8");
+
+  backend.state.gameDirectory = gameDirectory;
+  backend.state.clientVersion = "Rain_Of_Fear_2";
+  backend.state.clientLabel = "Rain of Fear 2";
+  backend.state.clientSupported = true;
+  backend.state.canLaunch = true;
+  backend.autoLoginProfiles = Array.from({ length: profileCount }, (_value, index) => ({
+    id: `profile-${String(index + 1).padStart(2, "0")}`,
+    label: `Box ${index + 1}`,
+    username: `account${String(index + 1).padStart(2, "0")}`,
+    secret: `secret-${index + 1}`,
+    isDefault: index === 0,
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z"
+  }));
+  backend.syncAutoLoginProfilesState();
+  backend.unprotectAutoLoginSecret = async (secret) => `password-for-${secret}`;
+  backend.runAutoLoginHelper = async (request) => {
+    const eqlsPlayerData = await fsp.readFile(path.join(gameDirectory, "eqlsPlayerData.ini"), "utf8");
+    helperRequests.push({
+      username: request.username,
+      password: request.password,
+      enterWorld: request.enterWorld,
+      configuredUsername: eqlsPlayerData.match(/^Username=(.*)$/m)?.[1] || ""
+    });
+    return { confirmed: true, enteredWorld: request.enterWorld === true };
+  };
+
+  const requestedIds = backend.autoLoginProfiles.map((profile) => profile.id).reverse();
+  const state = await backend.launchAutoLoginProfiles({
+    ids: requestedIds,
+    enterWorld: true
+  });
+  const expectedUsernames = backend.autoLoginProfiles.map((profile) => profile.username);
+  const expectedPasswords = backend.autoLoginProfiles.map((profile) => `password-for-${profile.secret}`);
+  const eqlsPlayerData = await fsp.readFile(path.join(gameDirectory, "eqlsPlayerData.ini"), "utf8");
+
+  assert.equal(helperRequests.length, backend.autoLoginProfiles.length);
+  assert.deepEqual(helperRequests.map((request) => request.username), expectedUsernames);
+  assert.deepEqual(helperRequests.map((request) => request.password), expectedPasswords);
+  assert.deepEqual(helperRequests.map((request) => request.configuredUsername), expectedUsernames);
+  assert.deepEqual(helperRequests.map((request) => request.enterWorld), backend.autoLoginProfiles.map(() => true));
+  assert.match(eqlsPlayerData, new RegExp(`^Username=account${String(profileCount).padStart(2, "0")}$`, "m"));
+  assert.equal(state.statusBadge, "Auto Login");
+  assert.match(state.statusDetail, new RegExp(`${profileCount} selected profiles pressed Play EverQuest`));
+});
+
 test("launchGame routes through auto-login when Auto Login is enabled", async (t) => {
   const launchActions = [];
   let spawnCalls = 0;
@@ -2187,6 +2259,74 @@ test("launchGame routes through auto-login when Auto Login is enabled", async (t
   assert.equal(helperRequest.enterWorld, true);
   assert.equal(state.statusBadge, "Auto Login");
   assert.deepEqual(launchActions, [{ action: "minimize", autoTriggered: true }]);
+});
+
+test("launchGame routes all selected profiles through batch auto-login", async (t) => {
+  const helperRequests = [];
+  const { backend } = await createBackendHarness(t, {
+    platform: "win32",
+    autoLoginBatchDelayMs: 0
+  });
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+  await fsp.writeFile(path.join(gameDirectory, "eqclient.ini"), "[Defaults]\nWindowedMode=FALSE\nMaximized=0\n", "utf8");
+  await fsp.writeFile(path.join(gameDirectory, "eqlsPlayerData.ini"), "[PLAYER]\nUsername=olduser\n", "utf8");
+
+  backend.state.gameDirectory = gameDirectory;
+  backend.state.clientVersion = "Rain_Of_Fear_2";
+  backend.state.clientLabel = "Rain of Fear 2";
+  backend.state.clientSupported = true;
+  backend.state.canLaunch = true;
+  backend.state.autoLogin = true;
+  backend.state.autoLoginEnterWorld = true;
+  backend.autoLoginProfiles = [{
+    id: "profile-1",
+    label: "Druid",
+    username: "vayle04",
+    secret: "protected-druid",
+    isDefault: true,
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z"
+  }, {
+    id: "profile-2",
+    label: "Cleric",
+    username: "bgondaway",
+    secret: "protected-cleric",
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z"
+  }, {
+    id: "profile-3",
+    label: "Bard",
+    username: "vayle3",
+    secret: "protected-bard",
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z"
+  }];
+  backend.state.selectedAutoLoginProfileId = "profile-2";
+  backend.state.selectedAutoLoginProfileIds = ["profile-3", "profile-1", "profile-2"];
+  backend.syncAutoLoginProfilesState();
+  backend.unprotectAutoLoginSecret = async (secret) => `password-for-${secret}`;
+  backend.runAutoLoginHelper = async (request) => {
+    helperRequests.push({ ...request });
+    return { confirmed: true, enteredWorld: request.enterWorld === true };
+  };
+
+  const state = await backend.launchGame({ autoTriggered: true });
+
+  assert.deepEqual(helperRequests.map((request) => request.username), ["vayle04", "bgondaway", "vayle3"]);
+  assert.deepEqual(helperRequests.map((request) => request.password), [
+    "password-for-protected-druid",
+    "password-for-protected-cleric",
+    "password-for-protected-bard"
+  ]);
+  assert.deepEqual(helperRequests.map((request) => request.enterWorld), [true, true, true]);
+  assert.equal(state.statusBadge, "Auto Login");
+  assert.match(state.statusDetail, /3 selected profiles pressed Play EverQuest/);
 });
 
 test("launchGame reports an immediate exit instead of claiming success", async (t) => {

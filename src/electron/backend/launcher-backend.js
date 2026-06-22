@@ -1383,6 +1383,7 @@ class LauncherBackend {
     relaunchArgs,
     isPackaged,
     launchStabilizationMs,
+    autoLoginBatchDelayMs,
     onGameLaunched,
     environment
   }) {
@@ -1403,6 +1404,7 @@ class LauncherBackend {
     this.relaunchArgs = Array.isArray(relaunchArgs) ? [...relaunchArgs] : [];
     this.isPackaged = Boolean(isPackaged);
     this.launchStabilizationMs = Number.isFinite(launchStabilizationMs) && launchStabilizationMs >= 0 ? launchStabilizationMs : 500;
+    this.autoLoginBatchDelayMs = Number.isFinite(autoLoginBatchDelayMs) && autoLoginBatchDelayMs >= 0 ? autoLoginBatchDelayMs : AUTO_LOGIN_BATCH_DELAY_MS;
     this.onGameLaunched = typeof onGameLaunched === "function" ? onGameLaunched : null;
     this.environment = environment || process.env;
     this.testSimulation = getEffectivePrerequisiteSimulationConfig(this.environment, this.isPackaged);
@@ -4383,7 +4385,7 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
           this.state.progressLabel = `Waiting for ${nextProfileLabel}`;
           this.emitProgress();
           this.emitState();
-          await sleep(AUTO_LOGIN_BATCH_DELAY_MS);
+          await sleep(this.autoLoginBatchDelayMs);
         }
       }
 
@@ -4421,8 +4423,19 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
     this.clearPrerequisiteInstallOffer();
 
     if (this.state.autoLogin && this.autoLoginProfiles.length > 0) {
+      const requestedSelectedIds = normalizeAutoLoginProfileIds(this.state.selectedAutoLoginProfileIds);
+      const requestedSelectedIdSet = new Set(requestedSelectedIds);
+      const selectedProfiles = this.autoLoginProfiles.filter((profile) => requestedSelectedIdSet.has(profile.id));
+      if (selectedProfiles.length > 1) {
+        return this.launchAutoLoginProfiles({
+          ids: selectedProfiles.map((profile) => profile.id),
+          autoTriggered,
+          enterWorld: this.state.autoLoginEnterWorld
+        });
+      }
+
       return this.launchAutoLoginProfile({
-        id: this.state.selectedAutoLoginProfileId,
+        id: selectedProfiles[0]?.id || this.state.selectedAutoLoginProfileId,
         autoTriggered,
         enterWorld: this.state.autoLoginEnterWorld
       });

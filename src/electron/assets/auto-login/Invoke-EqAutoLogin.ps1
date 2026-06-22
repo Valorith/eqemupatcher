@@ -39,6 +39,11 @@ $ErrorActionPreference = "Stop"
 $stopwatch = [Diagnostics.Stopwatch]::StartNew()
 $LoginOutcomeMinimumAgeMilliseconds = 2500
 $LoginOutcomeStableMilliseconds = 1200
+$LoginUsernameXRatio = 0.560
+$LoginUsernameYRatio = 0.390
+$LoginPasswordXRatio = 0.560
+$LoginPasswordYRatio = 0.474
+$CredentialClearBackspaceCount = 64
 $ServerSelectPlayButtonXRatio = 0.724
 $ServerSelectPlayButtonYRatio = 0.700
 
@@ -106,6 +111,7 @@ namespace EqAutoLogin
         private const ushort VK_CONTROL = 0x11;
         private const ushort VK_SHIFT = 0x10;
         private const ushort VK_MENU = 0x12;
+        private const ushort VK_BACK = 0x08;
 
         private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
 
@@ -478,6 +484,19 @@ namespace EqAutoLogin
             foreach (char c in text ?? string.Empty)
             {
                 SendCharacter(c);
+                if (keyDelayMilliseconds > 0)
+                {
+                    Thread.Sleep(keyDelayMilliseconds);
+                }
+            }
+        }
+
+        public static void ClearText(int characterCount, int keyDelayMilliseconds)
+        {
+            int normalizedCount = characterCount < 0 ? 0 : characterCount;
+            for (int index = 0; index < normalizedCount; index += 1)
+            {
+                SendVirtualKeyAsScanCode(VK_BACK);
                 if (keyDelayMilliseconds > 0)
                 {
                     Thread.Sleep(keyDelayMilliseconds);
@@ -983,6 +1002,9 @@ function Wait-ForServerSelectReady {
 $password = ""
 try {
   $password = [Console]::In.ReadToEnd()
+  if (-not $Username) {
+    throw "No username was provided to the auto-login helper."
+  }
   if (-not $password) {
     throw "No password was provided to the auto-login helper."
   }
@@ -1014,13 +1036,21 @@ try {
   Write-AutoLoginEvent -Stage "login-form" -Message "Waiting for the login form." -StatusState "running" -StatusLabel "Waiting" -StatusDetail "Waiting for the EverQuest login form before typing." -ProgressValue 66 -ProgressLabel "Waiting for login form"
   Wait-ForLoginFormReady -WindowHandle $window.Handle -TimeoutSeconds $LoginFormWaitSeconds -FocusWaitSeconds $FocusWaitSeconds -ClickMoveDelayMilliseconds $ClickMoveDelayMilliseconds -ClickHoldDelayMilliseconds $ClickHoldDelayMilliseconds
 
-  Write-AutoLoginEvent -Stage "credentials" -Message "Sending the password and pressing Enter." -StatusState "running" -StatusLabel "Signing in" -StatusDetail "Sending account credentials." -ProgressValue 72 -ProgressLabel "Sending credentials"
+  Write-AutoLoginEvent -Stage "credentials" -Message "Sending the username, password, and pressing Enter." -StatusState "running" -StatusLabel "Signing in" -StatusDetail "Sending account credentials." -ProgressValue 72 -ProgressLabel "Sending credentials"
   Wait-ForTargetWindowForeground -WindowHandle $window.Handle -TimeoutSeconds $FocusWaitSeconds -Stage "credentials"
-  [EqAutoLogin.Native]::ClickWindowRelative($window.Handle, 0.497, 0.486, $ClickMoveDelayMilliseconds, $ClickHoldDelayMilliseconds)
+  [EqAutoLogin.Native]::ClickWindowRelative($window.Handle, $LoginUsernameXRatio, $LoginUsernameYRatio, $ClickMoveDelayMilliseconds, $ClickHoldDelayMilliseconds)
+  if ($CredentialFocusDelayMilliseconds -gt 0) {
+    Start-Sleep -Milliseconds $CredentialFocusDelayMilliseconds
+  }
+  Wait-ForTargetWindowForeground -WindowHandle $window.Handle -TimeoutSeconds $FocusWaitSeconds -Stage "username entry"
+  [EqAutoLogin.Native]::ClearText($CredentialClearBackspaceCount, $KeyDelayMilliseconds)
+  [EqAutoLogin.Native]::SendText($Username, $KeyDelayMilliseconds)
+  [EqAutoLogin.Native]::ClickWindowRelative($window.Handle, $LoginPasswordXRatio, $LoginPasswordYRatio, $ClickMoveDelayMilliseconds, $ClickHoldDelayMilliseconds)
   if ($CredentialFocusDelayMilliseconds -gt 0) {
     Start-Sleep -Milliseconds $CredentialFocusDelayMilliseconds
   }
   Wait-ForTargetWindowForeground -WindowHandle $window.Handle -TimeoutSeconds $FocusWaitSeconds -Stage "password entry"
+  [EqAutoLogin.Native]::ClearText($CredentialClearBackspaceCount, $KeyDelayMilliseconds)
   [EqAutoLogin.Native]::SendText($password, $KeyDelayMilliseconds)
   if ($PostPasswordDelayMilliseconds -gt 0) {
     Start-Sleep -Milliseconds $PostPasswordDelayMilliseconds
