@@ -577,6 +577,7 @@ async function createRendererHarness(options = {}) {
     saveAutoLoginProfile: [],
     deleteAutoLoginProfile: [],
     launchAutoLoginProfile: [],
+    launchAutoLoginProfiles: [],
     updateSettings: [],
     minimizeWindow: 0,
     toggleMaximizeWindow: 0,
@@ -726,6 +727,10 @@ async function createRendererHarness(options = {}) {
     },
     async launchAutoLoginProfile(requestOptions = {}) {
       calls.launchAutoLoginProfile.push({ ...requestOptions });
+      return launcherState;
+    },
+    async launchAutoLoginProfiles(requestOptions = {}) {
+      calls.launchAutoLoginProfiles.push({ ...requestOptions });
       return launcherState;
     },
     async updateSettings(patch = {}) {
@@ -956,6 +961,8 @@ async function createRendererHarness(options = {}) {
       autoLoginPopover: document.getElementById("autoLoginPopover"),
       autoLoginProfileSelect: document.getElementById("autoLoginProfileSelect"),
       autoLoginProfileList: document.getElementById("autoLoginProfileList"),
+      autoLoginSelectAllButton: document.getElementById("autoLoginSelectAllButton"),
+      autoLoginSelectNoneButton: document.getElementById("autoLoginSelectNoneButton"),
       autoLoginManageButton: document.getElementById("autoLoginManageButton"),
       autoLoginModal: document.getElementById("autoLoginModal"),
       autoLoginManageProfileSelect: document.getElementById("autoLoginManageProfileSelect"),
@@ -1052,6 +1059,95 @@ test("renderer launches the selected auto-login profile through the profile brid
   assert.equal(harness.calls.launchGame, 0);
 });
 
+test("renderer batch launches checked auto-login profiles in profile order", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    statusDetail: "Manifest and local patch version are aligned.",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoLoginProfiles: [{
+      id: "profile-1",
+      label: "Druid",
+      username: "vayle04",
+      isDefault: true,
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }, {
+      id: "profile-2",
+      label: "Cleric",
+      username: "bgondaway",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }, {
+      id: "profile-3",
+      label: "Bard",
+      username: "vayle3",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }],
+    selectedAutoLoginProfileId: "profile-1"
+  });
+
+  await harness.elements.autoLoginSelectAllButton.dispatch("click");
+  await flushAsyncWork();
+  assert.equal(harness.elements.autoLoginLaunchButton.textContent, "Launch 3 Profiles");
+
+  await harness.elements.autoLoginLaunchButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.launchAutoLoginProfiles, [{
+    ids: ["profile-1", "profile-2", "profile-3"]
+  }]);
+  assert.deepEqual(harness.calls.launchAutoLoginProfile, []);
+});
+
+test("renderer primary launch uses checked profiles when auto-login is enabled", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    statusDetail: "Manifest and local patch version are aligned.",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoLogin: true,
+    autoLoginProfiles: [{
+      id: "profile-1",
+      label: "Druid",
+      username: "vayle04",
+      isDefault: true,
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }, {
+      id: "profile-2",
+      label: "Cleric",
+      username: "bgondaway",
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }],
+    selectedAutoLoginProfileId: "profile-1"
+  });
+
+  await harness.elements.autoLoginSelectAllButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.launchButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.launchAutoLoginProfiles, [{
+    ids: ["profile-1", "profile-2"]
+  }]);
+  assert.equal(harness.calls.launchGame, 0);
+});
+
 test("renderer keeps account profile controls in a popover and management modal", async () => {
   const harness = await createRendererHarness({
     gameDirectory: "C:\\EQ",
@@ -1101,9 +1197,15 @@ test("renderer anchors account profile popover above the Account button with CSS
   assert.match(INDEX_SOURCE, /autoLoginProfileSelect" class="auto-login-input auto-login-profile-select hidden"/);
   assert.match(INDEX_SOURCE, /auto-login-popover-heading[\s\S]*?auto-login-popover-beta-badge/);
   assert.match(INDEX_SOURCE, /toggle auto-login-toggle-control[\s\S]*?auto-login-toggle-beta-badge/);
+  assert.match(INDEX_SOURCE, /autoLoginSelectAllButton[\s\S]*?autoLoginSelectNoneButton/);
   assert.match(STYLE_SOURCE, /\.auto-login-panel\s*{[\s\S]*?position:\s*relative;/);
   assert.match(STYLE_SOURCE, /\.auto-login-popover\s*{[\s\S]*?position:\s*fixed;/);
   assert.match(STYLE_SOURCE, /\.auto-login-popover\s*{[\s\S]*?z-index:\s*2000;/);
+  assert.match(STYLE_SOURCE, /body \.auto-login-popover\s*{[\s\S]*?width:\s*min\(40rem, calc\(100vw - 2rem\)\);/);
+  assert.match(STYLE_SOURCE, /body \.auto-login-popover\s*{[\s\S]*?min-height:\s*min\(25rem, calc\(100vh - 2rem\)\);/);
+  assert.match(STYLE_SOURCE, /\.auto-login-profile-field\s*{[\s\S]*?grid-template-rows:\s*auto minmax\(0, 1fr\);/);
+  assert.match(STYLE_SOURCE, /\.auto-login-selection-action\s*{[\s\S]*?border-radius:\s*999px;/);
+  assert.match(STYLE_SOURCE, /\.auto-login-profile-checkbox\s*{[\s\S]*?border-radius:\s*0\.22rem;/);
   assert.match(STYLE_SOURCE, /\.auto-login-beta-badge\s*{[\s\S]*?border-radius:\s*999px;/);
   assert.match(STYLE_SOURCE, /\.auto-login-beta-badge\s*{[\s\S]*?rgba\(52, 95, 146, 0\.92\)/);
   assert.match(STYLE_SOURCE, /\.auto-login-beta-badge\s*{[\s\S]*?box-shadow:\s*none;/);
@@ -1111,6 +1213,7 @@ test("renderer anchors account profile popover above the Account button with CSS
   assert.match(STYLE_SOURCE, /\.auto-login-profile-list\s*{[\s\S]*?display:\s*grid;/);
   assert.match(STYLE_SOURCE, /body \.summary-stack \.summary-item\.summary-item-server\s*{[\s\S]*?z-index:\s*30;/);
   assert.match(STYLE_SOURCE, /body \.summary-status-layout \.auto-login-panel\s*{[\s\S]*?z-index:\s*31;/);
+  assert.match(APP_SOURCE, /AUTO_LOGIN_POPOVER_ANCHOR_HEIGHT_PX = 228/);
   assert.match(APP_SOURCE, /positionAutoLoginPopover/);
 });
 
@@ -1159,6 +1262,53 @@ test("renderer opens account profile popover at the Account button anchor", asyn
   assert.equal(harness.elements.autoLoginPopover.classList.contains("hidden"), false);
   assert.equal(harness.elements.autoLoginPopover.style.left, "168px");
   assert.equal(harness.elements.autoLoginPopover.style.top, "80px");
+});
+
+test("renderer keeps the account popover top anchor when the panel grows", async () => {
+  const harness = await createRendererHarness({
+    viewportWidth: 1280,
+    viewportHeight: 720,
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoLoginProfiles: [{
+      id: "profile-1",
+      label: "Vayle Box",
+      username: "vayle2",
+      isDefault: true,
+      createdAt: "2026-06-21T00:00:00.000Z",
+      updatedAt: "2026-06-21T00:00:00.000Z"
+    }],
+    selectedAutoLoginProfileId: "profile-1"
+  });
+  harness.elements.autoLoginMenuButton.boundingClientRect = {
+    left: 440,
+    top: 300,
+    right: 520,
+    bottom: 332,
+    width: 80,
+    height: 32
+  };
+  harness.elements.autoLoginPopover.boundingClientRect = {
+    left: 0,
+    top: 0,
+    right: 640,
+    bottom: 420,
+    width: 640,
+    height: 420
+  };
+
+  await harness.elements.autoLoginMenuButton.dispatch("click");
+
+  assert.equal(harness.elements.autoLoginPopover.classList.contains("hidden"), false);
+  assert.equal(harness.elements.autoLoginPopover.style.left, "520px");
+  assert.equal(harness.elements.autoLoginPopover.style.top, "72px");
 });
 
 test("renderer keeps account profile popover open for clicks inside it", async () => {

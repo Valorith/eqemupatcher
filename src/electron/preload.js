@@ -30,6 +30,7 @@ contextBridge.exposeInMainWorld("launcher", {
   saveAutoLoginProfile: (options) => ipcRenderer.invoke("launcher:saveAutoLoginProfile", options),
   deleteAutoLoginProfile: (options) => ipcRenderer.invoke("launcher:deleteAutoLoginProfile", options),
   launchAutoLoginProfile: (options) => ipcRenderer.invoke("launcher:launchAutoLoginProfile", options),
+  launchAutoLoginProfiles: (options) => ipcRenderer.invoke("launcher:launchAutoLoginProfiles", options),
   installMissingPrerequisites: () => ipcRenderer.invoke("launcher:installMissingPrerequisites"),
   updateSettings: (patch) => ipcRenderer.invoke("launcher:updateSettings", patch),
   minimizeWindow: () => ipcRenderer.invoke("launcher:minimizeWindow"),

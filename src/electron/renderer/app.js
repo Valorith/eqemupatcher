@@ -13,6 +13,7 @@ const state = {
   loginServerContextMenuX: 0,
   loginServerContextMenuY: 0,
   autoLoginSelectedProfileId: null,
+  autoLoginSelectedProfileIds: null,
   autoLoginFormDirty: false,
   autoLoginPointerStartedInside: false,
   uiManagerConfirmationAction: null,
@@ -64,6 +65,7 @@ const SERVER_STATUS_POLL_INTERVAL_MS = 30000;
 const SERVER_STATUS_MANUAL_COOLDOWN_MS = 60000;
 const WINDOW_DRAG_TOP_RATIO = 0.2;
 const AUTO_LOGIN_POPOVER_GUTTER_PX = 12;
+const AUTO_LOGIN_POPOVER_ANCHOR_HEIGHT_PX = 228;
 const WINDOW_DRAG_INTERACTIVE_SELECTOR = [
   "a",
   "button",
@@ -145,6 +147,8 @@ const elements = {
   autoLoginLaunchButton: document.getElementById("autoLoginLaunchButton"),
   autoLoginProfileSelect: document.getElementById("autoLoginProfileSelect"),
   autoLoginProfileList: document.getElementById("autoLoginProfileList"),
+  autoLoginSelectAllButton: document.getElementById("autoLoginSelectAllButton"),
+  autoLoginSelectNoneButton: document.getElementById("autoLoginSelectNoneButton"),
   autoLoginManageButton: document.getElementById("autoLoginManageButton"),
   autoLoginModal: document.getElementById("autoLoginModal"),
   autoLoginBackdrop: document.getElementById("autoLoginBackdrop"),
@@ -2342,10 +2346,11 @@ function positionAutoLoginPopover() {
   const viewport = getViewportSize();
   const popoverWidth = popoverRect.width || elements.autoLoginPopover.offsetWidth || 0;
   const popoverHeight = popoverRect.height || elements.autoLoginPopover.offsetHeight || 0;
+  const anchorHeight = Math.min(popoverHeight || AUTO_LOGIN_POPOVER_ANCHOR_HEIGHT_PX, AUTO_LOGIN_POPOVER_ANCHOR_HEIGHT_PX);
   const maxLeft = viewport.width ? viewport.width - popoverWidth - AUTO_LOGIN_POPOVER_GUTTER_PX : anchorRect.right;
   const maxTop = viewport.height ? viewport.height - popoverHeight - AUTO_LOGIN_POPOVER_GUTTER_PX : anchorRect.top;
   let left = anchorRect.right;
-  let top = anchorRect.top - popoverHeight;
+  let top = anchorRect.top - anchorHeight;
 
   if (viewport.width && left > maxLeft) {
     left = maxLeft;
@@ -3438,6 +3443,31 @@ function clearElementChildren(element) {
 function getAutoLoginProfiles(nextState = state.current) {
   return Array.isArray(nextState?.autoLoginProfiles) ? nextState.autoLoginProfiles : [];
 }
+function getAutoLoginSelectedProfileIds(nextState = state.current) {
+  const profiles = getAutoLoginProfiles(nextState);
+  const validIds = new Set(profiles.map((profile) => profile.id));
+  const defaultProfile = profiles.find((profile) => profile.isDefault);
+  const fallbackId = state.autoLoginSelectedProfileId ?? nextState?.selectedAutoLoginProfileId ?? defaultProfile?.id ?? profiles[0]?.id ?? "";
+  const sourceIds = Array.isArray(state.autoLoginSelectedProfileIds)
+    ? state.autoLoginSelectedProfileIds
+    : (fallbackId ? [fallbackId] : []);
+  const selectedSet = new Set(sourceIds.filter((id) => validIds.has(id)));
+
+  return profiles
+    .map((profile) => profile.id)
+    .filter((id) => selectedSet.has(id));
+}
+function setAutoLoginSelectedProfileIds(profileIds = [], nextState = state.current) {
+  const profiles = getAutoLoginProfiles(nextState);
+  const requestedIds = new Set((Array.isArray(profileIds) ? profileIds : []).filter(Boolean));
+  state.autoLoginSelectedProfileIds = profiles
+    .map((profile) => profile.id)
+    .filter((id) => requestedIds.has(id));
+}
+function getAutoLoginLaunchProfiles(nextState = state.current) {
+  const selectedIds = new Set(getAutoLoginSelectedProfileIds(nextState));
+  return getAutoLoginProfiles(nextState).filter((profile) => selectedIds.has(profile.id));
+}
 function getSelectedAutoLoginProfile(nextState = state.current) {
   const profiles = getAutoLoginProfiles(nextState);
   const defaultProfile = profiles.find((profile) => profile.isDefault);
@@ -3485,12 +3515,13 @@ function renderAutoLoginProfileOptions(select, profiles, selectedId, options = {
   }
   select.value = profiles.some((profile) => profile.id === selectedId) ? selectedId : "";
 }
-function renderAutoLoginProfileList(list, profiles, selectedId, locked) {
+function renderAutoLoginProfileList(list, profiles, selectedIds, locked) {
   if (!list) {
     return;
   }
 
   clearElementChildren(list);
+  const selectedSet = new Set(selectedIds);
   if (!profiles.length) {
     const emptyOption = document.createElement("button");
     emptyOption.className = "auto-login-profile-option";
@@ -3506,12 +3537,19 @@ function renderAutoLoginProfileList(list, profiles, selectedId, locked) {
   for (const profile of profiles) {
     const option = document.createElement("button");
     const label = profile.label || profile.username || "Account profile";
+    const checked = selectedSet.has(profile.id);
     option.className = "auto-login-profile-option";
     option.type = "button";
     option.dataset.autoLoginProfileId = profile.id;
-    option.setAttribute("role", "option");
-    option.setAttribute("aria-selected", profile.id === selectedId ? "true" : "false");
+    option.setAttribute("role", "checkbox");
+    option.setAttribute("aria-checked", checked ? "true" : "false");
+    option.setAttribute("aria-selected", checked ? "true" : "false");
     option.disabled = Boolean(locked);
+
+    const checkbox = document.createElement("span");
+    checkbox.className = "auto-login-profile-checkbox";
+    checkbox.setAttribute("aria-hidden", "true");
+    option.appendChild(checkbox);
 
     const labelText = document.createElement("strong");
     labelText.textContent = label;
@@ -3519,6 +3557,7 @@ function renderAutoLoginProfileList(list, profiles, selectedId, locked) {
 
     if (profile.isDefault) {
       const defaultText = document.createElement("span");
+      defaultText.className = "auto-login-profile-default-badge";
       defaultText.textContent = "Default";
       option.appendChild(defaultText);
     }
@@ -3534,14 +3573,20 @@ function renderAutoLogin(nextState) {
   const profiles = getAutoLoginProfiles(nextState);
   const selectedProfile = getSelectedAutoLoginProfile(nextState);
   const selectedId = selectedProfile?.id || "";
+  const selectedProfileIds = getAutoLoginSelectedProfileIds(nextState);
+  const launchProfiles = getAutoLoginLaunchProfiles(nextState);
   const previousSelectedId = elements.autoLoginManageProfileSelect?.value || "";
   const modalOpen = Boolean(elements.autoLoginModal && !elements.autoLoginModal.classList.contains("hidden"));
   state.autoLoginSelectedProfileId = selectedId;
+  setAutoLoginSelectedProfileIds(selectedProfileIds, nextState);
   const autoLoginAvailable = nextState.autoLoginAvailable !== false;
   const locked = Boolean(nextState.isPatching || nextState.isInstallingPrerequisites || nextState.isAutoLoginRunning || !autoLoginAvailable);
-  const launchLocked = Boolean(locked || !selectedProfile || !nextState.canLaunch);
+  const launchLocked = Boolean(locked || launchProfiles.length === 0 || !nextState.canLaunch);
   const status = nextState.autoLoginStatus || {};
   const profileCountText = profiles.length === 1 ? "1 saved profile" : `${profiles.length} saved profiles`;
+  const selectedCountText = launchProfiles.length === 1
+    ? "1 selected profile"
+    : `${launchProfiles.length} selected profiles`;
   const statusDetail = String(status.detail || "").trim();
   const canUseAutoLogin = autoLoginAvailable && profiles.length > 0;
 
@@ -3549,14 +3594,14 @@ function renderAutoLogin(nextState) {
   renderAutoLoginProfileOptions(elements.autoLoginManageProfileSelect, profiles, selectedId, {
     includeNewProfile: true
   });
-  renderAutoLoginProfileList(elements.autoLoginProfileList, profiles, selectedId, locked);
+  renderAutoLoginProfileList(elements.autoLoginProfileList, profiles, selectedProfileIds, locked);
 
   elements.autoLoginPanel.dataset.state = status.state || (autoLoginAvailable ? "idle" : "unavailable");
   elements.autoLoginStatusText.textContent = !autoLoginAvailable
     ? "Windows only"
     : nextState.isAutoLoginRunning
       ? status.label || "Launching profile"
-      : statusDetail || profileCountText;
+      : statusDetail || (launchProfiles.length > 1 ? selectedCountText : profileCountText);
   elements.autoLoginStatusText.title = statusDetail || elements.autoLoginStatusText.textContent;
   if (elements.autoLoginModalStatusText) {
     elements.autoLoginModalStatusText.textContent = statusDetail || "Stored passwords are protected by Windows for this user account.";
@@ -3587,6 +3632,12 @@ function renderAutoLogin(nextState) {
   if (elements.autoLoginProfileList) {
     elements.autoLoginProfileList.setAttribute("aria-disabled", String(locked));
   }
+  if (elements.autoLoginSelectAllButton) {
+    elements.autoLoginSelectAllButton.disabled = Boolean(locked || profiles.length === 0 || selectedProfileIds.length === profiles.length);
+  }
+  if (elements.autoLoginSelectNoneButton) {
+    elements.autoLoginSelectNoneButton.disabled = Boolean(locked || profiles.length === 0 || selectedProfileIds.length === 0);
+  }
   elements.autoLoginManageButton.disabled = locked;
   elements.autoLoginManageProfileSelect.disabled = locked;
   elements.autoLoginLabelInput.disabled = locked;
@@ -3599,7 +3650,11 @@ function renderAutoLogin(nextState) {
   elements.autoLoginSaveButton.disabled = locked;
   elements.autoLoginDeleteButton.disabled = locked || !selectedProfile;
   elements.autoLoginLaunchButton.disabled = launchLocked;
-  elements.autoLoginLaunchButton.textContent = nextState.isAutoLoginRunning ? "Launching..." : "Launch Profile";
+  elements.autoLoginLaunchButton.textContent = nextState.isAutoLoginRunning
+    ? "Launching..."
+    : launchProfiles.length > 1
+      ? `Launch ${launchProfiles.length} Profiles`
+      : "Launch Profile";
   positionAutoLoginPopover();
 }
 function setBusy(button, busyText, busy) {
@@ -4004,8 +4059,11 @@ async function handleAutoLoginProfileSelectChange() {
   const selectedId = elements.autoLoginProfileSelect.value || "";
   await selectAutoLoginProfileById(selectedId);
 }
-async function selectAutoLoginProfileById(selectedId) {
+async function selectAutoLoginProfileById(selectedId, options = {}) {
   state.autoLoginSelectedProfileId = selectedId;
+  if (options.preserveMultiSelection !== true) {
+    setAutoLoginSelectedProfileIds(selectedId ? [selectedId] : []);
+  }
   elements.autoLoginProfileSelect.value = selectedId;
 
   if (!selectedId || !window.launcher?.selectAutoLoginProfile) {
@@ -4036,7 +4094,42 @@ async function handleAutoLoginProfileListClick(event) {
 
   event.preventDefault();
   event.stopPropagation();
-  await selectAutoLoginProfileById(option.dataset.autoLoginProfileId || "");
+  const profileId = option.dataset.autoLoginProfileId || "";
+  const selectedIds = getAutoLoginSelectedProfileIds();
+  const isSelected = selectedIds.includes(profileId);
+  const nextSelectedIds = isSelected
+    ? selectedIds.filter((id) => id !== profileId)
+    : [...selectedIds, profileId];
+  setAutoLoginSelectedProfileIds(nextSelectedIds);
+
+  const nextActiveId = isSelected
+    ? state.autoLoginSelectedProfileId === profileId
+      ? getAutoLoginSelectedProfileIds()[0] || ""
+      : state.autoLoginSelectedProfileId || ""
+    : profileId;
+
+  if (nextActiveId) {
+    await selectAutoLoginProfileById(nextActiveId, { preserveMultiSelection: true });
+  } else {
+    renderAutoLogin(state.current);
+  }
+}
+async function handleAutoLoginSelectAll() {
+  const profiles = getAutoLoginProfiles();
+  if (!profiles.length || state.current?.isAutoLoginRunning) {
+    return;
+  }
+
+  setAutoLoginSelectedProfileIds(profiles.map((profile) => profile.id));
+  await selectAutoLoginProfileById(profiles[0].id, { preserveMultiSelection: true });
+}
+function handleAutoLoginSelectNone() {
+  if (state.current?.isAutoLoginRunning) {
+    return;
+  }
+
+  setAutoLoginSelectedProfileIds([]);
+  renderAutoLogin(state.current);
 }
 async function handleAutoLoginManageProfileSelectChange() {
   const selectedId = elements.autoLoginManageProfileSelect.value || "";
@@ -4085,6 +4178,7 @@ async function handleAutoLoginSave() {
     state.autoLoginFormDirty = false;
     elements.autoLoginPasswordInput.value = "";
     if (nextState) {
+      state.autoLoginSelectedProfileIds = nextState.selectedAutoLoginProfileId ? [nextState.selectedAutoLoginProfileId] : null;
       renderState(nextState);
     }
   } catch (error) {
@@ -4135,8 +4229,8 @@ async function handleAutoLoginLaunch() {
     return;
   }
 
-  const selectedProfile = getSelectedAutoLoginProfile();
-  if (!selectedProfile || state.current?.isAutoLoginRunning) {
+  const launchProfiles = getAutoLoginLaunchProfiles();
+  if (!launchProfiles.length || state.current?.isAutoLoginRunning) {
     return;
   }
 
@@ -4144,7 +4238,9 @@ async function handleAutoLoginLaunch() {
   closeAutoLoginPopover();
   elements.autoLoginLaunchButton.disabled = true;
   try {
-    const nextState = await window.launcher.launchAutoLoginProfile({ id: selectedProfile.id });
+    const nextState = launchProfiles.length > 1 && window.launcher.launchAutoLoginProfiles
+      ? await window.launcher.launchAutoLoginProfiles({ ids: launchProfiles.map((profile) => profile.id) })
+      : await window.launcher.launchAutoLoginProfile({ id: launchProfiles[0].id });
     if (nextState) {
       renderState(nextState);
     }
@@ -4751,6 +4847,27 @@ function wireEvents() {
       return;
     }
     if (action === "launch") {
+      const launchProfiles = getAutoLoginLaunchProfiles();
+      if (state.current?.autoLogin && Array.isArray(state.autoLoginSelectedProfileIds)) {
+        if (!launchProfiles.length) {
+          pushLog({
+            text: "Auto Login is enabled, but no account profiles are selected.",
+            tone: "warning",
+            timestamp: new Date().toISOString()
+          });
+          return;
+        }
+
+        showConsole();
+        if (launchProfiles.length > 1 && window.launcher.launchAutoLoginProfiles) {
+          await window.launcher.launchAutoLoginProfiles({ ids: launchProfiles.map((profile) => profile.id) });
+          return;
+        }
+
+        await window.launcher.launchAutoLoginProfile({ id: launchProfiles[0].id });
+        return;
+      }
+
       await window.launcher.launchGame();
     }
   });
@@ -4761,6 +4878,8 @@ function wireEvents() {
   });
   elements.autoLoginProfileSelect?.addEventListener("change", handleAutoLoginProfileSelectChange);
   elements.autoLoginProfileList?.addEventListener("click", handleAutoLoginProfileListClick);
+  elements.autoLoginSelectAllButton?.addEventListener("click", handleAutoLoginSelectAll);
+  elements.autoLoginSelectNoneButton?.addEventListener("click", handleAutoLoginSelectNone);
   elements.autoLoginManageProfileSelect?.addEventListener("change", handleAutoLoginManageProfileSelectChange);
   elements.autoLoginManageButton?.addEventListener("click", openAutoLoginModal);
   elements.autoLoginCloseButton?.addEventListener("click", closeAutoLoginModal);

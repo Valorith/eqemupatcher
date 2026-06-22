@@ -1,14 +1,24 @@
 const path = require("path");
-const { BrowserWindow, app, dialog, ipcMain, shell } = require("electron");
+const { BrowserWindow, app, dialog, ipcMain, screen, shell } = require("electron");
 const { LauncherBackend } = require("./backend/launcher-backend");
 const packageMetadata = require("../../package.json");
 
 let mainWindow = null;
 let backend = null;
 let activeWindowDrag = null;
+let autoLoginOverlayWindow = null;
+let autoLoginOverlayStateKey = "";
+let autoLoginOverlaySuccessHoldTimer = null;
+let pendingAutoLoginOverlayState = null;
 const windowsIconPath = path.join(__dirname, "assets", "icons", "icon-app.ico");
 const defaultIconPath = path.join(__dirname, "assets", "icons", "icon-app.png");
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
+const AUTO_LOGIN_OVERLAY_WIDTH = 560;
+const AUTO_LOGIN_OVERLAY_HEIGHT = 76;
+const AUTO_LOGIN_OVERLAY_MARGIN = 24;
+const AUTO_LOGIN_OVERLAY_TOP_RATIO = 0.17;
+const AUTO_LOGIN_OVERLAY_TRACK_PATH = "M 272 3 H 514 A 27 27 0 0 1 514 57 H 30 A 27 27 0 0 1 30 3 H 272";
+const AUTO_LOGIN_OVERLAY_SUCCESS_HOLD_MS = 1500;
 
 function resolveAppVersion() {
   const packageVersion = String(packageMetadata?.version || "").trim();
@@ -37,6 +47,358 @@ function resolveLauncherExecutablePath() {
   }
 
   return app.getPath("exe");
+}
+
+function escapeHtml(value) {
+  return String(value || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function normalizeOverlayProgress(value) {
+  const progress = Number(value);
+  if (!Number.isFinite(progress)) {
+    return 0;
+  }
+
+  return Math.min(100, Math.max(0, Math.round(progress)));
+}
+
+function normalizeOverlayTone(value) {
+  return value === "success" ? "success" : "default";
+}
+
+function getAutoLoginOverlayHtml({ message, progress, tone }) {
+  const safeProgress = normalizeOverlayProgress(progress);
+  const progressOpacity = safeProgress > 0 ? "1" : "0";
+  const toneClass = normalizeOverlayTone(tone) === "success" ? " is-success" : "";
+
+  return `<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    html,
+    body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      overflow: hidden;
+      background: transparent;
+      font-family: "Segoe UI", Arial, sans-serif;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .status-shell {
+      box-sizing: border-box;
+      width: calc(100% - 16px);
+      height: 60px;
+      position: relative;
+    }
+
+    .status-pill {
+      box-sizing: border-box;
+      position: absolute;
+      inset: 2px;
+      padding: 0 34px;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.91);
+      box-shadow: 0 12px 28px rgba(0, 0, 0, 0.32);
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 28px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      transition: background 160ms ease, border-color 160ms ease, color 160ms ease;
+    }
+
+    .status-shell.is-success .status-pill {
+      border-color: rgba(109, 226, 137, 0.58);
+      background: rgba(7, 48, 28, 0.95);
+      color: #f5fff7;
+    }
+
+    .status-track {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      overflow: visible;
+      pointer-events: none;
+    }
+
+    .status-track path {
+      fill: none;
+      stroke-width: 4;
+      vector-effect: non-scaling-stroke;
+    }
+
+    .status-track-base {
+      stroke: rgba(255, 255, 255, 0.15);
+    }
+
+    .status-track-fill {
+      opacity: ${progressOpacity};
+      stroke: #6de289;
+      stroke-linecap: round;
+      stroke-dasharray: ${safeProgress} 100;
+      transition: opacity 120ms ease, stroke 160ms ease, stroke-dasharray 180ms ease;
+    }
+
+    .status-shell.is-success .status-track-base {
+      stroke: rgba(109, 226, 137, 0.24);
+    }
+
+    .status-shell.is-success .status-track-fill {
+      stroke: #7cf49a;
+    }
+  </style>
+</head>
+<body>
+  <div class="status-shell${toneClass}">
+    <svg class="status-track" viewBox="0 0 544 60" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+      <path class="status-track-base" d="${AUTO_LOGIN_OVERLAY_TRACK_PATH}" pathLength="100"></path>
+      <path class="status-track-fill" d="${AUTO_LOGIN_OVERLAY_TRACK_PATH}" pathLength="100"></path>
+    </svg>
+    <div class="status-pill">${escapeHtml(message)}</div>
+  </div>
+</body>
+</html>`;
+}
+
+function getAutoLoginOverlayDisplay() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    return screen.getDisplayMatching(mainWindow.getBounds());
+  }
+
+  return screen.getPrimaryDisplay();
+}
+
+function getAutoLoginOverlayBounds() {
+  const display = getAutoLoginOverlayDisplay();
+  const area = display?.workArea || display?.bounds || {
+    x: 0,
+    y: 0,
+    width: AUTO_LOGIN_OVERLAY_WIDTH + (AUTO_LOGIN_OVERLAY_MARGIN * 2),
+    height: 480
+  };
+  const width = Math.min(
+    AUTO_LOGIN_OVERLAY_WIDTH,
+    Math.max(320, area.width - (AUTO_LOGIN_OVERLAY_MARGIN * 2))
+  );
+  const height = Math.min(
+    AUTO_LOGIN_OVERLAY_HEIGHT,
+    Math.max(56, area.height - (AUTO_LOGIN_OVERLAY_MARGIN * 2))
+  );
+  const minY = area.y + AUTO_LOGIN_OVERLAY_MARGIN;
+  const maxY = area.y + area.height - height - AUTO_LOGIN_OVERLAY_MARGIN;
+  const desiredY = area.y + Math.round((area.height * AUTO_LOGIN_OVERLAY_TOP_RATIO) - (height / 2));
+
+  return {
+    width,
+    height,
+    x: area.x + Math.round((area.width - width) / 2),
+    y: Math.max(minY, Math.min(desiredY, Math.max(minY, maxY)))
+  };
+}
+
+function clearAutoLoginOverlaySuccessHold() {
+  if (autoLoginOverlaySuccessHoldTimer) {
+    clearTimeout(autoLoginOverlaySuccessHoldTimer);
+    autoLoginOverlaySuccessHoldTimer = null;
+  }
+
+  pendingAutoLoginOverlayState = null;
+}
+
+function closeAutoLoginOverlayWindow() {
+  autoLoginOverlayStateKey = "";
+
+  if (!autoLoginOverlayWindow || autoLoginOverlayWindow.isDestroyed()) {
+    autoLoginOverlayWindow = null;
+    return;
+  }
+
+  const overlayWindow = autoLoginOverlayWindow;
+  autoLoginOverlayWindow = null;
+  overlayWindow.destroy();
+}
+
+function closeAutoLoginOverlay() {
+  clearAutoLoginOverlaySuccessHold();
+  closeAutoLoginOverlayWindow();
+}
+
+function ensureAutoLoginOverlayWindow() {
+  if (!app.isReady()) {
+    return null;
+  }
+
+  if (autoLoginOverlayWindow && !autoLoginOverlayWindow.isDestroyed()) {
+    return autoLoginOverlayWindow;
+  }
+
+  autoLoginOverlayWindow = new BrowserWindow({
+    ...getAutoLoginOverlayBounds(),
+    frame: false,
+    transparent: true,
+    resizable: false,
+    movable: false,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    focusable: false,
+    alwaysOnTop: true,
+    hasShadow: false,
+    show: false,
+    backgroundColor: "#00000000",
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true
+    }
+  });
+
+  try {
+    autoLoginOverlayWindow.setAlwaysOnTop(true, "screen-saver");
+  } catch {
+    autoLoginOverlayWindow.setAlwaysOnTop(true);
+  }
+
+  try {
+    autoLoginOverlayWindow.setIgnoreMouseEvents(true, { forward: true });
+  } catch {
+    autoLoginOverlayWindow.setIgnoreMouseEvents(true);
+  }
+
+  autoLoginOverlayWindow.setMenuBarVisibility(false);
+  autoLoginOverlayWindow.on("closed", () => {
+    autoLoginOverlayWindow = null;
+  });
+
+  return autoLoginOverlayWindow;
+}
+
+function showAutoLoginOverlay({ message, progress = 0, tone = "default" } = {}) {
+  const normalizedMessage = String(message || "").trim();
+  if (!normalizedMessage) {
+    closeAutoLoginOverlay();
+    return;
+  }
+  const normalizedProgress = normalizeOverlayProgress(progress);
+  const normalizedTone = normalizeOverlayTone(tone);
+  const nextStateKey = `${normalizedMessage}|${normalizedProgress}|${normalizedTone}`;
+
+  const overlayWindow = ensureAutoLoginOverlayWindow();
+  if (!overlayWindow) {
+    return;
+  }
+
+  overlayWindow.setBounds(getAutoLoginOverlayBounds(), false);
+  if (autoLoginOverlayStateKey === nextStateKey && overlayWindow.isVisible()) {
+    return;
+  }
+
+  autoLoginOverlayStateKey = nextStateKey;
+  overlayWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(getAutoLoginOverlayHtml({
+    message: normalizedMessage,
+    progress: normalizedProgress,
+    tone: normalizedTone
+  }))}`).then(() => {
+    if (!overlayWindow.isDestroyed() && autoLoginOverlayStateKey === nextStateKey) {
+      overlayWindow.setBounds(getAutoLoginOverlayBounds(), false);
+      overlayWindow.showInactive();
+    }
+  }).catch(() => {});
+}
+
+function flushPendingAutoLoginOverlayState() {
+  const pendingState = pendingAutoLoginOverlayState;
+  pendingAutoLoginOverlayState = null;
+  autoLoginOverlaySuccessHoldTimer = null;
+
+  if (!pendingState || pendingState.close) {
+    closeAutoLoginOverlayWindow();
+    return;
+  }
+
+  showAutoLoginOverlay(pendingState);
+}
+
+function scheduleAutoLoginOverlayState(state) {
+  if (!state?.message) {
+    if (autoLoginOverlaySuccessHoldTimer) {
+      pendingAutoLoginOverlayState = { close: true };
+      return;
+    }
+
+    closeAutoLoginOverlay();
+    return;
+  }
+
+  const normalizedState = {
+    message: String(state.message || "").trim(),
+    progress: normalizeOverlayProgress(state.progress),
+    tone: normalizeOverlayTone(state.tone)
+  };
+
+  if (normalizedState.tone === "success") {
+    if (autoLoginOverlaySuccessHoldTimer) {
+      clearTimeout(autoLoginOverlaySuccessHoldTimer);
+    }
+
+    pendingAutoLoginOverlayState = null;
+    showAutoLoginOverlay(normalizedState);
+    autoLoginOverlaySuccessHoldTimer = setTimeout(
+      flushPendingAutoLoginOverlayState,
+      AUTO_LOGIN_OVERLAY_SUCCESS_HOLD_MS
+    );
+    return;
+  }
+
+  if (autoLoginOverlaySuccessHoldTimer) {
+    pendingAutoLoginOverlayState = normalizedState;
+    return;
+  }
+
+  showAutoLoginOverlay(normalizedState);
+}
+
+function syncAutoLoginOverlay(event) {
+  if (event?.type !== "state") {
+    return;
+  }
+
+  const payload = event.payload || {};
+  const message = payload.isAutoLoginRunning ? payload.autoLoginOverlayText : "";
+  if (message) {
+    scheduleAutoLoginOverlayState({
+      message,
+      progress: payload.autoLoginOverlayProgress,
+      tone: payload.autoLoginOverlayTone
+    });
+    return;
+  }
+
+  scheduleAutoLoginOverlayState({ close: true });
 }
 
 function createWindow() {
@@ -74,6 +436,7 @@ function createWindow() {
   mainWindow.setMenuBarVisibility(false);
 
   mainWindow.on("closed", () => {
+    closeAutoLoginOverlay();
     mainWindow = null;
   });
 
@@ -81,6 +444,10 @@ function createWindow() {
 }
 
 function emitToRenderer(event) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    syncAutoLoginOverlay(event);
+  }
+
   if (!mainWindow || mainWindow.isDestroyed()) {
     return;
   }
@@ -208,6 +575,7 @@ ipcMain.handle("launcher:selectAutoLoginProfile", async (_event, options) => bac
 ipcMain.handle("launcher:saveAutoLoginProfile", async (_event, options) => backend.saveAutoLoginProfile(options || {}));
 ipcMain.handle("launcher:deleteAutoLoginProfile", async (_event, options) => backend.deleteAutoLoginProfile(options || {}));
 ipcMain.handle("launcher:launchAutoLoginProfile", async (_event, options) => backend.launchAutoLoginProfile(options || {}));
+ipcMain.handle("launcher:launchAutoLoginProfiles", async (_event, options) => backend.launchAutoLoginProfiles(options || {}));
 ipcMain.handle("launcher:installMissingPrerequisites", async () => backend.installMissingPrerequisites());
 ipcMain.handle("launcher:updateSettings", async (_event, patch) => backend.updateSettings(patch));
 ipcMain.handle("launcher:minimizeWindow", async () => {

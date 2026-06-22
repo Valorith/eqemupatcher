@@ -808,7 +808,12 @@ function Wait-ForLoginOutcome {
   $eligibleAt = (Get-Date).AddMilliseconds($LoginOutcomeMinimumAgeMilliseconds)
   $advancedSince = $null
   do {
-    $state = Get-LoginCanvasState -WindowHandle $WindowHandle
+    try {
+      $state = Get-LoginCanvasState -WindowHandle $WindowHandle
+    } catch {
+      $state = "advanced"
+    }
+
     if ($state -eq "login-error" -or $state -eq "main-menu") {
       return $state
     }
@@ -827,7 +832,11 @@ function Wait-ForLoginOutcome {
     Start-Sleep -Milliseconds 100
   } while ((Get-Date) -lt $deadline)
 
-  return Get-LoginCanvasState -WindowHandle $WindowHandle
+  try {
+    return Get-LoginCanvasState -WindowHandle $WindowHandle
+  } catch {
+    return "advanced"
+  }
 }
 
 function Wait-ForLoginFormReady {

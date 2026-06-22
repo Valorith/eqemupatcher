@@ -993,7 +993,9 @@ body {
   top: 0;
   z-index: 2000;
   display: grid;
-  width: min(21rem, calc(100vw - 2rem));
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  width: min(42rem, calc(100vw - 2rem));
+  min-height: min(26rem, calc(100vh - 2rem));
   gap: 0.66rem;
   padding: 0.82rem;
   border: 1px solid rgba(186, 141, 72, 0.26);
@@ -1045,6 +1047,49 @@ body {
   margin-top: 0.02rem;
 }
 
+.auto-login-profile-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.auto-login-selection-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.28rem;
+}
+
+.auto-login-selection-action {
+  min-height: 1.35rem;
+  padding: 0 0.42rem;
+  border: 1px solid rgba(126, 184, 238, 0.24);
+  border-radius: 999px;
+  background: rgba(33, 48, 67, 0.32);
+  color: rgba(210, 229, 247, 0.86);
+  font-family: "Avenir Next Condensed", "Gill Sans", sans-serif;
+  font-size: 0.56rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.auto-login-selection-action:hover:not(:disabled),
+.auto-login-selection-action:focus-visible {
+  border-color: rgba(126, 184, 238, 0.48);
+  color: #f4f9ff;
+  background: rgba(45, 75, 110, 0.5);
+  outline: none;
+}
+
+.auto-login-selection-action:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 .auto-login-popover-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(6rem, 0.5fr);
@@ -1085,9 +1130,16 @@ body {
   grid-column: 1 / -1;
 }
 
+.auto-login-profile-field {
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+}
+
 .auto-login-profile-list {
   display: grid;
-  max-height: 7.4rem;
+  align-content: start;
+  min-height: 0;
+  max-height: none;
   gap: 0.34rem;
   overflow-y: auto;
   padding: 0.24rem;
@@ -1099,7 +1151,8 @@ body {
 .auto-login-profile-option {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
+  gap: 0.58rem;
   min-height: 2.18rem;
   width: 100%;
   padding: 0.38rem 0.52rem;
@@ -1112,7 +1165,37 @@ body {
   cursor: pointer;
 }
 
+.auto-login-profile-checkbox {
+  position: relative;
+  flex: 0 0 auto;
+  width: 0.98rem;
+  height: 0.98rem;
+  border: 1px solid rgba(126, 184, 238, 0.42);
+  border-radius: 0.22rem;
+  background: rgba(8, 10, 13, 0.82);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.auto-login-profile-option[aria-checked="true"] .auto-login-profile-checkbox {
+  border-color: rgba(155, 207, 255, 0.74);
+  background:
+    linear-gradient(180deg, rgba(83, 134, 190, 0.96), rgba(40, 78, 125, 0.98));
+}
+
+.auto-login-profile-option[aria-checked="true"] .auto-login-profile-checkbox::after {
+  content: "";
+  position: absolute;
+  left: 0.28rem;
+  top: 0.16rem;
+  width: 0.34rem;
+  height: 0.55rem;
+  border-bottom: 2px solid #f7fbff;
+  border-right: 2px solid #f7fbff;
+  transform: rotate(45deg);
+}
+
 .auto-login-profile-option strong {
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   color: inherit;
@@ -1123,7 +1206,7 @@ body {
   white-space: nowrap;
 }
 
-.auto-login-profile-option span {
+.auto-login-profile-default-badge {
   flex: 0 0 auto;
   color: #d7b16d;
   font-size: 0.6rem;
@@ -6739,9 +6822,10 @@ body .auto-login-modal-body {
 }
 
 body .auto-login-popover {
-  width: min(20rem, calc(100vw - 2rem));
-  gap: 0.54rem;
-  padding: 0.72rem;
+  width: min(40rem, calc(100vw - 2rem));
+  min-height: min(25rem, calc(100vh - 2rem));
+  gap: 0.66rem;
+  padding: 0.84rem;
   border-radius: 0.36rem;
 }
 
@@ -6755,6 +6839,10 @@ body .auto-login-grid {
 
 body .auto-login-field span {
   font-size: 0.62rem;
+}
+
+body .auto-login-profile-list {
+  gap: 0.42rem;
 }
 
 body .auto-login-input {

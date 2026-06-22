@@ -372,8 +372,14 @@
         <span class="auto-login-beta-badge auto-login-popover-beta-badge" aria-label="Account profile launch beta feature">Beta</span>
       </div>
       <div class="auto-login-field auto-login-profile-field">
-        <span id="autoLoginProfileLabel">Profile</span>
-        <div id="autoLoginProfileList" class="auto-login-profile-list" role="listbox" aria-labelledby="autoLoginProfileLabel">
+        <div class="auto-login-profile-toolbar">
+          <span id="autoLoginProfileLabel">Profiles</span>
+          <div class="auto-login-selection-actions" aria-label="Profile selection actions">
+            <button id="autoLoginSelectAllButton" class="auto-login-selection-action" type="button">All</button>
+            <button id="autoLoginSelectNoneButton" class="auto-login-selection-action" type="button">None</button>
+          </div>
+        </div>
+        <div id="autoLoginProfileList" class="auto-login-profile-list" role="listbox" aria-multiselectable="true" aria-labelledby="autoLoginProfileLabel">
           <button class="auto-login-profile-option" type="button" role="option" aria-selected="false" disabled>No profiles saved</button>
         </div>
         <select id="autoLoginProfileSelect" class="auto-login-input auto-login-profile-select hidden" aria-label="Account profile" tabindex="-1">

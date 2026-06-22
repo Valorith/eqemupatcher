@@ -1887,6 +1887,8 @@ test("auto-login helper uses DPI-aware client-area click coordinates", async () 
   assert.match(helperSource, /Test-MainMenuLoginButtonPixel/);
   assert.match(helperSource, /Wait-ForLoginFormReady/);
   assert.match(helperSource, /Wait-ForLoginOutcome/);
+  assert.match(helperSource, /catch\s*{\s*\$state = "advanced"/);
+  assert.match(helperSource, /catch\s*{\s*return "advanced"/);
   assert.match(helperSource, /\[Console\]::InputEncoding = \[System\.Text\.Encoding\]::UTF8/);
   assert.match(helperSource, /\[int\]\$LoginFormWaitSeconds = 30/);
   assert.match(helperSource, /login-error/);
@@ -1904,7 +1906,7 @@ test("auto-login helper uses DPI-aware client-area click coordinates", async () 
 test("launchAutoLoginProfile prepares INI files and invokes the helper with the decrypted password", async (t) => {
   const launchActions = [];
   let helperRequest = null;
-  const { backend } = await createBackendHarness(t, {
+  const { backend, events } = await createBackendHarness(t, {
     platform: "win32",
     onGameLaunched: async (payload) => {
       launchActions.push(payload);
@@ -1956,8 +1958,104 @@ test("launchAutoLoginProfile prepares INI files and invokes the helper with the 
   assert.equal(helperRequest.password, "not-the-real-password");
   assert.equal(state.statusBadge, "Auto Login");
   assert.equal(state.isAutoLoginRunning, false);
+  assert.equal(state.autoLoginOverlayText, "");
+  assert.equal(state.autoLoginOverlayProgress, 0);
+  assert.equal(state.autoLoginOverlayTone, "default");
+  assert.deepEqual(
+    [...new Set(events
+      .filter((event) => event.type === "state" && event.payload.autoLoginOverlayText)
+      .map((event) => `${event.payload.autoLoginOverlayText}|${event.payload.autoLoginOverlayProgress}|${event.payload.autoLoginOverlayTone}`))],
+    [
+      "Loading Vayle Box|0|default",
+      "Loading Vayle Box|100|success"
+    ]
+  );
   assert.equal(JSON.stringify(state).includes("not-the-real-password"), false);
   assert.deepEqual(launchActions, [{ action: "minimize", autoTriggered: false }]);
+});
+
+test("launchAutoLoginProfiles runs selected profiles sequentially in saved order", async (t) => {
+  const launchActions = [];
+  const helperRequests = [];
+  const { backend, events } = await createBackendHarness(t, {
+    platform: "win32",
+    onGameLaunched: async (payload) => {
+      launchActions.push(payload);
+    }
+  });
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+  await fsp.writeFile(path.join(gameDirectory, "eqclient.ini"), "[Defaults]\nWindowedMode=FALSE\nMaximized=0\n", "utf8");
+  await fsp.writeFile(path.join(gameDirectory, "eqlsPlayerData.ini"), "[PLAYER]\nUsername=olduser\n", "utf8");
+
+  backend.state.gameDirectory = gameDirectory;
+  backend.state.clientVersion = "Rain_Of_Fear_2";
+  backend.state.clientLabel = "Rain of Fear 2";
+  backend.state.clientSupported = true;
+  backend.state.canLaunch = true;
+  backend.state.onGameLaunch = "minimize";
+  backend.autoLoginProfiles = [{
+    id: "profile-1",
+    label: "Druid",
+    username: "vayle04",
+    secret: "protected-druid",
+    isDefault: true,
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z"
+  }, {
+    id: "profile-2",
+    label: "Cleric",
+    username: "bgondaway",
+    secret: "protected-cleric",
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z"
+  }, {
+    id: "profile-3",
+    label: "Bard",
+    username: "vayle3",
+    secret: "protected-bard",
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z"
+  }];
+  backend.syncAutoLoginProfilesState();
+  backend.unprotectAutoLoginSecret = async (secret) => `password-for-${secret}`;
+  backend.runAutoLoginHelper = async (request) => {
+    helperRequests.push({ ...request });
+    return { confirmed: true };
+  };
+
+  const state = await backend.launchAutoLoginProfiles({
+    ids: ["profile-3", "profile-1"],
+    autoTriggered: true
+  });
+  const eqlsPlayerData = await fsp.readFile(path.join(gameDirectory, "eqlsPlayerData.ini"), "utf8");
+
+  assert.deepEqual(helperRequests.map((request) => request.username), ["vayle04", "vayle3"]);
+  assert.deepEqual(helperRequests.map((request) => request.password), ["password-for-protected-druid", "password-for-protected-bard"]);
+  assert.match(eqlsPlayerData, /^Username=vayle3$/m);
+  assert.equal(state.statusBadge, "Auto Login");
+  assert.match(state.statusDetail, /2 selected profiles advanced/);
+  assert.equal(state.isAutoLoginRunning, false);
+  assert.equal(state.autoLoginOverlayText, "");
+  assert.equal(state.autoLoginOverlayProgress, 0);
+  assert.equal(state.autoLoginOverlayTone, "default");
+  assert.deepEqual(
+    [...new Set(events
+      .filter((event) => event.type === "state" && event.payload.autoLoginOverlayText)
+      .map((event) => `${event.payload.autoLoginOverlayText}|${event.payload.autoLoginOverlayProgress}|${event.payload.autoLoginOverlayTone}`))],
+    [
+      "Loading Druid (1/2)|0|default",
+      "Loading Druid (1/2)|50|success",
+      "Loading Bard (2/2)|50|default",
+      "Loading Bard (2/2)|100|success"
+    ]
+  );
+  assert.deepEqual(launchActions, [{ action: "minimize", autoTriggered: true }]);
 });
 
 test("launchGame routes through auto-login when Auto Login is enabled", async (t) => {

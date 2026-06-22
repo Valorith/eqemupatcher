@@ -132,6 +132,7 @@ const AUTO_LOGIN_HELPER_FILE_NAME = "Invoke-EqAutoLogin.ps1";
 const AUTO_LOGIN_CONFIRMATION_TIMEOUT_EXIT_CODE = 2;
 const AUTO_LOGIN_LOGIN_REJECTED_EXIT_CODE = 3;
 const AUTO_LOGIN_HELPER_TIMEOUT_MS = 60 * 1000;
+const AUTO_LOGIN_BATCH_DELAY_MS = 250;
 const AUTO_LOGIN_HELPER_SOURCE_PATH = path.join(__dirname, "..", "assets", "auto-login", AUTO_LOGIN_HELPER_FILE_NAME);
 
 function boolToLegacyString(value) {
@@ -1457,6 +1458,9 @@ class LauncherBackend {
       autoLoginProfiles: [],
       selectedAutoLoginProfileId: "",
       isAutoLoginRunning: false,
+      autoLoginOverlayText: "",
+      autoLoginOverlayProgress: 0,
+      autoLoginOverlayTone: "default",
       autoLoginStatus: createAutoLoginStatus(
         this.platform === "win32" ? "idle" : "unavailable",
         this.platform === "win32" ? "Ready" : "Windows only",
@@ -1525,6 +1529,15 @@ class LauncherBackend {
       max: this.state.progressMax,
       label: this.state.progressLabel
     });
+  }
+
+  setAutoLoginOverlayState(text = "", progress = 0, tone = "default") {
+    const normalizedProgress = Number(progress);
+    this.state.autoLoginOverlayText = normalizeAutoLoginText(text, 120);
+    this.state.autoLoginOverlayProgress = Number.isFinite(normalizedProgress)
+      ? Math.min(100, Math.max(0, Math.round(normalizedProgress)))
+      : 0;
+    this.state.autoLoginOverlayTone = tone === "success" ? "success" : "default";
   }
 
   getState() {
@@ -3980,6 +3993,140 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
     return this.getState();
   }
 
+  async getAutoLoginLaunchPath() {
+    if (!this.state.gameDirectory) {
+      this.setStatus("Run In Folder", "Run this launcher from the EverQuest directory before launching.");
+      this.emitState();
+      return "";
+    }
+
+    if (this.platform !== "win32") {
+      this.setStatus("Windows Only", "Account profile launch is only supported on Windows.");
+      this.emitLog("Account profile launch blocked: auto-login input is only supported on Windows.", "warning");
+      this.emitState();
+      return "";
+    }
+
+    if (this.state.clientVersion === "Unknown") {
+      this.setStatus("Client Unknown", "This EverQuest executable does not match a known client hash.");
+      this.emitLog("Account profile launch blocked: the selected EverQuest client is unknown.", "warning");
+      this.emitState();
+      return "";
+    }
+
+    if (!this.state.clientSupported) {
+      this.setStatus("Unsupported", `${this.state.serverName} does not publish patches for ${this.state.clientLabel}.`);
+      this.emitLog(`Account profile launch blocked: ${this.state.clientLabel} is not supported by ${this.state.serverName}.`, "warning");
+      this.emitState();
+      return "";
+    }
+
+    const eqGamePath = this.getEqGamePath();
+    if (!(await exists(eqGamePath))) {
+      this.setStatus("No Client", "eqgame.exe was not found in the selected folder.");
+      this.emitState();
+      return "";
+    }
+
+    if (this.testSimulation.launchExitCode != null) {
+      this.setStatus("Launch Error", "Simulated launch failure.");
+      this.emitState();
+      return "";
+    }
+
+    return eqGamePath;
+  }
+
+  async runAutoLoginProfile(profile, eqGamePath, options = {}) {
+    const {
+      batchIndex = 1,
+      batchTotal = 1
+    } = options;
+    const normalizedBatchIndex = Math.max(1, Number(batchIndex) || 1);
+    const normalizedBatchTotal = Math.max(1, Number(batchTotal) || 1);
+    const batchPrefix = normalizedBatchTotal > 1 ? `${normalizedBatchIndex}/${normalizedBatchTotal} ` : "";
+    const progressValue = (localValue) => normalizedBatchTotal > 1
+      ? Math.min(100, Math.max(0, Math.round((((normalizedBatchIndex - 1) * 100) + localValue) / normalizedBatchTotal)))
+      : localValue;
+    const profileLabel = profile.label || profile.username;
+    const overlayText = normalizedBatchTotal > 1
+      ? `Loading ${profileLabel} (${normalizedBatchIndex}/${normalizedBatchTotal})`
+      : `Loading ${profileLabel}`;
+    const overlayStartProgress = normalizedBatchTotal > 1
+      ? Math.round(((normalizedBatchIndex - 1) / normalizedBatchTotal) * 100)
+      : 0;
+    const overlaySuccessProgress = Math.round((normalizedBatchIndex / normalizedBatchTotal) * 100);
+    let password = "";
+
+    try {
+      this.state.selectedAutoLoginProfileId = profile.id;
+      this.setAutoLoginOverlayState(overlayText, overlayStartProgress, "default");
+      this.state.autoLoginStatus = createAutoLoginStatus("running", `${batchPrefix}Preparing`.trim(), `Preparing ${profileLabel}.`);
+      this.state.progressValue = progressValue(0);
+      this.state.progressMax = 100;
+      this.state.progressLabel = normalizedBatchTotal > 1 ? `Preparing ${profileLabel}` : "Preparing account profile launch";
+      this.setStatus("Auto Login", normalizedBatchTotal > 1
+        ? `Preparing account profile ${normalizedBatchIndex}/${normalizedBatchTotal}: '${profileLabel}'.`
+        : `Preparing account profile '${profileLabel}'.`);
+      this.emitLog(`Preparing account profile launch for '${profileLabel}'.`);
+      this.emitProgress();
+      this.emitState();
+
+      password = await this.unprotectAutoLoginSecret(profile.secret);
+      if (!password) {
+        throw new Error("The saved account password could not be read.");
+      }
+
+      await this.configureAutoLoginClient(profile.username);
+      this.emitLog("Prepared EverQuest login settings for the selected account profile.");
+      this.state.autoLoginStatus = createAutoLoginStatus("running", `${batchPrefix}Launching`.trim(), "Starting EverQuest and sending the login sequence.");
+      this.state.progressValue = progressValue(10);
+      this.state.progressLabel = `Launching ${profileLabel}`;
+      this.emitProgress();
+      this.emitState();
+
+      const result = await this.runAutoLoginHelper({
+        eqGamePath,
+        username: profile.username,
+        password
+      });
+
+      if (result.confirmed) {
+        this.state.progressValue = progressValue(100);
+        this.state.progressLabel = normalizedBatchTotal > 1 ? `${profileLabel} complete` : "Account profile launch complete";
+        this.emitProgress();
+        this.state.autoLoginStatus = createAutoLoginStatus("success", "Login advanced", `${profileLabel} advanced past the login form.`);
+        this.setAutoLoginOverlayState(overlayText, overlaySuccessProgress, "success");
+        this.setStatus("Auto Login", "EverQuest advanced past the login form.");
+        this.emitLog(`Account profile '${profileLabel}' advanced past the login form.`, "success");
+        this.emitState();
+        return { outcome: "success" };
+      }
+
+      if (result.loginRejected) {
+        this.state.autoLoginStatus = createAutoLoginStatus(
+          "warning",
+          "Login rejected",
+          "The game client reported a login error. Check the saved username and password."
+        );
+        this.setStatus("Auto Login Check", "The game client reported a login error.");
+        this.emitLog("Auto login was rejected by the game client. Check the saved username and password.", "warning");
+        return { outcome: "loginRejected" };
+      }
+
+      this.state.autoLoginStatus = createAutoLoginStatus(
+        "warning",
+        "Login not confirmed",
+        "The login sequence was sent, but the client did not appear to advance past the login form."
+      );
+      this.setStatus("Auto Login Check", "Login input was sent, but the client did not appear to advance past the login form.");
+      this.emitLog("Auto login sent the credential sequence, but the client did not appear to advance past the login form.", "warning");
+      return { outcome: "notConfirmed" };
+    } finally {
+      password = "";
+    }
+  }
+
   async launchAutoLoginProfile(options = {}) {
     const { autoTriggered = false } = options;
     const profileId = normalizeAutoLoginProfileId(options.id || this.state.selectedAutoLoginProfileId);
@@ -3991,120 +4138,140 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
     }
 
     if (!profile) {
+      this.setAutoLoginOverlayState();
       this.state.autoLoginStatus = createAutoLoginStatus("error", "Profile missing", "Select a saved account profile before launching.");
       this.emitState();
       return this.getState();
     }
 
-    if (!this.state.gameDirectory) {
-      this.setStatus("Run In Folder", "Run this launcher from the EverQuest directory before launching.");
-      this.emitState();
+    const eqGamePath = await this.getAutoLoginLaunchPath();
+    if (!eqGamePath) {
       return this.getState();
     }
 
-    if (this.platform !== "win32") {
-      this.setStatus("Windows Only", "Account profile launch is only supported on Windows.");
-      this.emitLog("Account profile launch blocked: auto-login input is only supported on Windows.", "warning");
-      this.emitState();
-      return this.getState();
-    }
-
-    if (this.state.clientVersion === "Unknown") {
-      this.setStatus("Client Unknown", "This EverQuest executable does not match a known client hash.");
-      this.emitLog("Account profile launch blocked: the selected EverQuest client is unknown.", "warning");
-      this.emitState();
-      return this.getState();
-    }
-
-    if (!this.state.clientSupported) {
-      this.setStatus("Unsupported", `${this.state.serverName} does not publish patches for ${this.state.clientLabel}.`);
-      this.emitLog(`Account profile launch blocked: ${this.state.clientLabel} is not supported by ${this.state.serverName}.`, "warning");
-      this.emitState();
-      return this.getState();
-    }
-
-    const eqGamePath = this.getEqGamePath();
-    if (!(await exists(eqGamePath))) {
-      this.setStatus("No Client", "eqgame.exe was not found in the selected folder.");
-      this.emitState();
-      return this.getState();
-    }
-
-    if (this.testSimulation.launchExitCode != null) {
-      this.setStatus("Launch Error", "Simulated launch failure.");
-      this.emitState();
-      return this.getState();
-    }
-
-    let password = "";
+    let result = null;
     try {
       this.state.isAutoLoginRunning = true;
-      this.state.selectedAutoLoginProfileId = profile.id;
-      this.state.autoLoginStatus = createAutoLoginStatus("running", "Preparing", `Preparing ${profile.label || profile.username}.`);
-      this.state.progressValue = 0;
-      this.state.progressMax = 100;
-      this.state.progressLabel = "Preparing account profile launch";
-      this.setStatus("Auto Login", `Preparing account profile '${profile.label || profile.username}'.`);
-      this.emitLog(`Preparing account profile launch for '${profile.label || profile.username}'.`);
-      this.emitProgress();
-      this.emitState();
-
-      password = await this.unprotectAutoLoginSecret(profile.secret);
-      if (!password) {
-        throw new Error("The saved account password could not be read.");
-      }
-
-      await this.configureAutoLoginClient(profile.username);
-      this.emitLog("Prepared EverQuest login settings for the selected account profile.");
-      this.state.autoLoginStatus = createAutoLoginStatus("running", "Launching", "Starting EverQuest and sending the login sequence.");
-      this.state.progressValue = 10;
-      this.state.progressLabel = "Launching EverQuest";
-      this.emitProgress();
-      this.emitState();
-
-      const result = await this.runAutoLoginHelper({
-        eqGamePath,
-        username: profile.username,
-        password
+      result = await this.runAutoLoginProfile(profile, eqGamePath, {
+        batchIndex: 1,
+        batchTotal: 1
       });
-
-      if (result.confirmed) {
-        this.state.progressValue = 100;
-        this.state.progressLabel = "Account profile launch complete";
-        this.emitProgress();
-        this.state.autoLoginStatus = createAutoLoginStatus("success", "Login advanced", `${profile.label || profile.username} advanced past the login form.`);
-        this.setStatus("Auto Login", "EverQuest advanced past the login form.");
-        this.emitLog(`Account profile '${profile.label || profile.username}' advanced past the login form.`, "success");
+      if (result?.outcome === "success") {
         if (this.onGameLaunched) {
           await this.onGameLaunched({
             action: normalizeOnGameLaunch(this.state.onGameLaunch),
             autoTriggered
           });
         }
-      } else if (result.loginRejected) {
-        this.state.autoLoginStatus = createAutoLoginStatus(
-          "warning",
-          "Login rejected",
-          "The game client reported a login error. Check the saved username and password."
-        );
-        this.setStatus("Auto Login Check", "The game client reported a login error.");
-        this.emitLog("Auto login was rejected by the game client. Check the saved username and password.", "warning");
-      } else {
-        this.state.autoLoginStatus = createAutoLoginStatus(
-          "warning",
-          "Login not confirmed",
-          "The login sequence was sent, but the client did not appear to advance past the login form."
-        );
-        this.setStatus("Auto Login Check", "Login input was sent, but the client did not appear to advance past the login form.");
-        this.emitLog("Auto login sent the credential sequence, but the client did not appear to advance past the login form.", "warning");
       }
     } catch (error) {
       this.state.autoLoginStatus = createAutoLoginStatus("error", "Launch failed", error.message);
       this.setStatus("Auto Login Error", error.message, error.message);
       this.emitLog(`Account profile launch failed: ${error.message}`, "error");
     } finally {
-      password = "";
       this.state.isAutoLoginRunning = false;
+      this.setAutoLoginOverlayState();
+      this.syncAutoLoginProfilesState();
+      this.emitState();
+    }
+
+    return this.getState();
+  }
+
+  async launchAutoLoginProfiles(options = {}) {
+    const { autoTriggered = false } = options;
+    const requestedIds = new Set(
+      (Array.isArray(options.ids) ? options.ids : [])
+        .map((id) => normalizeAutoLoginProfileId(id))
+        .filter(Boolean)
+    );
+    const profiles = this.autoLoginProfiles.filter((profile) => requestedIds.has(profile.id));
+    this.clearPrerequisiteInstallOffer();
+
+    if (this.state.isAutoLoginRunning) {
+      return this.getState();
+    }
+
+    if (profiles.length === 0) {
+      this.setAutoLoginOverlayState();
+      this.state.autoLoginStatus = createAutoLoginStatus("error", "Profiles missing", "Select one or more saved account profiles before launching.");
+      this.emitState();
+      return this.getState();
+    }
+
+    if (profiles.length === 1) {
+      return this.launchAutoLoginProfile({
+        id: profiles[0].id,
+        autoTriggered
+      });
+    }
+
+    const eqGamePath = await this.getAutoLoginLaunchPath();
+    if (!eqGamePath) {
+      return this.getState();
+    }
+
+    let completedCount = 0;
+    try {
+      this.state.isAutoLoginRunning = true;
+      this.state.progressValue = 0;
+      this.state.progressMax = 100;
+      this.state.progressLabel = "Preparing account profile batch";
+      this.setAutoLoginOverlayState(`Loading ${profiles[0].label || profiles[0].username} (1/${profiles.length})`, 0, "default");
+      this.state.autoLoginStatus = createAutoLoginStatus("running", "Batch starting", `Preparing ${profiles.length} account profiles.`);
+      this.setStatus("Auto Login", `Preparing ${profiles.length} selected account profiles.`);
+      this.emitLog(`Starting account profile batch for ${profiles.length} profiles.`);
+      this.emitProgress();
+      this.emitState();
+
+      for (let index = 0; index < profiles.length; index += 1) {
+        const profile = profiles[index];
+        const result = await this.runAutoLoginProfile(profile, eqGamePath, {
+          batchIndex: index + 1,
+          batchTotal: profiles.length
+        });
+
+        if (result?.outcome !== "success") {
+          this.state.autoLoginStatus = createAutoLoginStatus(
+            "warning",
+            "Batch stopped",
+            `${completedCount} of ${profiles.length} selected profiles advanced before '${profile.label || profile.username}' stopped the batch.`
+          );
+          this.setStatus("Auto Login Check", `Account profile batch stopped at ${index + 1}/${profiles.length}.`);
+          this.emitLog(`Account profile batch stopped at '${profile.label || profile.username}'.`, "warning");
+          return this.getState();
+        }
+
+        completedCount += 1;
+        if (index < profiles.length - 1) {
+          const nextProfileLabel = profiles[index + 1].label || profiles[index + 1].username;
+          this.state.autoLoginStatus = createAutoLoginStatus("running", "Next profile", `Waiting before launching ${nextProfileLabel}.`);
+          this.state.progressLabel = `Waiting for ${nextProfileLabel}`;
+          this.emitProgress();
+          this.emitState();
+          await sleep(AUTO_LOGIN_BATCH_DELAY_MS);
+        }
+      }
+
+      this.state.progressValue = 100;
+      this.state.progressLabel = "Account profile batch complete";
+      this.emitProgress();
+      this.state.autoLoginStatus = createAutoLoginStatus("success", "Batch complete", `${completedCount} selected profiles advanced past the login form.`);
+      this.setStatus("Auto Login", `${completedCount} selected profiles advanced past the login form.`);
+      this.emitLog(`Account profile batch complete: ${completedCount} profiles advanced past the login form.`, "success");
+      if (this.onGameLaunched) {
+        await this.onGameLaunched({
+          action: normalizeOnGameLaunch(this.state.onGameLaunch),
+          autoTriggered
+        });
+      }
+    } catch (error) {
+      this.state.autoLoginStatus = createAutoLoginStatus("error", "Batch failed", error.message);
+      this.setStatus("Auto Login Error", error.message, error.message);
+      this.emitLog(`Account profile batch failed: ${error.message}`, "error");
+    } finally {
+      this.state.isAutoLoginRunning = false;
+      this.setAutoLoginOverlayState();
       this.syncAutoLoginProfilesState();
       this.emitState();
     }
