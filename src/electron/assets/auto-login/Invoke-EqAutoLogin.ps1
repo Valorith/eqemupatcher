@@ -57,7 +57,8 @@ function Write-AutoLoginEvent {
     [string]$StatusDetail = "",
     [int]$ProgressValue = -1,
     [int]$ProgressMax = 100,
-    [string]$ProgressLabel = ""
+    [string]$ProgressLabel = "",
+    [int]$ProcessId = 0
   )
 
   $payload = [ordered]@{
@@ -71,6 +72,9 @@ function Write-AutoLoginEvent {
     progressMax = $ProgressMax
     progressLabel = $ProgressLabel
     elapsedMs = [int]$stopwatch.ElapsedMilliseconds
+  }
+  if ($ProcessId -gt 0) {
+    $payload.processId = $ProcessId
   }
   $payload | ConvertTo-Json -Compress
   [Console]::Out.Flush()
@@ -1024,6 +1028,7 @@ try {
   $workingDirectory = Split-Path -Parent $resolvedPath
   Write-AutoLoginEvent -Stage "launch" -Message "Starting eqgame.exe patchme." -StatusState "running" -StatusLabel "Launching" -StatusDetail "Starting EverQuest." -ProgressValue 15 -ProgressLabel "Starting EverQuest"
   $process = Start-Process -FilePath $resolvedPath -ArgumentList "patchme" -WorkingDirectory $workingDirectory -PassThru
+  Write-AutoLoginEvent -Stage "process-started" -Message "" -ProcessId $process.Id
 
   Write-AutoLoginEvent -Stage "window-wait" -Message "Waiting for the EverQuest window." -StatusState "running" -StatusLabel "Waiting" -StatusDetail "Waiting for the EverQuest window." -ProgressValue 25 -ProgressLabel "Waiting for EverQuest window"
   $window = Wait-ForProcessWindow -TargetProcessId $process.Id -TimeoutSeconds $WindowWaitSeconds

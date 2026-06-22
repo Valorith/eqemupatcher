@@ -1942,6 +1942,8 @@ test("auto-login helper uses DPI-aware client-area click coordinates", async () 
   assert.match(helperSource, /Wait-ForLoginOutcome/);
   assert.match(helperSource, /\[switch\]\$EnterWorld/);
   assert.match(helperSource, /Wait-ForServerSelectReady/);
+  assert.match(helperSource, /ProcessId/);
+  assert.match(helperSource, /Write-AutoLoginEvent -Stage "process-started" -Message "" -ProcessId \$process\.Id/);
   assert.match(helperSource, /\[switch\]\$DetectServerSelect/);
   assert.match(helperSource, /Test-ServerSelectPlayButtonReady -WindowHandle \$WindowHandle[\s\S]*return "server-select"/);
   assert.match(helperSource, /Wait-ForLoginOutcome -WindowHandle \$window\.Handle -TimeoutSeconds \$UdpWaitSeconds -FocusWaitSeconds \$FocusWaitSeconds -DetectServerSelect:\$EnterWorld/);
@@ -1992,6 +1994,8 @@ test("auto-login helper uses DPI-aware client-area click coordinates", async () 
 test("launchAutoLoginProfile prepares INI files and invokes the helper with the decrypted password", async (t) => {
   const launchActions = [];
   let helperRequest = null;
+  let eqclientDuringHelper = "";
+  let deferredRestore = null;
   const { backend, events } = await createBackendHarness(t, {
     platform: "win32",
     onGameLaunched: async (payload) => {
@@ -2005,7 +2009,11 @@ test("launchAutoLoginProfile prepares INI files and invokes the helper with the 
   });
 
   await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
-  await fsp.writeFile(path.join(gameDirectory, "eqclient.ini"), "[Defaults]\nWindowedMode=FALSE\nMaximized=0\n", "utf8");
+  await fsp.writeFile(
+    path.join(gameDirectory, "eqclient.ini"),
+    "[Defaults]\nWindowedMode=FALSE\nMaximized=0\nWindowedModeXOffset=1280\nWindowedModeYOffset=64\nRestoredWidth=1600\nRestoredHeight=900\n\n[Other]\nKeep=1\n",
+    "utf8"
+  );
   await fsp.writeFile(path.join(gameDirectory, "eqlsPlayerData.ini"), "[PLAYER]\nUsername=olduser\n", "utf8");
 
   backend.state.gameDirectory = gameDirectory;
@@ -2029,16 +2037,30 @@ test("launchAutoLoginProfile prepares INI files and invokes the helper with the 
   };
   backend.runAutoLoginHelper = async (request) => {
     helperRequest = { ...request };
-    return { confirmed: true, enteredWorld: request.enterWorld === true };
+    eqclientDuringHelper = await fsp.readFile(path.join(gameDirectory, "eqclient.ini"), "utf8");
+    return { confirmed: true, enteredWorld: request.enterWorld === true, processId: 4242 };
+  };
+  backend.scheduleDeferredIniSectionValueRestore = async (snapshot, processId) => {
+    deferredRestore = { snapshot, processId };
   };
 
   const state = await backend.launchAutoLoginProfile({ id: "profile-1", enterWorld: true });
   const eqclient = await fsp.readFile(path.join(gameDirectory, "eqclient.ini"), "utf8");
   const eqlsPlayerData = await fsp.readFile(path.join(gameDirectory, "eqlsPlayerData.ini"), "utf8");
 
-  assert.match(eqclient, /^WindowedMode=TRUE$/m);
-  assert.match(eqclient, /^Maximized=1$/m);
+  assert.match(eqclientDuringHelper, /^WindowedMode=TRUE$/m);
+  assert.match(eqclientDuringHelper, /^Maximized=1$/m);
+  assert.match(eqclient, /^WindowedMode=FALSE$/m);
+  assert.match(eqclient, /^Maximized=0$/m);
+  assert.match(eqclient, /^WindowedModeXOffset=1280$/m);
+  assert.match(eqclient, /^WindowedModeYOffset=64$/m);
+  assert.match(eqclient, /^RestoredWidth=1600$/m);
+  assert.match(eqclient, /^RestoredHeight=900$/m);
+  assert.match(eqclient, /^Keep=1$/m);
   assert.match(eqlsPlayerData, /^Username=vayle2$/m);
+  assert.equal(deferredRestore?.processId, 4242);
+  assert.equal(deferredRestore?.snapshot?.filePath, path.join(gameDirectory, "eqclient.ini"));
+  assert.equal(deferredRestore?.snapshot?.sectionName, "Defaults");
   assert.equal(helperRequest.eqGamePath, path.join(gameDirectory, "eqgame.exe"));
   assert.equal(helperRequest.username, "vayle2");
   assert.equal(helperRequest.password, "not-the-real-password");
@@ -2060,6 +2082,103 @@ test("launchAutoLoginProfile prepares INI files and invokes the helper with the 
   );
   assert.equal(JSON.stringify(state).includes("not-the-real-password"), false);
   assert.deepEqual(launchActions, [{ action: "minimize", autoTriggered: false }]);
+});
+
+test("launchAutoLoginProfile restores temporary EQ window settings when helper fails", async (t) => {
+  let deferredRestore = null;
+  const { backend } = await createBackendHarness(t, {
+    platform: "win32"
+  });
+  const gameDirectory = await createTempDir("eqemu-game-");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(path.join(gameDirectory, "eqgame.exe"), "dummy", "utf8");
+  await fsp.writeFile(path.join(gameDirectory, "eqclient.ini"), "[Defaults]\nRestoredXOffset=2400\nRestoredYOffset=120\n", "utf8");
+  await fsp.writeFile(path.join(gameDirectory, "eqlsPlayerData.ini"), "[PLAYER]\nUsername=olduser\n", "utf8");
+
+  backend.state.gameDirectory = gameDirectory;
+  backend.state.clientVersion = "Rain_Of_Fear_2";
+  backend.state.clientLabel = "Rain of Fear 2";
+  backend.state.clientSupported = true;
+  backend.state.canLaunch = true;
+  backend.autoLoginProfiles = [{
+    id: "profile-1",
+    label: "Vayle Box",
+    username: "vayle2",
+    secret: "protected-secret",
+    createdAt: "2026-06-21T00:00:00.000Z",
+    updatedAt: "2026-06-21T00:00:00.000Z"
+  }];
+  backend.syncAutoLoginProfilesState();
+  backend.unprotectAutoLoginSecret = async () => "not-the-real-password";
+  backend.runAutoLoginHelper = async () => {
+    const error = new Error("simulated helper failure");
+    error.processId = 9876;
+    throw error;
+  };
+  backend.scheduleDeferredIniSectionValueRestore = async (snapshot, processId) => {
+    deferredRestore = { snapshot, processId };
+  };
+
+  const state = await backend.launchAutoLoginProfile({ id: "profile-1", enterWorld: true });
+  const eqclient = await fsp.readFile(path.join(gameDirectory, "eqclient.ini"), "utf8");
+
+  assert.doesNotMatch(eqclient, /^WindowedMode=TRUE$/m);
+  assert.doesNotMatch(eqclient, /^Maximized=1$/m);
+  assert.match(eqclient, /^RestoredXOffset=2400$/m);
+  assert.match(eqclient, /^RestoredYOffset=120$/m);
+  assert.equal(deferredRestore?.processId, 9876);
+  assert.equal(state.autoLoginStatus.state, "error");
+  assert.match(state.autoLoginStatus.detail, /simulated helper failure/);
+});
+
+test("post-exit EQ window restore preserves user placement changes", async (t) => {
+  const { backend } = await createBackendHarness(t, {
+    platform: "win32"
+  });
+  const gameDirectory = await createTempDir("eqemu-game-");
+  const eqclientPath = path.join(gameDirectory, "eqclient.ini");
+
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+
+  await fsp.writeFile(
+    eqclientPath,
+    "[Defaults]\nMaximized=0\nWindowedMode=FALSE\nWindowedModeXOffset=1280\nWindowedModeYOffset=64\nRestoredXOffset=1280\nRestoredYOffset=64\nWindowedWidth=1280\nWindowedHeight=720\n",
+    "utf8"
+  );
+  const snapshot = await backend.createIniSectionValueSnapshot(eqclientPath, "Defaults", [
+    "Maximized",
+    "WindowedMode",
+    "WindowedModeXOffset",
+    "WindowedModeYOffset",
+    "RestoredXOffset",
+    "RestoredYOffset",
+    "WindowedWidth",
+    "WindowedHeight"
+  ]);
+
+  await fsp.writeFile(
+    eqclientPath,
+    "[Defaults]\nMaximized=1\nWindowedMode=TRUE\nWindowedModeXOffset=2500\nWindowedModeYOffset=160\nRestoredXOffset=2500\nRestoredYOffset=160\nWindowedWidth=1440\nWindowedHeight=900\n",
+    "utf8"
+  );
+
+  await backend.restoreForcedAutoLoginIniValues(snapshot);
+  const eqclient = await fsp.readFile(eqclientPath, "utf8");
+
+  assert.match(eqclient, /^Maximized=0$/m);
+  assert.match(eqclient, /^WindowedMode=FALSE$/m);
+  assert.match(eqclient, /^WindowedModeXOffset=2500$/m);
+  assert.match(eqclient, /^WindowedModeYOffset=160$/m);
+  assert.match(eqclient, /^RestoredXOffset=2500$/m);
+  assert.match(eqclient, /^RestoredYOffset=160$/m);
+  assert.match(eqclient, /^WindowedWidth=1440$/m);
+  assert.match(eqclient, /^WindowedHeight=900$/m);
 });
 
 test("launchAutoLoginProfiles runs selected profiles sequentially in saved order", async (t) => {

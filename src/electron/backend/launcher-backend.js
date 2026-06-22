@@ -134,6 +134,28 @@ const AUTO_LOGIN_LOGIN_REJECTED_EXIT_CODE = 3;
 const AUTO_LOGIN_HELPER_TIMEOUT_MS = 60 * 1000;
 const AUTO_LOGIN_BATCH_DELAY_MS = 500;
 const AUTO_LOGIN_HELPER_SOURCE_PATH = path.join(__dirname, "..", "assets", "auto-login", AUTO_LOGIN_HELPER_FILE_NAME);
+const AUTO_LOGIN_EQCLIENT_RESTORE_INITIAL_DELAY_MS = 1500;
+const AUTO_LOGIN_EQCLIENT_RESTORE_POLL_MS = 5000;
+const AUTO_LOGIN_EQCLIENT_RESTORE_MAX_WAIT_MS = 12 * 60 * 60 * 1000;
+const AUTO_LOGIN_EQCLIENT_FORCED_VALUES = {
+  Maximized: "1",
+  WindowedMode: "TRUE"
+};
+const AUTO_LOGIN_EQCLIENT_WINDOW_KEYS = [
+  "Maximized",
+  "WindowedMode",
+  "WindowedModeXOffset",
+  "WindowedModeYOffset",
+  "RestoredXOffset",
+  "RestoredYOffset",
+  "RestoredWidth",
+  "RestoredHeight",
+  "WindowedWidth",
+  "WindowedHeight",
+  "Width",
+  "Height",
+  "VideoMode"
+];
 
 function boolToLegacyString(value) {
   return value ? "true" : "false";
@@ -3400,12 +3422,277 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
     await fsp.writeFile(filePath, nextContent.endsWith(newline) ? nextContent : `${nextContent}${newline}`, "utf8");
   }
 
+  async createIniSectionValueSnapshot(filePath, sectionName, keys) {
+    const requestedValues = new Map(
+      (Array.isArray(keys) ? keys : [])
+        .map((key) => String(key || "").trim())
+        .filter(Boolean)
+        .map((key) => [key.toLowerCase(), { key, exists: false, value: "" }])
+    );
+
+    if (!requestedValues.size) {
+      return null;
+    }
+
+    const existingContent = (await exists(filePath)) ? await fsp.readFile(filePath, "utf8") : "";
+    const lines = existingContent ? existingContent.split(/\r?\n/) : [];
+    const sectionPattern = /^\s*\[([^\]]+)\]\s*$/;
+    const assignmentPattern = /^\s*([^=;#][^=]*?)\s*=\s*(.*)$/;
+    const normalizedSection = String(sectionName || "").trim().toLowerCase();
+    let sectionStart = -1;
+    let sectionEnd = lines.length;
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const match = sectionPattern.exec(lines[index]);
+      if (!match) {
+        continue;
+      }
+
+      const currentSection = match[1].trim().toLowerCase();
+      if (sectionStart >= 0) {
+        sectionEnd = index;
+        break;
+      }
+
+      if (currentSection === normalizedSection) {
+        sectionStart = index;
+      }
+    }
+
+    if (sectionStart >= 0) {
+      for (let index = sectionStart + 1; index < sectionEnd; index += 1) {
+        const match = assignmentPattern.exec(lines[index]);
+        if (!match) {
+          continue;
+        }
+
+        const existingKey = match[1].trim().toLowerCase();
+        const requestedValue = requestedValues.get(existingKey);
+        if (!requestedValue) {
+          continue;
+        }
+
+        requestedValue.exists = true;
+        requestedValue.value = sanitizeIniValue(match[2]);
+      }
+    }
+
+    return {
+      filePath,
+      sectionName,
+      values: [...requestedValues.values()]
+    };
+  }
+
+  async restoreIniSectionValueSnapshot(snapshot) {
+    if (!snapshot?.filePath || !snapshot?.sectionName || !Array.isArray(snapshot.values)) {
+      return;
+    }
+
+    const requestedValues = new Map(
+      snapshot.values
+        .map((entry) => ({
+          key: String(entry?.key || "").trim(),
+          exists: entry?.exists === true,
+          value: sanitizeIniValue(entry?.value)
+        }))
+        .filter((entry) => entry.key)
+        .map((entry) => [entry.key.toLowerCase(), entry])
+    );
+
+    if (!requestedValues.size) {
+      return;
+    }
+
+    const filePath = snapshot.filePath;
+    const existingContent = (await exists(filePath)) ? await fsp.readFile(filePath, "utf8") : "";
+    const newline = existingContent.includes("\r\n") ? "\r\n" : "\n";
+    const lines = existingContent ? existingContent.split(/\r?\n/) : [];
+    if (lines.length === 1 && lines[0] === "") {
+      lines.pop();
+    }
+
+    const sectionPattern = /^\s*\[([^\]]+)\]\s*$/;
+    const assignmentPattern = /^\s*([^=;#][^=]*?)\s*=/;
+    const normalizedSection = String(snapshot.sectionName || "").trim().toLowerCase();
+    let sectionStart = -1;
+    let sectionEnd = lines.length;
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const match = sectionPattern.exec(lines[index]);
+      if (!match) {
+        continue;
+      }
+
+      const currentSection = match[1].trim().toLowerCase();
+      if (sectionStart >= 0) {
+        sectionEnd = index;
+        break;
+      }
+
+      if (currentSection === normalizedSection) {
+        sectionStart = index;
+      }
+    }
+
+    if (sectionStart < 0) {
+      const hasValuesToRestore = [...requestedValues.values()].some((entry) => entry.exists);
+      if (!hasValuesToRestore) {
+        return;
+      }
+
+      if (lines.length && lines[lines.length - 1] !== "") {
+        lines.push("");
+      }
+      lines.push(`[${snapshot.sectionName}]`);
+      sectionStart = lines.length - 1;
+      sectionEnd = lines.length;
+    }
+
+    for (let index = sectionStart + 1; index < sectionEnd; index += 1) {
+      const match = assignmentPattern.exec(lines[index]);
+      if (!match) {
+        continue;
+      }
+
+      const existingKey = match[1].trim().toLowerCase();
+      const requestedValue = requestedValues.get(existingKey);
+      if (!requestedValue) {
+        continue;
+      }
+
+      if (requestedValue.exists) {
+        lines[index] = `${requestedValue.key}=${requestedValue.value}`;
+        index += 1;
+      } else {
+        lines.splice(index, 1);
+        sectionEnd -= 1;
+      }
+      requestedValues.delete(existingKey);
+      index -= 1;
+    }
+
+    for (const requestedValue of requestedValues.values()) {
+      if (!requestedValue.exists) {
+        continue;
+      }
+      lines.splice(sectionEnd, 0, `${requestedValue.key}=${requestedValue.value}`);
+      sectionEnd += 1;
+    }
+
+    await fsp.mkdir(path.dirname(filePath), { recursive: true });
+    const nextContent = lines.join(newline);
+    await fsp.writeFile(filePath, nextContent.endsWith(newline) ? nextContent : `${nextContent}${newline}`, "utf8");
+  }
+
+  async restoreForcedAutoLoginIniValues(snapshot) {
+    if (!snapshot?.filePath || !snapshot?.sectionName || !Array.isArray(snapshot.values)) {
+      return;
+    }
+
+    const forcedEntries = Object.entries(AUTO_LOGIN_EQCLIENT_FORCED_VALUES);
+    const currentSnapshot = await this.createIniSectionValueSnapshot(
+      snapshot.filePath,
+      snapshot.sectionName,
+      forcedEntries.map(([key]) => key)
+    );
+    const originalValues = new Map(
+      snapshot.values
+        .map((entry) => [String(entry?.key || "").trim().toLowerCase(), entry])
+        .filter(([key]) => Boolean(key))
+    );
+    const currentValues = new Map(
+      (currentSnapshot?.values || [])
+        .map((entry) => [String(entry?.key || "").trim().toLowerCase(), entry])
+        .filter(([key]) => Boolean(key))
+    );
+    const valuesToRestore = [];
+
+    for (const [key, forcedValue] of forcedEntries) {
+      const normalizedKey = key.toLowerCase();
+      const originalValue = originalValues.get(normalizedKey);
+      const currentValue = currentValues.get(normalizedKey);
+      if (!originalValue || !currentValue?.exists) {
+        continue;
+      }
+
+      if (String(currentValue.value).toLowerCase() !== String(forcedValue).toLowerCase()) {
+        continue;
+      }
+
+      if (originalValue.exists === currentValue.exists && String(originalValue.value).toLowerCase() === String(currentValue.value).toLowerCase()) {
+        continue;
+      }
+
+      valuesToRestore.push(originalValue);
+    }
+
+    if (!valuesToRestore.length) {
+      return;
+    }
+
+    await this.restoreIniSectionValueSnapshot({
+      filePath: snapshot.filePath,
+      sectionName: snapshot.sectionName,
+      values: valuesToRestore
+    });
+  }
+
+  isProcessRunning(processId) {
+    const normalizedProcessId = Number(processId);
+    if (!Number.isFinite(normalizedProcessId) || normalizedProcessId <= 0) {
+      return false;
+    }
+
+    try {
+      process.kill(Math.trunc(normalizedProcessId), 0);
+      return true;
+    } catch (error) {
+      return error?.code === "EPERM";
+    }
+  }
+
+  async scheduleDeferredIniSectionValueRestore(snapshot, processId) {
+    const normalizedProcessId = Number(processId);
+    if (!Number.isFinite(normalizedProcessId) || normalizedProcessId <= 0 || !snapshot?.filePath) {
+      return;
+    }
+
+    const targetProcessId = Math.trunc(normalizedProcessId);
+    const startedAt = Date.now();
+    const poll = async () => {
+      if (this.isProcessRunning(targetProcessId) && Date.now() - startedAt < AUTO_LOGIN_EQCLIENT_RESTORE_MAX_WAIT_MS) {
+        const timer = setTimeout(poll, AUTO_LOGIN_EQCLIENT_RESTORE_POLL_MS);
+        if (typeof timer.unref === "function") {
+          timer.unref();
+        }
+        return;
+      }
+
+      try {
+        await this.restoreForcedAutoLoginIniValues(snapshot);
+      } catch (error) {
+        this.emitLog(`Auto login: Could not restore EQ window settings after client exit: ${error.message}`, "warning");
+      }
+    };
+
+    const timer = setTimeout(poll, AUTO_LOGIN_EQCLIENT_RESTORE_INITIAL_DELAY_MS);
+    if (typeof timer.unref === "function") {
+      timer.unref();
+    }
+  }
+
   async configureAutoLoginClient(username) {
     const safeUsername = sanitizeIniValue(username);
     if (!safeUsername) {
       throw new Error("A login username is required.");
     }
 
+    const eqclientSnapshot = await this.createIniSectionValueSnapshot(
+      path.join(this.state.gameDirectory, "eqclient.ini"),
+      "Defaults",
+      AUTO_LOGIN_EQCLIENT_WINDOW_KEYS
+    );
     await this.setIniSectionValues(path.join(this.state.gameDirectory, "eqlsPlayerData.ini"), "PLAYER", {
       Username: safeUsername
     });
@@ -3413,6 +3700,10 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
       Maximized: "1",
       WindowedMode: "TRUE"
     });
+
+    return {
+      eqclientSnapshot
+    };
   }
 
   async ensureAutoLoginHelperScript() {
@@ -3502,6 +3793,7 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
       let stdoutRemainder = "";
       let stderrOutput = "";
       let enteredWorld = false;
+      let startedProcessId = 0;
       const finish = (callback, value) => {
         if (settled) {
           return;
@@ -3521,6 +3813,12 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
 
         try {
           const helperEvent = JSON.parse(trimmedLine);
+          if (helperEvent?.stage === "process-started") {
+            const processId = Number(helperEvent.processId);
+            if (Number.isFinite(processId) && processId > 0) {
+              startedProcessId = Math.trunc(processId);
+            }
+          }
           if (helperEvent?.stage === "enter-world-complete") {
             enteredWorld = true;
           }
@@ -3539,7 +3837,9 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
             // Ignore termination errors and surface the timeout itself.
           }
         }
-        finish(reject, new Error("Auto login did not finish within 60 seconds."));
+        const error = new Error("Auto login did not finish within 60 seconds.");
+        error.processId = startedProcessId;
+        finish(reject, error);
       }, AUTO_LOGIN_HELPER_TIMEOUT_MS);
 
       child.stdout?.on?.("data", (chunk) => {
@@ -3581,22 +3881,24 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
 
         const normalizedCode = Number.isFinite(code) ? code : 0;
         if (normalizedCode === 0) {
-          finish(resolve, { confirmed: true, enteredWorld });
+          finish(resolve, { confirmed: true, enteredWorld, processId: startedProcessId });
           return;
         }
 
         if (normalizedCode === AUTO_LOGIN_CONFIRMATION_TIMEOUT_EXIT_CODE) {
-          finish(resolve, { confirmed: false });
+          finish(resolve, { confirmed: false, processId: startedProcessId });
           return;
         }
 
         if (normalizedCode === AUTO_LOGIN_LOGIN_REJECTED_EXIT_CODE) {
-          finish(resolve, { confirmed: false, loginRejected: true });
+          finish(resolve, { confirmed: false, loginRejected: true, processId: startedProcessId });
           return;
         }
 
         const detail = stderrOutput.trim();
-        finish(reject, new Error(detail || `Auto login helper exited with code ${normalizedCode}.`));
+        const error = new Error(detail || `Auto login helper exited with code ${normalizedCode}.`);
+        error.processId = startedProcessId;
+        finish(reject, error);
       });
 
       if (child.stdin) {
@@ -4181,6 +4483,8 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
       : 0;
     const overlaySuccessProgress = Math.round((normalizedBatchIndex / normalizedBatchTotal) * 100);
     let password = "";
+    let clientConfiguration = null;
+    let launchedProcessId = 0;
 
     try {
       this.state.selectedAutoLoginProfileId = profile.id;
@@ -4201,7 +4505,7 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
         throw new Error("The saved account password could not be read.");
       }
 
-      await this.configureAutoLoginClient(profile.username);
+      clientConfiguration = await this.configureAutoLoginClient(profile.username);
       this.emitLog("Prepared EverQuest login settings for the selected account profile.");
       this.state.autoLoginStatus = createAutoLoginStatus("running", `${batchPrefix}Launching`.trim(), "Starting EverQuest and sending the login sequence.");
       this.state.progressValue = progressValue(10);
@@ -4215,6 +4519,7 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
         password,
         enterWorld: shouldEnterWorld
       });
+      launchedProcessId = Number(result?.processId) || 0;
 
       if (result.confirmed) {
         const successDetail = result.enteredWorld
@@ -4253,8 +4558,21 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
       this.setStatus("Auto Login Check", "Login input was sent, but the client did not appear to advance past the login form.");
       this.emitLog("Auto login sent the credential sequence, but the client did not appear to advance past the login form.", "warning");
       return { outcome: "notConfirmed" };
+    } catch (error) {
+      launchedProcessId = Number(error?.processId) || launchedProcessId;
+      throw error;
     } finally {
       password = "";
+      if (clientConfiguration?.eqclientSnapshot) {
+        try {
+          await this.restoreIniSectionValueSnapshot(clientConfiguration.eqclientSnapshot);
+          if (launchedProcessId > 0) {
+            await this.scheduleDeferredIniSectionValueRestore(clientConfiguration.eqclientSnapshot, launchedProcessId);
+          }
+        } catch (restoreError) {
+          this.emitLog(`Auto login: Could not restore prior EQ window settings: ${restoreError.message}`, "warning");
+        }
+      }
     }
   }
 
