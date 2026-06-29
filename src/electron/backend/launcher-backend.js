@@ -11,8 +11,8 @@ const SimpleYaml = require("./simple-yaml");
 const { DEFAULT_RELEASE_API_URL, LauncherUpdater } = require("./launcher-updater");
 const { UiManager } = require("./ui-manager");
 
-const DEFAULT_GAME_SERVER_STATUS_HOST = "76.251.85.36";
-const DEFAULT_GAME_SERVER_STATUS_PORT = 9000;
+const DEFAULT_GAME_SERVER_STATUS_HOST = "74.208.165.146";
+const DEFAULT_GAME_SERVER_STATUS_PORT = 9001;
 const LOGIN_SERVER_SESSION_PROTOCOL_VERSION = 3;
 const LOGIN_SERVER_SESSION_MAX_PACKET_SIZE = 512;
 const EQ_CRC32_TABLE = createCrc32Table();

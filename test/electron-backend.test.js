@@ -281,13 +281,13 @@ test("initialize uses the built-in game server status endpoint when no override 
 
   const state = await backend.initialize();
 
-  assert.equal(state.gameServerPort, 9000);
+  assert.equal(state.gameServerHost, "74.208.165.146");
+  assert.equal(state.gameServerPort, 9001);
   assert.equal(state.gameServerStatus.state, "online");
   assert.equal(state.gameServerStatus.label, "Online");
-  assert.equal(state.gameServerStatus.port, 9000);
-  assert.ok(state.gameServerHost);
-  assert.ok(state.gameServerStatus.host);
-  assert.deepEqual(connectionChecks.map((check) => check.port), [9000]);
+  assert.equal(state.gameServerStatus.host, "74.208.165.146");
+  assert.equal(state.gameServerStatus.port, 9001);
+  assert.deepEqual(connectionChecks, [{ host: "74.208.165.146", port: 9001 }]);
 });
 
 test("initialize reports configured game server status as offline", async (t) => {
