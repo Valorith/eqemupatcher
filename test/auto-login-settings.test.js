@@ -15,7 +15,7 @@ test("normalizeAutoLoginSettings returns defaults for missing or malformed input
   for (const input of [undefined, null, "", 42, [], "nope", { points: "bad" }]) {
     const settings = normalizeAutoLoginSettings(input);
     assert.equal(settings.windowWaitSeconds, 45);
-    assert.equal(settings.uiLayoutMode, "fit");
+    assert.equal(settings.uiLayoutMode, "auto");
     assert.deepEqual(settings.points.eulaAccept, [0.661, 0.757]);
     assert.equal(isDefaultAutoLoginSettings(settings), true);
   }
@@ -57,7 +57,8 @@ test("normalizeAutoLoginSettings clamps, coerces and validates every field", () 
 });
 
 test("normalizeAutoLoginSettings rejects unknown layout modes", () => {
-  assert.equal(normalizeAutoLoginSettings({ uiLayoutMode: "diagonal" }).uiLayoutMode, "fit");
+  assert.equal(normalizeAutoLoginSettings({ uiLayoutMode: "diagonal" }).uiLayoutMode, "auto");
+  assert.equal(normalizeAutoLoginSettings({ uiLayoutMode: "FIT" }).uiLayoutMode, "fit");
   assert.equal(normalizeAutoLoginSettings({ uiLayoutMode: "Centered" }).uiLayoutMode, "centered");
 });
 

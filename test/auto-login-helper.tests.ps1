@@ -34,7 +34,7 @@ function New-Probes {
   param([hashtable]$Overrides = @{})
   $dark = New-Pixel 10 10 10
   $probes = [ordered]@{}
-  foreach ($name in @("loginErrorButton", "loginErrorBorder", "mainMenuLogin", "mainMenuPasswordField", "mainMenuLoginButton", "mainMenuExitButton")) {
+  foreach ($name in $LoginCanvasProbeNames) {
     $pixels = if ($Overrides.ContainsKey($name)) { $Overrides[$name] } else { @($dark) }
     $probes[$name] = New-ProbeSample -Pixels @($pixels)
   }
@@ -57,6 +57,43 @@ Assert-Equal @(448, 120, 1024, 768) ([EqAutoLogin.Native]::ComputeUiLayoutRect(1
 $threw = $false
 try { [void][EqAutoLogin.Native]::ComputeUiLayoutRect(0, 500, "fit", 1024, 768) } catch { $threw = $true }
 Assert-Equal $true $threw "empty client rect throws"
+
+# "auto": each EQ login window is drawn at native size, centred, pinned to 0 when larger than
+# the client. Expected values were measured on a live RoF2 client (1280x670 and 3840x2089).
+Assert-Equal @(1408, 660, 1024, 768) ([EqAutoLogin.Native]::ComputeUiLayoutRect(3840, 2089, "auto", 1024, 768, 1280, 720)) "auto: large client matches the centred canvas (1280x720 window)"
+Assert-Equal @(1408, 660, 1024, 768) ([EqAutoLogin.Native]::ComputeUiLayoutRect(3840, 2089, "auto", 1024, 768, 640, 480)) "auto: large client matches the centred canvas (640x480 window)"
+Assert-Equal @(128, -24, 1024, 768) ([EqAutoLogin.Native]::ComputeUiLayoutRect(1280, 670, "auto", 1024, 768, 1280, 720)) "auto: 1280x720 window is pinned to the top of a 670px client"
+Assert-Equal @(128, -49, 1024, 768) ([EqAutoLogin.Native]::ComputeUiLayoutRect(1280, 670, "auto", 1024, 768, 640, 480)) "auto: 640x480 dialog stays centred in a 670px client"
+Assert-Equal @(128, -24, 1024, 768) ([EqAutoLogin.Native]::ComputeUiLayoutRect(1024, 700, "auto", 1024, 768, 1280, 720)) "auto: a window wider than the client is pinned to the left edge"
+Assert-Equal @(128, -49, 1024, 768) ([EqAutoLogin.Native]::ComputeUiLayoutRect(1280, 670, "AUTO", 1024, 768, 640, 480)) "auto: mode is case insensitive"
+Assert-Equal @(128, -49, 1024, 768) ([EqAutoLogin.Native]::ComputeUiLayoutRect(1280, 670, "centered", 1024, 768, 1280, 720)) "legacy modes ignore the window size"
+
+# --- Login window sizes --------------------------------------------------------------------
+
+$stockSizes = Get-LoginWindowSizes
+Assert-Equal "1280x720" "$($stockSizes.connect.Width)x$($stockSizes.connect.Height)" "window sizes: stock connect window"
+Assert-Equal "640x480" "$($stockSizes.eula.Width)x$($stockSizes.eula.Height)" "window sizes: stock EULA window"
+$uiDir = Join-Path ([System.IO.Path]::GetTempPath()) ("eqautologin-ui-" + [guid]::NewGuid())
+$defaultDir = Join-Path (Join-Path $uiDir "uifiles") "default"
+[void](New-Item -ItemType Directory -Path $defaultDir -Force)
+try {
+  $connectXml = @"
+<XML><Screen item="connect_child"><Size><CX>10</CX><CY>10</CY></Size></Screen>
+<Screen item = "connect"><RelativePosition>true</RelativePosition><Size>
+  <CX>1600</CX>
+  <CY>900</CY></Size></Screen></XML>
+"@
+  Set-Content -LiteralPath (Join-Path $defaultDir "EQLSUI_ConnectWnd.xml") -Value $connectXml
+  Set-Content -LiteralPath (Join-Path $defaultDir "EQLSUI_EulaWnd.xml") -Value '<XML><Screen item="EulaWindow"><Size><CX>99999</CX><CY>480</CY></Size></Screen></XML>'
+  $customSizes = Get-LoginWindowSizes -GameDirectory $uiDir
+  Assert-Equal "1600x900 EQLSUI_ConnectWnd.xml" "$($customSizes.connect.Width)x$($customSizes.connect.Height) $($customSizes.connect.Source)" "window sizes: read from the client's EQLSUI xml"
+  Assert-Equal "640x480 default" "$($customSizes.eula.Width)x$($customSizes.eula.Height) $($customSizes.eula.Source)" "window sizes: implausible xml size falls back to stock"
+  Assert-Equal "1280x720 default" "$($customSizes.main.Width)x$($customSizes.main.Height) $($customSizes.main.Source)" "window sizes: missing xml falls back to stock"
+} finally {
+  Remove-Item -LiteralPath $uiDir -Recurse -Force
+}
+$unmapped = @($AutoLoginDefaultSettings.points.Keys | Where-Object { -not $PointWindows.ContainsKey($_) -or -not $LoginWindowDefinitions.Contains($PointWindows[$_]) })
+Assert-Equal "" ($unmapped -join ",") "every point belongs to a known login window"
 
 # --- Select-EqRenderWindow ---------------------------------------------------------------
 
@@ -84,7 +121,7 @@ function Encode-Settings {
 
 $defaults = Get-AutoLoginSettings -Base64 "" -BoundParameters @{}
 Assert-Equal 45 $defaults.windowWaitSeconds "defaults: windowWaitSeconds"
-Assert-Equal "fit" $defaults.uiLayoutMode "defaults: uiLayoutMode"
+Assert-Equal "auto" $defaults.uiLayoutMode "defaults: uiLayoutMode"
 Assert-Equal @(0.661, 0.757) $defaults.points["eulaAccept"] "defaults: eulaAccept point"
 
 $custom = Get-AutoLoginSettings -Base64 (Encode-Settings '{"windowWaitSeconds":"90","keyDelayMs":30.4,"probeRadiusPx":99,"uiLayoutMode":" Centered","points":{"serverSelectPlay":[0.7,0.71],"usernameField":{"x":0.4,"y":0.5},"passwordField":[7,7],"bogus":[0.1,0.1]}}') -BoundParameters @{}
@@ -116,12 +153,35 @@ $bright = New-Pixel 220 220 210
 $gray = New-Pixel 80 80 90
 $dark = New-Pixel 10 10 10
 
-Assert-Equal "login-form" (Resolve-LoginCanvasState -Probes (New-Probes @{ mainMenuLoginButton = @($gray) })) "state: dark menu + gray login button is the login form"
-Assert-Equal "main-menu" (Resolve-LoginCanvasState -Probes (New-Probes @{ mainMenuLogin = @($blue); mainMenuLoginButton = @($gray); mainMenuExitButton = @($gray) })) "state: blue Login + gray buttons is the main menu"
-Assert-Equal "login-error" (Resolve-LoginCanvasState -Probes (New-Probes @{ loginErrorButton = @($blue); loginErrorBorder = @($bright); mainMenuLoginButton = @($gray) })) "state: error dialog wins over the login form"
-Assert-Equal "advanced" (Resolve-LoginCanvasState -Probes (New-Probes @{})) "state: all dark is unrecognised (advanced)"
-Assert-Equal "login-form" (Resolve-LoginCanvasState -Probes (New-Probes @{ mainMenuLoginButton = @($gray, $gray, $gray, $bright, $dark) })) "state: majority vote tolerates two off samples"
-Assert-Equal "advanced" (Resolve-LoginCanvasState -Probes (New-Probes @{ mainMenuLoginButton = @($gray, $bright, $bright, $dark, $dark) })) "state: minority gray sample does not classify"
+$formButtons = @{ loginFormLoginButton = @($gray); loginFormQuickConnect = @($gray); loginFormCancel = @($gray) }
+function Merge-Probes([hashtable]$Base, [hashtable]$Extra) { $merged = @{} + $Base; foreach ($key in $Extra.Keys) { $merged[$key] = $Extra[$key] }; return $merged }
+
+Assert-Equal "login-form" (Resolve-LoginCanvasState -Probes (New-Probes $formButtons)) "state: empty dark fields above LOGIN/QUICK CONNECT/CANCEL buttons is the login form"
+Assert-Equal "login-form" (Resolve-LoginCanvasState -Probes (New-Probes (Merge-Probes $formButtons @{ loginFormQuickConnect = @($blue) }))) "state: a hovered (blue) button still counts as a button"
+Assert-Equal "advanced" (Resolve-LoginCanvasState -Probes (New-Probes (Merge-Probes $formButtons @{ loginFormGap = @($gray) }))) "state: a continuous grey area (no gap between buttons) is not the login form"
+Assert-Equal "login-form" (Resolve-LoginCanvasState -Probes (New-Probes (Merge-Probes $formButtons @{ loginFormGap = @((New-Pixel 22 41 55)) }))) "state: the tinted frame between buttons is not a button"
+Assert-Equal "main-menu" (Resolve-LoginCanvasState -Probes (New-Probes @{ mainMenuLogin = @($blue); mainMenuLoginRight = @($blue); mainMenuOptions = @($gray); mainMenuExit = @($gray) })) "state: blue LOGIN above OPTIONS/EXIT buttons is the main menu"
+Assert-Equal "main-menu" (Resolve-LoginCanvasState -Probes (New-Probes @{ mainMenuLogin = @($bright); mainMenuLoginRight = @($bright); mainMenuOptions = @($gray); mainMenuExit = @($gray) })) "state: highlighted LOGIN still counts as the main menu"
+Assert-Equal "advanced" (Resolve-LoginCanvasState -Probes (New-Probes @{ mainMenuLogin = @($blue); mainMenuLoginRight = @($blue); mainMenuOptions = @($gray); mainMenuExit = @($gray); mainMenuBelowExit = @($gray) })) "state: a fourth button below EXIT is not the main menu"
+Assert-Equal "login-error" (Resolve-LoginCanvasState -Probes (New-Probes (Merge-Probes $formButtons @{ loginErrorOkLeft = @($blue); loginErrorOkRight = @($blue) }))) "state: error dialog wins over the login form"
+Assert-Equal "login-form" (Resolve-LoginCanvasState -Probes (New-Probes (Merge-Probes $formButtons @{ loginErrorOkLeft = @($blue) }))) "state: one blue OK sample is not an error dialog"
+Assert-Equal "advanced" (Resolve-LoginCanvasState -Probes (New-Probes (Merge-Probes $formButtons @{ loginFormUsername = @($bright) }))) "state: text in the username probe is not the empty login form"
+
+# Regressions from live RoF2 captures (4K client):
+# - the SOE splash's grey logo and white text once matched the login form
+$soeSplash = @{ loginErrorOkLeft = @((New-Pixel 247 251 247)); loginErrorOkRight = @((New-Pixel 85 79 85)); mainMenuLogin = @((New-Pixel 255 255 255)); mainMenuOptions = @((New-Pixel 85 79 85)); loginFormLoginButton = @((New-Pixel 85 79 85)) }
+Assert-Equal "advanced" (Resolve-LoginCanvasState -Probes (New-Probes $soeSplash)) "state: SOE splash is not the login form or main menu"
+# - a hovered QUICK CONNECT sits exactly where the error dialog's OK button is drawn
+$hoveredQuickConnect = Merge-Probes $formButtons @{ loginFormQuickConnect = @($blue); loginErrorOkLeft = @((New-Pixel 30 39 140)); loginErrorOkRight = @((New-Pixel 24 32 107)); loginErrorLeftOfOk = @((New-Pixel 30 39 140)); loginErrorRightOfOk = @((New-Pixel 30 39 140)) }
+Assert-Equal "login-form" (Resolve-LoginCanvasState -Probes (New-Probes $hoveredQuickConnect)) "state: a hovered wide button under the OK position is not an error dialog"
+
+Assert-Equal "login-form" (Resolve-LoginCanvasState -Probes (New-Probes (Merge-Probes $formButtons @{ loginFormLoginButton = @($gray, $gray, $gray, $bright, $dark) }))) "state: majority vote tolerates two off samples"
+Assert-Equal "advanced" (Resolve-LoginCanvasState -Probes (New-Probes (Merge-Probes $formButtons @{ loginFormLoginButton = @($gray, $bright, $bright, $dark, $dark) }))) "state: minority grey sample does not classify"
+
+Assert-Equal $true (Test-ButtonPixel -Pixel (New-Pixel 66 69 66)) "button: EQ button grey"
+Assert-Equal $true (Test-ButtonPixel -Pixel (New-Pixel 30 39 140)) "button: hovered blue"
+Assert-Equal $false (Test-ButtonPixel -Pixel (New-Pixel 22 41 55)) "button: tinted frame is not a button"
+Assert-Equal $false (Test-ButtonPixel -Pixel (New-Pixel 153 153 153)) "button: light grey text is not a button"
 
 Assert-Equal "mainMenuLogin=30,40,150" (Format-ProbeSummary -Probes ([ordered]@{ mainMenuLogin = (New-ProbeSample -Pixels @($blue)) })) "probe summary formats the centre sample"
 $colorRef = Convert-ColorRef -Color 0x00996633

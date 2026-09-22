@@ -35,18 +35,32 @@ $AutoLoginDefaultSettings = [ordered]@{
   credentialClearBackspaceCount = 64
   credentialAttempts = 2
   probeRadiusPx = 1
-  uiLayoutMode = "fit"
+  uiLayoutMode = "auto"
   uiLayoutWidth = 1024
   uiLayoutHeight = 768
+  # Ratios inside the uiLayoutWidth x uiLayoutHeight reference canvas. Probe points sit in the
+  # flat interior of buttons/fields (not on borders or text) so a pixel of rounding, DPI
+  # stretching or typed characters cannot change what they read.
   points = [ordered]@{
     eulaAccept = @(0.661, 0.757)
     splashContinue = @(0.5, 0.5)
-    mainMenuLogin = @(0.497, 0.456)
-    mainMenuPasswordField = @(0.497, 0.486)
-    mainMenuLoginButton = @(0.497, 0.526)
-    mainMenuExitButton = @(0.497, 0.600)
-    loginErrorButton = @(0.49, 0.61)
-    loginErrorBorder = @(0.49, 0.59)
+    mainMenuLogin = @(0.4023, 0.474)
+    mainMenuLoginRight = @(0.5781, 0.474)
+    mainMenuOptions = @(0.4023, 0.5391)
+    mainMenuGap = @(0.4023, 0.5716)
+    mainMenuExit = @(0.4023, 0.6042)
+    mainMenuBelowExit = @(0.4023, 0.6823)
+    loginFormUsername = @(0.5781, 0.3893)
+    loginFormPassword = @(0.5781, 0.474)
+    loginFormLoginButton = @(0.4023, 0.5391)
+    loginFormGap = @(0.4023, 0.5716)
+    loginFormQuickConnect = @(0.4023, 0.6042)
+    loginFormCancel = @(0.4023, 0.6823)
+    loginErrorOkLeft = @(0.4609, 0.6081)
+    loginErrorOkRight = @(0.5391, 0.6081)
+    loginErrorText = @(0.5586, 0.5326)
+    loginErrorLeftOfOk = @(0.4219, 0.6081)
+    loginErrorRightOfOk = @(0.5781, 0.6081)
     usernameField = @(0.560, 0.390)
     passwordField = @(0.560, 0.474)
     serverSelectPlay = @(0.724, 0.700)
@@ -75,7 +89,77 @@ $AutoLoginSettingRanges = @{
   uiLayoutHeight = @(240, 8192)
 }
 
-$AutoLoginLayoutModes = @("fit", "centered", "stretch")
+$AutoLoginLayoutModes = @("auto", "fit", "centered", "stretch")
+
+# The login-screen windows each point lives in. EverQuest draws each one at its native size
+# (from uifiles\default\EQLSUI_*.xml), centred in the client and pinned to the top/left edge
+# when the client is smaller - which is what uiLayoutMode "auto" models.
+$LoginWindowDefinitions = [ordered]@{
+  eula = @{ File = "EQLSUI_EulaWnd.xml"; Screen = "EulaWindow"; Width = 640; Height = 480 }
+  splash = @{ File = "EQLSUI_SplashExWnd.xml"; Screen = "SplashExWindow"; Width = 640; Height = 480 }
+  main = @{ File = "EQLSUI_MainWnd.xml"; Screen = "main"; Width = 1280; Height = 720 }
+  connect = @{ File = "EQLSUI_ConnectWnd.xml"; Screen = "connect"; Width = 1280; Height = 720 }
+  okdialog = @{ File = "EQLSUI_OKDialog.xml"; Screen = "okdialog"; Width = 640; Height = 480 }
+  serverselect = @{ File = "EQLSUI_ServerSelectWnd.xml"; Screen = "serverselect"; Width = 640; Height = 480 }
+}
+
+$PointWindows = @{
+  eulaAccept = "eula"
+  splashContinue = "splash"
+  mainMenuLogin = "main"
+  mainMenuLoginRight = "main"
+  mainMenuOptions = "main"
+  mainMenuGap = "main"
+  mainMenuExit = "main"
+  mainMenuBelowExit = "main"
+  loginFormUsername = "connect"
+  loginFormPassword = "connect"
+  loginFormLoginButton = "connect"
+  loginFormGap = "connect"
+  loginFormQuickConnect = "connect"
+  loginFormCancel = "connect"
+  usernameField = "connect"
+  passwordField = "connect"
+  loginErrorOkLeft = "okdialog"
+  loginErrorOkRight = "okdialog"
+  loginErrorText = "okdialog"
+  loginErrorLeftOfOk = "okdialog"
+  loginErrorRightOfOk = "okdialog"
+  serverSelectPlay = "serverselect"
+}
+
+function Get-LoginWindowSizes {
+  param(
+    [string]$GameDirectory = ""
+  )
+
+  $sizes = [ordered]@{}
+  foreach ($windowName in $LoginWindowDefinitions.Keys) {
+    $definition = $LoginWindowDefinitions[$windowName]
+    $size = [pscustomobject]@{ Width = $definition.Width; Height = $definition.Height; Source = "default" }
+    if ($GameDirectory) {
+      $path = [System.IO.Path]::Combine($GameDirectory, "uifiles", "default", $definition.File)
+      try {
+        if (Test-Path -LiteralPath $path) {
+          $xml = [System.IO.File]::ReadAllText($path)
+          $pattern = '<Screen\s+item\s*=\s*"' + [regex]::Escape($definition.Screen) + '"\s*>.*?<Size>\s*<CX>\s*(\d+)\s*</CX>\s*<CY>\s*(\d+)\s*</CY>\s*</Size>'
+          $match = [regex]::Match($xml, $pattern, [System.Text.RegularExpressions.RegexOptions]::Singleline -bor [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+          if ($match.Success) {
+            $width = [int]$match.Groups[1].Value
+            $height = [int]$match.Groups[2].Value
+            if ($width -ge 64 -and $width -le 8192 -and $height -ge 64 -and $height -le 8192) {
+              $size = [pscustomobject]@{ Width = $width; Height = $height; Source = $definition.File }
+            }
+          }
+        }
+      } catch {
+        # Unreadable UI file: keep the stock size.
+      }
+    }
+    $sizes[$windowName] = $size
+  }
+  return $sizes
+}
 
 function Get-SettingsProperty {
   param(
@@ -315,7 +399,11 @@ namespace EqAutoLogin
         public int ClientTop { get; set; }
         public int ClientWidth { get; set; }
         public int ClientHeight { get; set; }
+        public int LogicalClientWidth { get; set; }
+        public int LogicalClientHeight { get; set; }
+        public double Scale { get; set; }
         public int Dpi { get; set; }
+        public int MonitorDpi { get; set; }
         public int MonitorLeft { get; set; }
         public int MonitorTop { get; set; }
         public int MonitorWidth { get; set; }
@@ -352,6 +440,11 @@ namespace EqAutoLogin
         private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
         private const uint SRCCOPY = 0x00CC0020;
         public const int INVALID_PIXEL = -1;
+        public const int COVERED_PIXEL = -2;
+
+        // Set by GetWindowRelativePixels: how many samples another window covered, and one of them.
+        public static int LastCoveredSamples;
+        public static IntPtr LastCoveringWindow;
         private const uint SWP_NOSIZE = 0x0001;
         private const uint SWP_NOZORDER = 0x0004;
         private const uint SWP_NOACTIVATE = 0x0010;
@@ -548,6 +641,12 @@ namespace EqAutoLogin
 
         [DllImport("user32.dll")]
         private static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr GetWindowDpiAwarenessContext(IntPtr hWnd);
+
+        [DllImport("shcore.dll")]
+        private static extern int GetDpiForMonitor(IntPtr hMonitor, int dpiType, out uint dpiX, out uint dpiY);
 
         [DllImport("dwmapi.dll")]
         private static extern int DwmGetWindowAttribute(IntPtr hWnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);
@@ -770,17 +869,12 @@ namespace EqAutoLogin
                 // monitor: that covers windows flush with an edge (whose invisible DWM resize
                 // borders overhang the work area) and windows deliberately spanning monitors.
                 // Moving them would needlessly rewrite the position EQ saves to eqclient.ini.
-                RECT clientRect;
-                if (!GetClientRect(hWnd, out clientRect) || clientRect.Right <= 0 || clientRect.Bottom <= 0)
+                ClientMapping mapping = GetClientMapping(hWnd);
+                if (mapping.PhysicalWidth <= 0 || mapping.PhysicalHeight <= 0)
                 {
                     return false;
                 }
-                var clientOrigin = new POINT { X = 0, Y = 0 };
-                if (!ClientToScreen(hWnd, ref clientOrigin))
-                {
-                    return false;
-                }
-                if (IsScreenRectOnMonitors(clientOrigin.X, clientOrigin.Y, clientRect.Right, clientRect.Bottom))
+                if (IsScreenRectOnMonitors(mapping.PhysicalOrigin.X, mapping.PhysicalOrigin.Y, mapping.PhysicalWidth, mapping.PhysicalHeight))
                 {
                     return false;
                 }
@@ -837,6 +931,14 @@ namespace EqAutoLogin
 
         public static WindowGeometry GetWindowGeometry(IntPtr hWnd, string layoutMode, int uiWidth, int uiHeight)
         {
+            return GetWindowGeometry(hWnd, layoutMode, uiWidth, uiHeight, uiWidth, uiHeight);
+        }
+
+        // Layout values are in the window's own (logical) client coordinates; Client* values are
+        // physical screen pixels. They differ only when Windows bitmap-stretches a DPI-unaware
+        // client (eqgame.exe) on a monitor scaled above 100%.
+        public static WindowGeometry GetWindowGeometry(IntPtr hWnd, string layoutMode, int uiWidth, int uiHeight, int screenWidth, int screenHeight)
+        {
             IntPtr previousDpiContext = EnterDpiAwareThreadContext();
             try
             {
@@ -858,23 +960,21 @@ namespace EqAutoLogin
                     geometry.Height = windowRect.Bottom - windowRect.Top;
                 }
 
-                RECT clientRect;
-                if (GetClientRect(hWnd, out clientRect))
+                ClientMapping mapping = GetClientMapping(hWnd);
+                geometry.ClientLeft = mapping.PhysicalOrigin.X;
+                geometry.ClientTop = mapping.PhysicalOrigin.Y;
+                geometry.ClientWidth = mapping.PhysicalWidth;
+                geometry.ClientHeight = mapping.PhysicalHeight;
+                geometry.LogicalClientWidth = mapping.LogicalWidth;
+                geometry.LogicalClientHeight = mapping.LogicalHeight;
+                geometry.Scale = mapping.ScaleX;
+                if (mapping.LogicalWidth > 0 && mapping.LogicalHeight > 0)
                 {
-                    var origin = new POINT { X = clientRect.Left, Y = clientRect.Top };
-                    ClientToScreen(hWnd, ref origin);
-                    geometry.ClientLeft = origin.X;
-                    geometry.ClientTop = origin.Y;
-                    geometry.ClientWidth = clientRect.Right - clientRect.Left;
-                    geometry.ClientHeight = clientRect.Bottom - clientRect.Top;
-                    if (geometry.ClientWidth > 0 && geometry.ClientHeight > 0)
-                    {
-                        int[] layout = ComputeUiLayoutRect(geometry.ClientWidth, geometry.ClientHeight, layoutMode, uiWidth, uiHeight);
-                        geometry.LayoutLeft = layout[0];
-                        geometry.LayoutTop = layout[1];
-                        geometry.LayoutWidth = layout[2];
-                        geometry.LayoutHeight = layout[3];
-                    }
+                    int[] layout = ComputeUiLayoutRect(mapping.LogicalWidth, mapping.LogicalHeight, layoutMode, uiWidth, uiHeight, screenWidth, screenHeight);
+                    geometry.LayoutLeft = layout[0];
+                    geometry.LayoutTop = layout[1];
+                    geometry.LayoutWidth = layout[2];
+                    geometry.LayoutHeight = layout[3];
                 }
 
                 try
@@ -885,6 +985,7 @@ namespace EqAutoLogin
                 {
                     geometry.Dpi = 0;
                 }
+                geometry.MonitorDpi = GetMonitorDpi(hWnd);
 
                 RECT monitor;
                 if (TryGetMonitorRect(hWnd, out monitor))
@@ -903,11 +1004,21 @@ namespace EqAutoLogin
             }
         }
 
-        // Returns { left, top, width, height } of the login UI inside the client area.
-        //  fit      - shrink a uiWidth x uiHeight box to fit the client, keep aspect, centre it (legacy behaviour)
-        //  centered - fixed uiWidth x uiHeight box centred in the client; may hang past the edges (clipped UI)
-        //  stretch  - the UI fills the whole client area
         public static int[] ComputeUiLayoutRect(int clientWidth, int clientHeight, string layoutMode, int uiWidth, int uiHeight)
+        {
+            return ComputeUiLayoutRect(clientWidth, clientHeight, layoutMode, uiWidth, uiHeight, uiWidth, uiHeight);
+        }
+
+        // Returns { left, top, width, height } of the uiWidth x uiHeight reference canvas that the
+        // click/probe ratios are measured in, in client coordinates.
+        //  auto     - how the EQ login screen really lays out: each login window (screenWidth x
+        //             screenHeight, from EQLSUI_*.xml) is drawn at native size, centred in the
+        //             client, and pinned to the top/left edge when the client is smaller than it.
+        //             The canvas is positioned where it sits relative to that window when centred.
+        //  fit      - shrink the canvas to fit the client, keep aspect, centre it (legacy behaviour)
+        //  centered - fixed canvas centred in the client; may hang past the edges (clipped UI)
+        //  stretch  - the canvas fills the whole client area
+        public static int[] ComputeUiLayoutRect(int clientWidth, int clientHeight, string layoutMode, int uiWidth, int uiHeight, int screenWidth, int screenHeight)
         {
             if (clientWidth <= 0 || clientHeight <= 0)
             {
@@ -921,6 +1032,15 @@ namespace EqAutoLogin
             }
 
             string mode = (layoutMode ?? string.Empty).Trim().ToLowerInvariant();
+            if (mode == "auto")
+            {
+                int windowWidth = screenWidth > 0 ? screenWidth : uiWidth;
+                int windowHeight = screenHeight > 0 ? screenHeight : uiHeight;
+                int windowLeft = Math.Max(0, (clientWidth - windowWidth) / 2);
+                int windowTop = Math.Max(0, (clientHeight - windowHeight) / 2);
+                return new int[] { windowLeft + ((windowWidth - uiWidth) / 2), windowTop + ((windowHeight - uiHeight) / 2), uiWidth, uiHeight };
+            }
+
             if (mode == "stretch")
             {
                 return new int[] { 0, 0, clientWidth, clientHeight };
@@ -949,12 +1069,12 @@ namespace EqAutoLogin
             return new int[] { left, top, targetWidth, targetHeight };
         }
 
-        public static int[] GetWindowRelativeScreenPoint(IntPtr hWnd, double xRatio, double yRatio, string layoutMode, int uiWidth, int uiHeight)
+        public static int[] GetWindowRelativeScreenPoint(IntPtr hWnd, double xRatio, double yRatio, string layoutMode, int uiWidth, int uiHeight, int screenWidth, int screenHeight)
         {
             IntPtr previousDpiContext = EnterDpiAwareThreadContext();
             try
             {
-                POINT point = ResolveWindowRelativeScreenPoint(hWnd, xRatio, yRatio, layoutMode, uiWidth, uiHeight);
+                POINT point = ResolvePhysicalPoint(GetClientMapping(hWnd), xRatio, yRatio, layoutMode, uiWidth, uiHeight, screenWidth, screenHeight);
                 return new int[] { point.X, point.Y };
             }
             finally
@@ -965,10 +1085,15 @@ namespace EqAutoLogin
 
         public static ClickResult ClickWindowRelative(IntPtr hWnd, double xRatio, double yRatio, int moveDelayMilliseconds, int holdDelayMilliseconds, string layoutMode, int uiWidth, int uiHeight)
         {
+            return ClickWindowRelative(hWnd, xRatio, yRatio, moveDelayMilliseconds, holdDelayMilliseconds, layoutMode, uiWidth, uiHeight, uiWidth, uiHeight);
+        }
+
+        public static ClickResult ClickWindowRelative(IntPtr hWnd, double xRatio, double yRatio, int moveDelayMilliseconds, int holdDelayMilliseconds, string layoutMode, int uiWidth, int uiHeight, int screenWidth, int screenHeight)
+        {
             IntPtr previousDpiContext = EnterDpiAwareThreadContext();
             try
             {
-                POINT point = ResolveWindowRelativeScreenPoint(hWnd, xRatio, yRatio, layoutMode, uiWidth, uiHeight);
+                POINT point = ResolvePhysicalPoint(GetClientMapping(hWnd), xRatio, yRatio, layoutMode, uiWidth, uiHeight, screenWidth, screenHeight);
                 var result = new ClickResult { X = point.X, Y = point.Y };
 
                 POINT cursor = new POINT();
@@ -995,7 +1120,7 @@ namespace EqAutoLogin
                 POINT hit = haveCursor ? cursor : point;
                 IntPtr windowAtPoint = GetAncestor(WindowFromPoint(hit), GA_ROOT);
                 result.WindowAtPoint = windowAtPoint;
-                result.PointerOnTarget = IsSameWindowOrProcess(windowAtPoint, hWnd);
+                result.PointerOnTarget = windowAtPoint == hWnd;
                 if (!result.PointerOnTarget)
                 {
                     if (windowAtPoint != IntPtr.Zero)
@@ -1032,9 +1157,20 @@ namespace EqAutoLogin
         // compositor read-back per call. Samples that are not on any monitor are INVALID_PIXEL.
         public static int[] GetWindowRelativePixels(IntPtr hWnd, double[] ratios, int radius, string layoutMode, int uiWidth, int uiHeight)
         {
+            return GetWindowRelativePixels(hWnd, ratios, null, radius, layoutMode, uiWidth, uiHeight);
+        }
+
+        // screenSizes: optional width/height pair per probe - the size of the login window the
+        // probe belongs to (see ComputeUiLayoutRect "auto").
+        public static int[] GetWindowRelativePixels(IntPtr hWnd, double[] ratios, int[] screenSizes, int radius, string layoutMode, int uiWidth, int uiHeight)
+        {
             if (ratios == null || ratios.Length == 0 || ratios.Length % 2 != 0)
             {
                 throw new ArgumentException("Pixel probes must be given as x/y ratio pairs.");
+            }
+            if (screenSizes != null && screenSizes.Length != ratios.Length)
+            {
+                throw new ArgumentException("Pixel probes need one window width/height pair per x/y ratio pair.");
             }
 
             IntPtr previousDpiContext = EnterDpiAwareThreadContext();
@@ -1050,14 +1186,35 @@ namespace EqAutoLogin
                 var samples = new POINT[probeCount * offsetsX.Length];
                 var onScreen = new bool[samples.Length];
                 int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+                var covered = new bool[samples.Length];
+                LastCoveredSamples = 0;
+                LastCoveringWindow = IntPtr.Zero;
+                ClientMapping mapping = GetClientMapping(hWnd);
                 for (int probe = 0; probe < probeCount; probe += 1)
                 {
-                    POINT centre = ResolveWindowRelativeScreenPoint(hWnd, ratios[probe * 2], ratios[(probe * 2) + 1], layoutMode, uiWidth, uiHeight);
+                    int screenWidth = screenSizes != null ? screenSizes[probe * 2] : uiWidth;
+                    int screenHeight = screenSizes != null ? screenSizes[(probe * 2) + 1] : uiHeight;
+                    POINT centre = ResolvePhysicalPoint(mapping, ratios[probe * 2], ratios[(probe * 2) + 1], layoutMode, uiWidth, uiHeight, screenWidth, screenHeight);
                     for (int offset = 0; offset < offsetsX.Length; offset += 1)
                     {
                         int index = (probe * offsetsX.Length) + offset;
                         samples[index] = new POINT { X = centre.X + offsetsX[offset], Y = centre.Y + offsetsY[offset] };
                         onScreen[index] = MonitorFromPoint(samples[index], MONITOR_DEFAULTTONULL) != IntPtr.Zero;
+                        if (onScreen[index])
+                        {
+                            // Never read another window's pixels as EverQuest's.
+                            IntPtr root = GetAncestor(WindowFromPoint(samples[index]), GA_ROOT);
+                            if (root != hWnd)
+                            {
+                                covered[index] = true;
+                                onScreen[index] = false;
+                                LastCoveredSamples += 1;
+                                if (LastCoveringWindow == IntPtr.Zero)
+                                {
+                                    LastCoveringWindow = root;
+                                }
+                            }
+                        }
                         if (onScreen[index])
                         {
                             minX = Math.Min(minX, samples[index].X);
@@ -1071,7 +1228,7 @@ namespace EqAutoLogin
                 var colors = new int[samples.Length];
                 for (int index = 0; index < colors.Length; index += 1)
                 {
-                    colors[index] = INVALID_PIXEL;
+                    colors[index] = covered[index] ? COVERED_PIXEL : INVALID_PIXEL;
                 }
                 if (minX > maxX)
                 {
@@ -1136,33 +1293,141 @@ namespace EqAutoLogin
             return radius > 0 ? 5 : 1;
         }
 
-        private static POINT ResolveWindowRelativeScreenPoint(IntPtr hWnd, double xRatio, double yRatio, string layoutMode, int uiWidth, int uiHeight)
+        // The client area as EverQuest itself sees it (logical) and where it really is on screen
+        // (physical). eqgame.exe is DPI-unaware, so on a monitor scaled above 100% Windows renders
+        // it at 96 DPI and bitmap-stretches the result: the login UI is laid out in logical pixels
+        // but must be clicked and read in physical ones.
+        private sealed class ClientMapping
+        {
+            public POINT LogicalOrigin;
+            public int LogicalWidth;
+            public int LogicalHeight;
+            public POINT PhysicalOrigin;
+            public double ScaleX = 1.0;
+            public double ScaleY = 1.0;
+
+            public int PhysicalWidth { get { return (int)Math.Round(LogicalWidth * ScaleX); } }
+            public int PhysicalHeight { get { return (int)Math.Round(LogicalHeight * ScaleY); } }
+        }
+
+        // Reads the client rectangle twice: in EverQuest's own DPI context (the logical size its
+        // login UI is laid out in) and per-monitor aware (where it really is, in physical pixels).
+        // Measured on a DPI-unaware eqgame.exe at 150%: 1280x670 at 103,126 logical versus
+        // 1920x1005 at 155,189 physical. The ratio of the two sizes is the stretch factor.
+        private static ClientMapping GetClientMapping(IntPtr hWnd)
         {
             if (!IsWindowAlive(hWnd))
             {
                 throw new InvalidOperationException("The EverQuest window handle is no longer valid.");
             }
 
-            RECT clientRect;
-            if (!GetClientRect(hWnd, out clientRect))
+            RECT logicalRect;
+            var logicalOrigin = new POINT { X = 0, Y = 0 };
+            IntPtr previousDpiContext = EnterWindowDpiContext(hWnd);
+            try
             {
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to read the target client rectangle.");
+                if (!GetClientRect(hWnd, out logicalRect))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to read the target client rectangle.");
+                }
+                ClientToScreen(hWnd, ref logicalOrigin);
+            }
+            finally
+            {
+                RestoreDpiThreadContext(previousDpiContext);
             }
 
-            var clientOrigin = new POINT { X = clientRect.Left, Y = clientRect.Top };
-            if (!ClientToScreen(hWnd, ref clientOrigin))
+            RECT physicalRect;
+            var physicalOrigin = new POINT { X = 0, Y = 0 };
+            previousDpiContext = EnterDpiAwareThreadContext();
+            try
             {
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to translate the target client origin.");
+                if (!GetClientRect(hWnd, out physicalRect))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to read the target client rectangle.");
+                }
+                if (!ClientToScreen(hWnd, ref physicalOrigin))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to translate the target client origin.");
+                }
+            }
+            finally
+            {
+                RestoreDpiThreadContext(previousDpiContext);
             }
 
-            int clientWidth = clientRect.Right - clientRect.Left;
-            int clientHeight = clientRect.Bottom - clientRect.Top;
-            int[] layout = ComputeUiLayoutRect(clientWidth, clientHeight, layoutMode, uiWidth, uiHeight);
+            var mapping = new ClientMapping
+            {
+                LogicalOrigin = logicalOrigin,
+                LogicalWidth = logicalRect.Right - logicalRect.Left,
+                LogicalHeight = logicalRect.Bottom - logicalRect.Top,
+                PhysicalOrigin = physicalOrigin
+            };
+
+            int physicalWidth = physicalRect.Right - physicalRect.Left;
+            int physicalHeight = physicalRect.Bottom - physicalRect.Top;
+            if (mapping.LogicalWidth > 0 && mapping.LogicalHeight > 0 && physicalWidth > 0 && physicalHeight > 0)
+            {
+                double scaleX = (double)physicalWidth / mapping.LogicalWidth;
+                double scaleY = (double)physicalHeight / mapping.LogicalHeight;
+                if (scaleX >= 0.5 && scaleX <= 5.0 && scaleY >= 0.5 && scaleY <= 5.0)
+                {
+                    mapping.ScaleX = scaleX;
+                    mapping.ScaleY = scaleY;
+                }
+            }
+            else if (physicalWidth > 0 && physicalHeight > 0)
+            {
+                // No window-context read available: treat the physical client as the layout space.
+                mapping.LogicalWidth = physicalWidth;
+                mapping.LogicalHeight = physicalHeight;
+            }
+
+            return mapping;
+        }
+
+        private static POINT ResolvePhysicalPoint(ClientMapping mapping, double xRatio, double yRatio, string layoutMode, int uiWidth, int uiHeight, int screenWidth, int screenHeight)
+        {
+            int[] layout = ComputeUiLayoutRect(mapping.LogicalWidth, mapping.LogicalHeight, layoutMode, uiWidth, uiHeight, screenWidth, screenHeight);
+            double logicalX = layout[0] + Math.Round(layout[2] * xRatio);
+            double logicalY = layout[1] + Math.Round(layout[3] * yRatio);
             return new POINT
             {
-                X = clientOrigin.X + layout[0] + (int)Math.Round(layout[2] * xRatio),
-                Y = clientOrigin.Y + layout[1] + (int)Math.Round(layout[3] * yRatio)
+                X = mapping.PhysicalOrigin.X + (int)Math.Round(logicalX * mapping.ScaleX),
+                Y = mapping.PhysicalOrigin.Y + (int)Math.Round(logicalY * mapping.ScaleY)
             };
+        }
+
+        private static IntPtr EnterWindowDpiContext(IntPtr hWnd)
+        {
+            try
+            {
+                IntPtr windowContext = GetWindowDpiAwarenessContext(hWnd);
+                return windowContext == IntPtr.Zero ? IntPtr.Zero : SetThreadDpiAwarenessContext(windowContext);
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return IntPtr.Zero;
+            }
+        }
+
+        private static int GetMonitorDpi(IntPtr hWnd)
+        {
+            try
+            {
+                IntPtr monitor = MonitorFromWindow(hWnd, MONITOR_DEFAULTTONEAREST);
+                uint dpiX;
+                uint dpiY;
+                return monitor != IntPtr.Zero && GetDpiForMonitor(monitor, 0, out dpiX, out dpiY) == 0 ? (int)dpiX : 0;
+            }
+            catch (DllNotFoundException)
+            {
+                return 0;
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return 0;
+            }
         }
 
         private static bool TryGetMonitorRect(IntPtr hWnd, out RECT rect)
@@ -1239,25 +1504,7 @@ namespace EqAutoLogin
             }
         }
 
-        // EQ's own dialogs (error popups, the EULA on some clients) are separate top-level
-        // windows of the same process; clicking them is intended.
-        private static bool IsSameWindowOrProcess(IntPtr candidate, IntPtr target)
-        {
-            if (candidate == IntPtr.Zero || target == IntPtr.Zero)
-            {
-                return false;
-            }
-            if (candidate == target)
-            {
-                return true;
-            }
 
-            uint candidateProcessId;
-            uint targetProcessId;
-            GetWindowThreadProcessId(candidate, out candidateProcessId);
-            GetWindowThreadProcessId(target, out targetProcessId);
-            return candidateProcessId != 0 && candidateProcessId == targetProcessId;
-        }
 
         // Types text while verifying around every character that the target window still owns
         // the foreground, so a stolen focus stops typing immediately. Input is injected
@@ -1665,6 +1912,29 @@ function Test-DarkPixel {
   return $max -le 45
 }
 
+function Test-ButtonPixel {
+  param(
+    [Parameter(Mandatory = $true)]
+    $Pixel
+  )
+
+  # EQ login buttons are a flat, nearly neutral grey (66,69,66), and turn blue while the
+  # pointer hovers them. The tinted frame between buttons (22,41,55) must not count.
+  $max = [Math]::Max($Pixel.R, [Math]::Max($Pixel.G, $Pixel.B))
+  $min = [Math]::Min($Pixel.R, [Math]::Min($Pixel.G, $Pixel.B))
+  $neutralGray = $max -ge 50 -and $max -le 130 -and ($max - $min) -le 15
+  return $neutralGray -or (Test-BlueButtonPixel -Pixel $Pixel)
+}
+
+function Test-NotButtonPixel {
+  param(
+    [Parameter(Mandatory = $true)]
+    $Pixel
+  )
+
+  return -not (Test-ButtonPixel -Pixel $Pixel)
+}
+
 function Test-MainMenuLoginButtonPixel {
   param(
     [Parameter(Mandatory = $true)]
@@ -1732,22 +2002,59 @@ function Test-Probe {
   return Test-PixelMajority -Pixels $Probe.Pixels -Predicate $Predicate
 }
 
+# Each screen is recognised by a signature over several probes - including gaps that must NOT
+# look like a button - so a logo or text on another screen cannot match it by coincidence.
+$LoginScreenSignatures = [ordered]@{
+  "login-error" = [ordered]@{
+    loginErrorOkLeft = "Test-BlueButtonPixel"
+    loginErrorOkRight = "Test-BlueButtonPixel"
+    loginErrorText = "Test-DarkPixel"
+    # OK is a short button; a wide hovered button (QUICK CONNECT sits here at 4K) is not OK.
+    loginErrorLeftOfOk = "Test-NotButtonPixel"
+    loginErrorRightOfOk = "Test-NotButtonPixel"
+  }
+  "main-menu" = [ordered]@{
+    mainMenuLogin = "Test-MainMenuLoginButtonPixel"
+    mainMenuLoginRight = "Test-MainMenuLoginButtonPixel"
+    mainMenuOptions = "Test-ButtonPixel"
+    mainMenuGap = "Test-NotButtonPixel"
+    mainMenuExit = "Test-ButtonPixel"
+    mainMenuBelowExit = "Test-NotButtonPixel"
+  }
+  "login-form" = [ordered]@{
+    loginFormUsername = "Test-DarkPixel"
+    loginFormPassword = "Test-DarkPixel"
+    loginFormLoginButton = "Test-ButtonPixel"
+    loginFormGap = "Test-NotButtonPixel"
+    loginFormQuickConnect = "Test-ButtonPixel"
+    loginFormCancel = "Test-ButtonPixel"
+  }
+}
+
+$LoginCanvasProbeNames = @($LoginScreenSignatures.Values | ForEach-Object { $_.Keys }) | Select-Object -Unique
+
 function Resolve-LoginCanvasState {
   param(
     [Parameter(Mandatory = $true)]
     $Probes
   )
 
-  if ((Test-Probe -Probe $Probes["loginErrorButton"] -Predicate ${function:Test-BlueButtonPixel}) -and (Test-Probe -Probe $Probes["loginErrorBorder"] -Predicate ${function:Test-BrightPixel})) {
-    return "login-error"
-  }
-
-  if ((Test-Probe -Probe $Probes["mainMenuLogin"] -Predicate ${function:Test-MainMenuLoginButtonPixel}) -and (Test-Probe -Probe $Probes["mainMenuLoginButton"] -Predicate ${function:Test-MutedGrayPixel}) -and (Test-Probe -Probe $Probes["mainMenuExitButton"] -Predicate ${function:Test-MutedGrayPixel})) {
-    return "main-menu"
-  }
-
-  if ((Test-Probe -Probe $Probes["mainMenuLogin"] -Predicate ${function:Test-DarkPixel}) -and (Test-Probe -Probe $Probes["mainMenuPasswordField"] -Predicate ${function:Test-DarkPixel}) -and (Test-Probe -Probe $Probes["mainMenuLoginButton"] -Predicate ${function:Test-MutedGrayPixel})) {
-    return "login-form"
+  # First full match wins; the error dialog is checked first because it overlays the form.
+  # Login-form field probes sit on the empty right-hand side of the fields: typed characters
+  # start at the left edge, so they never reach them.
+  foreach ($state in $LoginScreenSignatures.Keys) {
+    $signature = $LoginScreenSignatures[$state]
+    $matched = $true
+    foreach ($probeName in $signature.Keys) {
+      $predicate = (Get-Command -Name $signature[$probeName] -CommandType Function).ScriptBlock
+      if (-not $Probes.Contains($probeName) -or -not (Test-Probe -Probe $Probes[$probeName] -Predicate $predicate)) {
+        $matched = $false
+        break
+      }
+    }
+    if ($matched) {
+      return $state
+    }
   }
 
   return "advanced"
@@ -1777,6 +2084,7 @@ if ($MyInvocation.InvocationName -eq ".") {
 
 $Settings = Get-AutoLoginSettings -Base64 $SettingsBase64 -BoundParameters $PSBoundParameters
 $LayoutMode = [string]$Settings.uiLayoutMode
+$LoginWindowSizes = Get-LoginWindowSizes
 $LayoutWidth = [int]$Settings.uiLayoutWidth
 $LayoutHeight = [int]$Settings.uiLayoutHeight
 $Session = @{
@@ -1799,6 +2107,17 @@ function Get-Point {
   )
 
   return $Settings.points[$Name]
+}
+
+# Native size of the login window a point belongs to (used by uiLayoutMode "auto").
+function Get-PointWindowSize {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Name
+  )
+
+  $size = $LoginWindowSizes[$PointWindows[$Name]]
+  return @([int]$size.Width, [int]$size.Height)
 }
 
 function Assert-ProcessRunning {
@@ -1919,14 +2238,15 @@ function Invoke-WindowClick {
   )
 
   $point = Get-Point -Name $PointName
+  $windowSize = Get-PointWindowSize -Name $PointName
   $handle = Resolve-TargetWindow -Stage $Stage
-  $result = [EqAutoLogin.Native]::ClickWindowRelative($handle, $point[0], $point[1], $Settings.clickMoveDelayMs, $Settings.clickHoldDelayMs, $LayoutMode, $LayoutWidth, $LayoutHeight)
+  $result = [EqAutoLogin.Native]::ClickWindowRelative($handle, $point[0], $point[1], $Settings.clickMoveDelayMs, $Settings.clickHoldDelayMs, $LayoutMode, $LayoutWidth, $LayoutHeight, $windowSize[0], $windowSize[1])
   if (-not $result.CursorVerified -and -not $Session.CursorWarned) {
     $Session.CursorWarned = $true
     Write-AutoLoginEvent -Stage "cursor" -Message "The pointer could not be positioned at $($result.X),$($result.Y) for $PointName (it is at $($result.CursorX),$($result.CursorY))." -Tone "warning"
   }
   if (-not $result.Clicked) {
-    $covering = if ($result.WindowAtPoint -ne [IntPtr]::Zero) { "another window '$($result.WindowAtPointTitle)' [$($result.WindowAtPointClass)]" } else { "no window" }
+    $covering = if ($result.WindowAtPoint -ne [IntPtr]::Zero) { "another window $([EqAutoLogin.Native]::DescribeWindow($result.WindowAtPoint))" } else { "no window" }
     $message = "Skipped the $PointName click at $($result.CursorX),$($result.CursorY) because it would land on $covering instead of EverQuest; something may be covering the client."
     if (-not $Session.OcclusionWarnings.ContainsKey($covering)) {
       $Session.OcclusionWarnings[$covering] = $true
@@ -1939,8 +2259,6 @@ function Invoke-WindowClick {
   return $result
 }
 
-$LoginCanvasProbeNames = @("loginErrorButton", "loginErrorBorder", "mainMenuLogin", "mainMenuPasswordField", "mainMenuLoginButton", "mainMenuExitButton")
-
 # Reads every probe in one screen capture. Returns one pixel array per ratio pair; samples
 # that are not on any monitor are dropped, so an array can be empty.
 function Read-ProbeSamples {
@@ -1948,18 +2266,19 @@ function Read-ProbeSamples {
     [Parameter(Mandatory = $true)]
     [string]$Stage,
     [Parameter(Mandatory = $true)]
-    [double[]]$Ratios
+    [double[]]$Ratios,
+    [Parameter(Mandatory = $true)]
+    [int[]]$WindowSizes
   )
 
   $handle = Resolve-TargetWindow -Stage $Stage
-  $colors = [EqAutoLogin.Native]::GetWindowRelativePixels($handle, $Ratios, $Settings.probeRadiusPx, $LayoutMode, $LayoutWidth, $LayoutHeight)
+  $colors = [EqAutoLogin.Native]::GetWindowRelativePixels($handle, $Ratios, $WindowSizes, $Settings.probeRadiusPx, $LayoutMode, $LayoutWidth, $LayoutHeight)
   $perProbe = [EqAutoLogin.Native]::GetPixelSamplesPerProbe($Settings.probeRadiusPx)
-  $invalid = [EqAutoLogin.Native]::INVALID_PIXEL
   $probes = New-Object System.Collections.Generic.List[object]
   for ($start = 0; $start -lt $colors.Length; $start += $perProbe) {
     $pixels = @()
     for ($index = $start; $index -lt ($start + $perProbe); $index += 1) {
-      if ($colors[$index] -ne $invalid) {
+      if ($colors[$index] -ge 0) {
         $pixels += Convert-ColorRef -Color $colors[$index]
       }
     }
@@ -1970,13 +2289,19 @@ function Read-ProbeSamples {
 
 function Get-LoginCanvasProbes {
   $ratios = New-Object System.Collections.Generic.List[double]
+  $windowSizes = New-Object System.Collections.Generic.List[int]
   foreach ($name in $LoginCanvasProbeNames) {
     $point = Get-Point -Name $name
     $ratios.Add([double]$point[0])
     $ratios.Add([double]$point[1])
+    $windowSizes.AddRange([int[]](Get-PointWindowSize -Name $name))
   }
 
-  $samples = Read-ProbeSamples -Stage "screen probe" -Ratios $ratios.ToArray()
+  $samples = Read-ProbeSamples -Stage "screen probe" -Ratios $ratios.ToArray() -WindowSizes $windowSizes.ToArray()
+  if ([EqAutoLogin.Native]::LastCoveredSamples -gt 0) {
+    # Something sits on top of the login screen; its pixels say nothing about EverQuest's state.
+    return $null
+  }
   $probes = [ordered]@{}
   for ($index = 0; $index -lt $LoginCanvasProbeNames.Count; $index += 1) {
     $name = $LoginCanvasProbeNames[$index]
@@ -1990,6 +2315,11 @@ function Get-LoginCanvasProbes {
 
 function Get-LoginCanvasState {
   $probes = Get-LoginCanvasProbes
+  if ($null -eq $probes) {
+    $Session.LastState = "covered"
+    $Session.LastProbeError = "the login screen is covered by $([EqAutoLogin.Native]::DescribeWindow([EqAutoLogin.Native]::LastCoveringWindow))"
+    return "covered"
+  }
   $Session.LastProbes = $probes
   $Session.LastProbeError = $null
   $state = Resolve-LoginCanvasState -Probes $probes
@@ -2023,13 +2353,16 @@ function Get-LastProbeDescription {
 
 function Test-ServerSelectPlayButtonReady {
   $base = Get-Point -Name "serverSelectPlay"
+  $windowSize = Get-PointWindowSize -Name "serverSelectPlay"
   $ratios = New-Object System.Collections.Generic.List[double]
+  $windowSizes = New-Object System.Collections.Generic.List[int]
   foreach ($offset in @(@(0, 0), @(-0.040, 0), @(0.040, 0), @(0, -0.012), @(0, 0.012))) {
     $ratios.Add([double]$base[0] + $offset[0])
     $ratios.Add([double]$base[1] + $offset[1])
+    $windowSizes.AddRange([int[]]$windowSize)
   }
 
-  $samples = Read-ProbeSamples -Stage "server select" -Ratios $ratios.ToArray()
+  $samples = Read-ProbeSamples -Stage "server select" -Ratios $ratios.ToArray() -WindowSizes $windowSizes.ToArray()
   foreach ($pixels in $samples) {
     $probe = New-ProbeSample -Pixels @($pixels)
     if (Test-Probe -Probe $probe -Predicate ${function:Test-ServerSelectPlayButtonPixel}) {
@@ -2042,13 +2375,17 @@ function Test-ServerSelectPlayButtonReady {
 
 function Write-WindowDiagnostics {
   $handle = Resolve-TargetWindow -Stage "diagnostics"
-  $geometry = [EqAutoLogin.Native]::GetWindowGeometry($handle, $LayoutMode, $LayoutWidth, $LayoutHeight)
+  $mainSize = Get-PointWindowSize -Name "mainMenuLogin"
+  $geometry = [EqAutoLogin.Native]::GetWindowGeometry($handle, $LayoutMode, $LayoutWidth, $LayoutHeight, $mainSize[0], $mainSize[1])
   $stateFlags = @()
   if ($geometry.IsMaximized) { $stateFlags += "maximized" }
   if ($geometry.IsMinimized) { $stateFlags += "minimized" }
   $flags = if ($stateFlags.Count -gt 0) { " " + ($stateFlags -join ",") } else { "" }
-  $dpiText = if ($geometry.Dpi -gt 0) { "$($geometry.Dpi) dpi" } else { "dpi n/a" }
-  $message = "Window '$($geometry.Title)' [$($geometry.ClassName)] at $($geometry.Left),$($geometry.Top) $($geometry.Width)x$($geometry.Height)$flags; client $($geometry.ClientWidth)x$($geometry.ClientHeight) at $($geometry.ClientLeft),$($geometry.ClientTop); $dpiText; monitor $($geometry.MonitorLeft),$($geometry.MonitorTop) $($geometry.MonitorWidth)x$($geometry.MonitorHeight); layout $($geometry.LayoutMode) $($geometry.LayoutWidth)x$($geometry.LayoutHeight) at $($geometry.LayoutLeft),$($geometry.LayoutTop)."
+  $dpiText = if ($geometry.Dpi -gt 0) { "window $($geometry.Dpi) dpi" } else { "window dpi n/a" }
+  $monitorDpiText = if ($geometry.MonitorDpi -gt 0) { "monitor $($geometry.MonitorDpi) dpi" } else { "monitor dpi n/a" }
+  $scaleText = if ([Math]::Abs($geometry.Scale - 1.0) -gt 0.001) { " (EverQuest sees $($geometry.LogicalClientWidth)x$($geometry.LogicalClientHeight); Windows stretches it x$([Math]::Round($geometry.Scale, 3)))" } else { "" }
+  $windowText = ($LoginWindowSizes.Keys | ForEach-Object { "$_ $($LoginWindowSizes[$_].Width)x$($LoginWindowSizes[$_].Height)" }) -join ", "
+  $message = "Window '$($geometry.Title)' [$($geometry.ClassName)] at $($geometry.Left),$($geometry.Top) $($geometry.Width)x$($geometry.Height)$flags; client $($geometry.ClientWidth)x$($geometry.ClientHeight) at $($geometry.ClientLeft),$($geometry.ClientTop)$scaleText; $dpiText, $monitorDpiText; monitor $($geometry.MonitorLeft),$($geometry.MonitorTop) $($geometry.MonitorWidth)x$($geometry.MonitorHeight); layout $($geometry.LayoutMode), login canvas at $($geometry.LayoutLeft),$($geometry.LayoutTop); login windows: $windowText."
   Write-AutoLoginEvent -Stage "diagnostics" -Message $message
   return $geometry
 }
@@ -2198,6 +2535,7 @@ function Wait-ForLoginOutcome {
       }
     }
 
+    # "covered" (another window over the client) resets the stability window: it is never success.
     if ($state -eq "advanced" -and $now -ge $eligibleAt) {
       if ($null -eq $advancedSince) {
         $advancedSince = $now
@@ -2260,6 +2598,7 @@ try {
 
   $resolvedPath = (Resolve-Path -LiteralPath $EqGamePath).Path
   $workingDirectory = Split-Path -Parent $resolvedPath
+  $LoginWindowSizes = Get-LoginWindowSizes -GameDirectory $workingDirectory
   Write-AutoLoginEvent -Stage "settings" -Message "Auto-login timing: window $($Settings.windowWaitSeconds)s, pre-login $($Settings.preLoginWaitSeconds)s, form $($Settings.loginFormWaitSeconds)s, outcome $($Settings.loginOutcomeWaitSeconds)s, server select $($Settings.serverSelectWaitSeconds)s, focus $($Settings.focusWaitSeconds)s; layout $LayoutMode $($LayoutWidth)x$($LayoutHeight); key delay $($Settings.keyDelayMs)ms."
 
   $currentStage = "launch"
@@ -2332,6 +2671,10 @@ try {
     exit 3
   }
 
+  if ($loginOutcome -eq "covered") {
+    Write-AutoLoginEvent -Stage "confirm-timeout" -Message "The login result could not be confirmed because $($Session.LastProbeError)." -Tone "warning" -StatusState "warning" -StatusLabel "Login not confirmed" -StatusDetail "Another window is covering EverQuest, so the login result could not be read." -ProgressValue 92 -ProgressLabel "Login not confirmed"
+    exit 2
+  }
   Write-AutoLoginEvent -Stage "confirm-timeout" -Message "The client did not advance past the login form; $(Get-LastProbeDescription)." -Tone "warning" -StatusState "warning" -StatusLabel "Login not confirmed" -StatusDetail "The login sequence was sent, but the client still appears to be on the login form." -ProgressValue 92 -ProgressLabel "Login not confirmed"
   exit 2
 } catch {

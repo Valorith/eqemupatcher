@@ -2,7 +2,7 @@
 // (src/electron/assets/auto-login/Invoke-EqAutoLogin.ps1). The helper embeds the
 // same defaults; test/auto-login-helper.test.js fails if the two tables drift apart.
 
-const AUTO_LOGIN_LAYOUT_MODES = ["fit", "centered", "stretch"];
+const AUTO_LOGIN_LAYOUT_MODES = ["auto", "fit", "centered", "stretch"];
 
 const AUTO_LOGIN_DEFAULT_SETTINGS = Object.freeze({
   windowWaitSeconds: 45,
@@ -22,18 +22,29 @@ const AUTO_LOGIN_DEFAULT_SETTINGS = Object.freeze({
   credentialClearBackspaceCount: 64,
   credentialAttempts: 2,
   probeRadiusPx: 1,
-  uiLayoutMode: "fit",
+  uiLayoutMode: "auto",
   uiLayoutWidth: 1024,
   uiLayoutHeight: 768,
   points: Object.freeze({
     eulaAccept: [0.661, 0.757],
     splashContinue: [0.5, 0.5],
-    mainMenuLogin: [0.497, 0.456],
-    mainMenuPasswordField: [0.497, 0.486],
-    mainMenuLoginButton: [0.497, 0.526],
-    mainMenuExitButton: [0.497, 0.6],
-    loginErrorButton: [0.49, 0.61],
-    loginErrorBorder: [0.49, 0.59],
+    mainMenuLogin: [0.4023, 0.474],
+    mainMenuLoginRight: [0.5781, 0.474],
+    mainMenuOptions: [0.4023, 0.5391],
+    mainMenuGap: [0.4023, 0.5716],
+    mainMenuExit: [0.4023, 0.6042],
+    mainMenuBelowExit: [0.4023, 0.6823],
+    loginFormUsername: [0.5781, 0.3893],
+    loginFormPassword: [0.5781, 0.474],
+    loginFormLoginButton: [0.4023, 0.5391],
+    loginFormGap: [0.4023, 0.5716],
+    loginFormQuickConnect: [0.4023, 0.6042],
+    loginFormCancel: [0.4023, 0.6823],
+    loginErrorOkLeft: [0.4609, 0.6081],
+    loginErrorOkRight: [0.5391, 0.6081],
+    loginErrorText: [0.5586, 0.5326],
+    loginErrorLeftOfOk: [0.4219, 0.6081],
+    loginErrorRightOfOk: [0.5781, 0.6081],
     usernameField: [0.56, 0.39],
     passwordField: [0.56, 0.474],
     serverSelectPlay: [0.724, 0.7]
@@ -65,8 +76,8 @@ const AUTO_LOGIN_SETTING_RANGES = Object.freeze({
 const AUTO_LOGIN_SETTINGS_FILE_HELP = [
   "Advanced tuning for the EverQuest auto-login helper. Every value is optional and is clamped to a safe range.",
   "Timing values are seconds (…Seconds) or milliseconds (…Ms).",
-  "uiLayoutMode: 'fit' shrinks a 1024x768 login canvas to fit the client area (default), 'centered' assumes a fixed 1024x768 canvas centred in the client (clipped when smaller), 'stretch' assumes the canvas fills the client.",
-  "points: [x, y] ratios (0-1) inside that canvas for each click/probe target.",
+  "uiLayoutMode: 'auto' (default) follows how EverQuest lays out its login windows: each at native size, centred, pinned to the top/left when the window is larger than the client, and adjusted for Windows display scaling. Legacy overrides: 'fit' shrinks a 1024x768 canvas to fit the client, 'centered' centres a fixed 1024x768 canvas, 'stretch' makes the canvas fill the client.",
+  "points: [x, y] ratios (0-1) inside the 1024x768 reference canvas for each click/probe target.",
   "Only top-level keys are applied: copy a key from _defaults up one level to override it. Keys you leave out follow the launcher's built-in defaults, which may improve between releases."
 ].join(" ");
 

@@ -1958,6 +1958,17 @@ test("auto-login helper resolves the EQ window and verifies state instead of bli
   assert.match(helperSource, /DWMWA_EXTENDED_FRAME_BOUNDS/);
   assert.match(helperSource, /BitBlt\(memoryDc/);
   assert.match(helperSource, /function Save-ProbeError/);
+
+  // Cross-machine layout: per-window model, EQLSUI sizes, DPI stretch, robust screen signatures.
+  assert.match(helperSource, /if \(mode == "auto"\)/);
+  assert.match(helperSource, /function Get-LoginWindowSizes/);
+  assert.match(helperSource, /EQLSUI_ConnectWnd\.xml/);
+  assert.match(helperSource, /private static ClientMapping GetClientMapping/);
+  assert.match(helperSource, /Windows stretches it x/);
+  assert.match(helperSource, /\$LoginScreenSignatures = \[ordered\]@\{/);
+  assert.match(helperSource, /function Test-NotButtonPixel/);
+  assert.match(helperSource, /COVERED_PIXEL/);
+  assert.match(helperSource, /result\.PointerOnTarget = windowAtPoint == hWnd;/, "clicks only land on the EverQuest window itself");
   assert.match(helperSource, /public static int SendText\(IntPtr hWnd, string text, int keyDelayMilliseconds\)/);
   assert.match(helperSource, /lost the foreground while typing/);
   assert.match(helperSource, /function Enter-CredentialField/);
@@ -2040,7 +2051,7 @@ test("runAutoLoginHelper passes user settings to the helper and sizes its timeou
   assert.equal(fs.existsSync(settingsPath), true, "a default settings file is created on first use");
   const defaultFile = JSON.parse(await fsp.readFile(settingsPath, "utf8"));
   assert.equal(defaultFile._defaults.windowWaitSeconds, 45);
-  assert.equal(defaultFile._defaults.uiLayoutMode, "fit");
+  assert.equal(defaultFile._defaults.uiLayoutMode, "auto");
   assert.deepEqual(defaultFile._defaults.points.serverSelectPlay, [0.724, 0.7]);
   assert.equal(Object.hasOwn(defaultFile, "windowWaitSeconds"), false, "the generated file must not pin defaults as overrides");
 
