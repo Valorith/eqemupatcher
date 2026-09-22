@@ -10,6 +10,7 @@ const path = require("node:path");
 const { Readable } = require("node:stream");
 const { pathToFileURL } = require("node:url");
 
+const { computeAutoLoginHelperTimeoutMs } = require("../src/electron/backend/auto-login-settings");
 const { LauncherBackend } = require("../src/electron/backend/launcher-backend");
 
 function md5(text) {
@@ -1920,75 +1921,188 @@ test("auto-login profile order and multi-selection persist across restart", asyn
   assert.equal(restartedState.selectedAutoLoginProfileId, druidId);
 });
 
-test("auto-login helper uses DPI-aware client-area click coordinates", async () => {
+test("auto-login helper resolves the EQ window and verifies state instead of blind timing", async () => {
   const helperSource = await fsp.readFile(
     path.join(__dirname, "..", "src", "electron", "assets", "auto-login", "Invoke-EqAutoLogin.ps1"),
     "utf8"
   );
 
+  // Geometry: client-rect relative, DPI aware, configurable layout model.
   assert.match(helperSource, /SetProcessDpiAwarenessContext/);
   assert.match(helperSource, /SetThreadDpiAwarenessContext/);
   assert.match(helperSource, /GetClientRect/);
   assert.match(helperSource, /ClientToScreen/);
-  assert.match(helperSource, /LEGACY_EQ_UI_WIDTH = 1024/);
-  assert.match(helperSource, /LEGACY_EQ_UI_HEIGHT = 768/);
-  assert.match(helperSource, /GetCenteredLegacyEqUiRect/);
-  assert.match(helperSource, /GetWindowRelativePixel/);
-  assert.match(helperSource, /GetPixel/);
-  assert.match(helperSource, /Get-LoginCanvasState/);
-  assert.match(helperSource, /Test-DarkPixel/);
-  assert.match(helperSource, /Test-MainMenuLoginButtonPixel/);
-  assert.match(helperSource, /Wait-ForLoginFormReady/);
-  assert.match(helperSource, /Wait-ForLoginOutcome/);
+  assert.match(helperSource, /public static int\[\] ComputeUiLayoutRect\(int clientWidth, int clientHeight, string layoutMode, int uiWidth, int uiHeight\)/);
+  assert.match(helperSource, /mode == "stretch"/);
+  assert.match(helperSource, /mode == "centered"/);
+  assert.match(helperSource, /GetDpiForWindow/);
+  assert.match(helperSource, /MonitorFromWindow/);
+  assert.match(helperSource, /public static bool EnsureWindowOnScreen/);
+
+  // Window discovery: prefer the EQ render window class, revalidate handles, fail fast on exit.
+  assert.match(helperSource, /\$EqWindowClassName = "_EverQuestwndclass"/);
+  assert.match(helperSource, /function Select-EqRenderWindow/);
+  assert.match(helperSource, /public static bool IsWindowAlive/);
+  assert.match(helperSource, /function Resolve-TargetWindow/);
+  assert.match(helperSource, /function Assert-ProcessRunning/);
+  assert.match(helperSource, /\$process\.HasExited/);
+  assert.match(helperSource, /window-reacquired/);
+
+  // Input verification: pointer position, occlusion, foreground per keystroke, retries.
+  assert.match(helperSource, /GetCursorPos\(out cursor\)/);
+  assert.match(helperSource, /WindowFromPoint/);
+  assert.match(helperSource, /PointerOnTarget/);
+  assert.match(helperSource, /if \(!result\.PointerOnTarget\)[\s\S]*?return result;[\s\S]*?SendMouseButton\(MOUSEEVENTF_LEFTDOWN\)/, "occluded clicks are skipped, not delivered");
+  assert.match(helperSource, /Invoke-WindowClick -PointName \$PointName -Stage \$Stage -Required/);
+  assert.match(helperSource, /lost the foreground before Enter could be pressed/);
+  assert.match(helperSource, /DWMWA_EXTENDED_FRAME_BOUNDS/);
+  assert.match(helperSource, /BitBlt\(memoryDc/);
+  assert.match(helperSource, /function Save-ProbeError/);
+
+  // Cross-machine layout: per-window model, EQLSUI sizes, DPI stretch, robust screen signatures.
+  assert.match(helperSource, /if \(mode == "auto"\)/);
+  assert.match(helperSource, /function Get-LoginWindowSizes/);
+  assert.match(helperSource, /EQLSUI_ConnectWnd\.xml/);
+  assert.match(helperSource, /private static ClientMapping GetClientMapping/);
+  assert.match(helperSource, /Windows stretches it x/);
+  assert.match(helperSource, /\$LoginScreenSignatures = \[ordered\]@\{/);
+  assert.match(helperSource, /function Test-NotButtonPixel/);
+  assert.match(helperSource, /COVERED_PIXEL/);
+  assert.match(helperSource, /result\.PointerOnTarget = windowAtPoint == hWnd;/, "clicks only land on the EverQuest window itself");
+  assert.match(helperSource, /public static int SendText\(IntPtr hWnd, string text, int keyDelayMilliseconds\)/);
+  assert.match(helperSource, /lost the foreground while typing/);
+  assert.match(helperSource, /function Enter-CredentialField/);
+  assert.match(helperSource, /credentials-retry/);
+  assert.match(helperSource, /public static bool FocusWindow\(IntPtr hWnd, int attempt\)/);
+  assert.match(helperSource, /SwitchToThisWindow/);
+  assert.match(helperSource, /GetKeyboardLayoutForWindow/);
+
+  // State detection: majority vote over neighbouring pixels, poll-until-ready everywhere.
+  assert.match(helperSource, /public static int\[\] GetWindowRelativePixels/);
+  assert.match(helperSource, /function Test-PixelMajority/);
+  assert.match(helperSource, /function Resolve-LoginCanvasState/);
+  assert.match(helperSource, /function Wait-ForPreLoginScreen/);
+  assert.match(helperSource, /function Wait-ForLoginFormReady/);
+  assert.match(helperSource, /function Wait-ForLoginOutcome/);
+  assert.match(helperSource, /function Wait-ForServerSelectReady/);
+  assert.doesNotMatch(helperSource, /for \(\$attempt = 1; \$attempt -le \$EulaClickAttempts/);
+
+  // Settings payload + legacy overrides, diagnostics, and stable event/exit contract.
+  assert.match(helperSource, /\[string\]\$SettingsBase64/);
+  assert.match(helperSource, /function Merge-AutoLoginSettings/);
   assert.match(helperSource, /\[switch\]\$EnterWorld/);
-  assert.match(helperSource, /Wait-ForServerSelectReady/);
-  assert.match(helperSource, /ProcessId/);
-  assert.match(helperSource, /Write-AutoLoginEvent -Stage "process-started" -Message "" -ProcessId \$process\.Id/);
-  assert.match(helperSource, /\[switch\]\$DetectServerSelect/);
-  assert.match(helperSource, /Test-ServerSelectPlayButtonReady -WindowHandle \$WindowHandle[\s\S]*return "server-select"/);
-  assert.match(helperSource, /Wait-ForLoginOutcome -WindowHandle \$window\.Handle -TimeoutSeconds \$UdpWaitSeconds -FocusWaitSeconds \$FocusWaitSeconds -DetectServerSelect:\$EnterWorld/);
-  assert.match(helperSource, /\$loginOutcome -eq "advanced" -or \$loginOutcome -eq "server-select"/);
-  assert.match(helperSource, /if \(\$loginOutcome -ne "server-select"\)[\s\S]*Wait-ForServerSelectReady/);
-  assert.match(helperSource, /Test-ServerSelectPlayButtonPixel/);
-  assert.match(helperSource, /\$ServerSelectPlayButtonXRatio = 0\.724/);
-  assert.match(helperSource, /\$ServerSelectPlayButtonYRatio = 0\.700/);
-  assert.match(helperSource, /Test-ServerSelectPlayButtonReady/);
-  assert.match(helperSource, /ClickWindowRelative\(\$window\.Handle, \$ServerSelectPlayButtonXRatio, \$ServerSelectPlayButtonYRatio/);
+  assert.match(helperSource, /-Stage "diagnostics"/);
+  assert.match(helperSource, /Get-LastProbeDescription/);
+  assert.match(helperSource, /\[Console\]::Out\.WriteLine\(\(\$payload \| ConvertTo-Json -Compress\)\)/);
+  assert.match(helperSource, /Write-AutoLoginEvent -Stage "process-started" -Message "" -ProcessId \$Session\.Process\.Id/);
   assert.match(helperSource, /enter-world-complete/);
-  assert.match(helperSource, /catch\s*{\s*\$state = "advanced"/);
-  assert.match(helperSource, /catch\s*{\s*return "advanced"/);
+  assert.match(helperSource, /-Stage "login-error"[\s\S]*exit 3/);
+  assert.match(helperSource, /-Stage "confirm-timeout"[\s\S]*exit 2/);
+  assert.match(helperSource, /\$MyInvocation\.InvocationName -eq "\."/);
   assert.match(helperSource, /\[Console\]::InputEncoding = \[System\.Text\.Encoding\]::UTF8/);
-  assert.match(helperSource, /\[int\]\$LoginFormWaitSeconds = 30/);
-  assert.match(helperSource, /\[int\]\$FocusWaitSeconds = 10/);
-  assert.match(helperSource, /public static bool IsForegroundWindow/);
-  assert.match(helperSource, /function Wait-ForTargetWindowForeground/);
-  assert.match(helperSource, /Timed out waiting for the new EverQuest window to become foreground/);
-  assert.match(helperSource, /Wait-ForTargetWindowForeground -WindowHandle \$window\.Handle -TimeoutSeconds \$FocusWaitSeconds -Stage "credentials"/);
-  assert.match(helperSource, /Wait-ForTargetWindowForeground -WindowHandle \$window\.Handle -TimeoutSeconds \$FocusWaitSeconds -Stage "username entry"/);
-  assert.match(helperSource, /Wait-ForTargetWindowForeground -WindowHandle \$window\.Handle -TimeoutSeconds \$FocusWaitSeconds -Stage "login submit"/);
-  assert.match(helperSource, /\[int\]\$CredentialFocusDelayMilliseconds = 120/);
-  assert.match(helperSource, /\[int\]\$KeyDelayMilliseconds = 8/);
-  assert.match(helperSource, /\[int\]\$PostPasswordDelayMilliseconds = 150/);
-  assert.match(helperSource, /public static void ClearText/);
-  assert.match(helperSource, /private const ushort VK_BACK = 0x08/);
-  assert.match(helperSource, /\$CredentialClearBackspaceCount = 64/);
-  assert.match(helperSource, /\$LoginUsernameXRatio = 0\.560/);
-  assert.match(helperSource, /\$LoginUsernameYRatio = 0\.390/);
-  assert.match(helperSource, /\$LoginPasswordXRatio = 0\.560/);
-  assert.match(helperSource, /\$LoginPasswordYRatio = 0\.474/);
-  assert.match(helperSource, /ClickWindowRelative\(\$window\.Handle, \$LoginUsernameXRatio, \$LoginUsernameYRatio[\s\S]*ClearText\(\$CredentialClearBackspaceCount, \$KeyDelayMilliseconds\)[\s\S]*SendText\(\$Username, \$KeyDelayMilliseconds\)/);
-  assert.match(helperSource, /ClickWindowRelative\(\$window\.Handle, \$LoginPasswordXRatio, \$LoginPasswordYRatio[\s\S]*ClearText\(\$CredentialClearBackspaceCount, \$KeyDelayMilliseconds\)[\s\S]*SendText\(\$password, \$KeyDelayMilliseconds\)/);
-  assert.match(helperSource, /SendText\(\$password, \$KeyDelayMilliseconds\)[\s\S]*Start-Sleep -Milliseconds \$PostPasswordDelayMilliseconds[\s\S]*SendEnter\(\$KeyDelayMilliseconds\)/);
-  assert.match(helperSource, /login-error/);
-  assert.match(helperSource, /main-menu/);
-  assert.match(helperSource, /\$passwordField = Get-WindowRelativePixel/);
-  assert.match(helperSource, /Waiting for the login form/);
-  assert.match(helperSource, /ClickWindowRelative\(\$WindowHandle, 0\.497, 0\.456/);
-  assert.match(helperSource, /public static void ClickWindowRelative[\s\S]*GetClientRect[\s\S]*ClientToScreen/);
-  assert.match(helperSource, /public static void ClickWindowRelative[\s\S]*GetCenteredLegacyEqUiRect/);
-  assert.match(helperSource, /ClickWindowRelative\(\$window\.Handle, 0\.661, 0\.757/);
-  assert.doesNotMatch(helperSource, /Wait-ForStableUdpEndpoint/);
-  assert.doesNotMatch(helperSource, /continuing with input/);
+});
+
+test("runAutoLoginHelper passes user settings to the helper and sizes its timeout from them", async (t) => {
+  const spawnCalls = [];
+  const { backend, appUserDataPath } = await createBackendHarness(t, {
+    platform: "win32",
+    spawnImpl: (command, args, options) => {
+      spawnCalls.push({ command, args, options });
+      const child = new EventEmitter();
+      const stdin = { chunks: [], end(chunk) { this.chunks.push(String(chunk)); } };
+      child.stdin = stdin;
+      child.stdout = new EventEmitter();
+      child.stderr = new EventEmitter();
+      child.kill = () => {};
+      process.nextTick(() => {
+        child.stdout.emit("data", Buffer.from(`${JSON.stringify({ stage: "process-started", message: "", processId: 777 })}\r\n`));
+        child.stdout.emit("data", Buffer.from(`${JSON.stringify({ stage: "diagnostics", message: "Window 'EverQuest' [_EverQuestwndclass]", tone: "info" })}\n`));
+        child.stdout.emit("data", Buffer.from(`${JSON.stringify({ stage: "enter-world-complete", message: "Play EverQuest was pressed.", tone: "success", statusState: "success", statusLabel: "Entering world" })}\n`));
+        child.emit("exit", 0, null);
+      });
+      return child;
+    }
+  });
+  const gameDirectory = await createTempDir("eqemu-game-");
+  t.after(async () => {
+    await fsp.rm(gameDirectory, { recursive: true, force: true });
+  });
+  backend.state.gameDirectory = gameDirectory;
+
+  const settingsPath = path.join(appUserDataPath, "auto-login", "settings.json");
+  const timeouts = [];
+  const originalSetTimeout = global.setTimeout;
+  global.setTimeout = (callback, delay, ...rest) => {
+    timeouts.push(delay);
+    return originalSetTimeout(callback, delay, ...rest);
+  };
+  t.after(() => {
+    global.setTimeout = originalSetTimeout;
+  });
+
+  const firstResult = await backend.runAutoLoginHelper({
+    eqGamePath: path.join(gameDirectory, "eqgame.exe"),
+    username: "vayle2",
+    password: "not-the-real-password",
+    enterWorld: true
+  });
+
+  assert.deepEqual(firstResult, { confirmed: true, enteredWorld: true, processId: 777 });
+  assert.equal(fs.existsSync(settingsPath), true, "a default settings file is created on first use");
+  const defaultFile = JSON.parse(await fsp.readFile(settingsPath, "utf8"));
+  assert.equal(defaultFile._defaults.windowWaitSeconds, 45);
+  assert.equal(defaultFile._defaults.uiLayoutMode, "auto");
+  assert.deepEqual(defaultFile._defaults.points.serverSelectPlay, [0.724, 0.7]);
+  assert.equal(Object.hasOwn(defaultFile, "windowWaitSeconds"), false, "the generated file must not pin defaults as overrides");
+
+  const firstArgs = spawnCalls[0].args;
+  assert.equal(firstArgs[firstArgs.indexOf("-File") + 1], path.join(appUserDataPath, "auto-login", "Invoke-EqAutoLogin.ps1"));
+  assert.equal(firstArgs[firstArgs.indexOf("-Username") + 1], "vayle2");
+  assert.equal(firstArgs.includes("-EnterWorld"), true);
+  assert.equal(firstArgs.includes("-WindowWaitSeconds"), false);
+  const firstSettings = JSON.parse(Buffer.from(firstArgs[firstArgs.indexOf("-SettingsBase64") + 1], "base64").toString("utf8"));
+  assert.equal(firstSettings.windowWaitSeconds, 45);
+  assert.equal(firstSettings.keyDelayMs, 8);
+  assert.deepEqual(spawnCalls[0].options.stdio, ["pipe", "pipe", "pipe"]);
+  assert.deepEqual(spawnCalls[0].args.includes("not-the-real-password"), false);
+  // 45 + 25 + 30 + 10 + 15 = 125 s of stage budget plus every possible 10 s focus wait,
+  // typing and margin.
+  const firstTimeout = Math.max(...timeouts);
+  assert.equal(firstTimeout, computeAutoLoginHelperTimeoutMs({}, { enterWorld: true }));
+  assert.ok(firstTimeout > 125 * 1000, `timeout ${firstTimeout} should exceed the summed stage budgets`);
+  assert.ok(firstTimeout < 400 * 1000, `timeout ${firstTimeout} should stay bounded`);
+
+  await fsp.writeFile(settingsPath, JSON.stringify({
+    windowWaitSeconds: 90,
+    keyDelayMs: 30,
+    uiLayoutMode: "centered",
+    points: { serverSelectPlay: [0.7, 0.71], bogus: [9, 9] },
+    focusWaitSeconds: "5",
+    probeRadiusPx: 99
+  }), "utf8");
+  timeouts.length = 0;
+
+  await backend.runAutoLoginHelper({
+    eqGamePath: path.join(gameDirectory, "eqgame.exe"),
+    username: "vayle2",
+    password: "not-the-real-password",
+    enterWorld: false
+  });
+
+  const secondArgs = spawnCalls[1].args;
+  assert.equal(secondArgs.includes("-EnterWorld"), false);
+  const secondSettings = JSON.parse(Buffer.from(secondArgs[secondArgs.indexOf("-SettingsBase64") + 1], "base64").toString("utf8"));
+  assert.equal(secondSettings.windowWaitSeconds, 90);
+  assert.equal(secondSettings.keyDelayMs, 30);
+  assert.equal(secondSettings.focusWaitSeconds, 5);
+  assert.equal(secondSettings.probeRadiusPx, 8, "out-of-range values are clamped");
+  assert.equal(secondSettings.uiLayoutMode, "centered");
+  assert.deepEqual(secondSettings.points.serverSelectPlay, [0.7, 0.71]);
+  assert.deepEqual(secondSettings.points.usernameField, [0.56, 0.39]);
+  assert.equal(Object.hasOwn(secondSettings.points, "bogus"), false);
+  const secondTimeout = Math.max(...timeouts);
+  assert.equal(secondTimeout, computeAutoLoginHelperTimeoutMs(secondSettings, { enterWorld: false }), "the guard follows the user's settings");
+  assert.ok(secondTimeout > computeAutoLoginHelperTimeoutMs({ focusWaitSeconds: 5 }, { enterWorld: false }), "a longer window wait grows the wall-clock guard");
 });
 
 test("launchAutoLoginProfile prepares INI files and invokes the helper with the decrypted password", async (t) => {

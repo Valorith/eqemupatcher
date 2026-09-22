@@ -8,6 +8,13 @@ const path = require("path");
 const { spawn } = require("child_process");
 const { pathToFileURL } = require("url");
 const SimpleYaml = require("./simple-yaml");
+const {
+  buildAutoLoginHelperArgs,
+  computeAutoLoginHelperTimeoutMs,
+  createAutoLoginSettingsFileContent,
+  isDefaultAutoLoginSettings,
+  normalizeAutoLoginSettings
+} = require("./auto-login-settings");
 const { DEFAULT_RELEASE_API_URL, LauncherUpdater } = require("./launcher-updater");
 const { UiManager } = require("./ui-manager");
 
@@ -131,7 +138,7 @@ const AUTO_LOGIN_SECRET_ENTROPY = "eqemupatcher:auto-login:v1";
 const AUTO_LOGIN_HELPER_FILE_NAME = "Invoke-EqAutoLogin.ps1";
 const AUTO_LOGIN_CONFIRMATION_TIMEOUT_EXIT_CODE = 2;
 const AUTO_LOGIN_LOGIN_REJECTED_EXIT_CODE = 3;
-const AUTO_LOGIN_HELPER_TIMEOUT_MS = 60 * 1000;
+const AUTO_LOGIN_SETTINGS_FILE_NAME = "settings.json";
 const AUTO_LOGIN_BATCH_DELAY_MS = 500;
 const AUTO_LOGIN_HELPER_SOURCE_PATH = path.join(__dirname, "..", "assets", "auto-login", AUTO_LOGIN_HELPER_FILE_NAME);
 const AUTO_LOGIN_EQCLIENT_RESTORE_INITIAL_DELAY_MS = 1500;
@@ -3706,6 +3713,39 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
     };
   }
 
+  getAutoLoginSettingsPath() {
+    return path.join(this.appUserDataPath, "auto-login", AUTO_LOGIN_SETTINGS_FILE_NAME);
+  }
+
+  // Reads the optional per-user tuning file, creating it with defaults on first use so
+  // players on unusual displays can adjust timings/ratios without editing the helper.
+  async loadAutoLoginSettings() {
+    const settingsPath = this.getAutoLoginSettingsPath();
+    if (!(await exists(settingsPath))) {
+      try {
+        await fsp.mkdir(path.dirname(settingsPath), { recursive: true });
+        await fsp.writeFile(settingsPath, createAutoLoginSettingsFileContent(), "utf8");
+      } catch (error) {
+        this.emitLog(`Auto login: Could not write default settings to ${settingsPath}: ${error.message}`, "warning");
+      }
+      return normalizeAutoLoginSettings({});
+    }
+
+    let parsed = {};
+    try {
+      parsed = JSON.parse(await fsp.readFile(settingsPath, "utf8"));
+    } catch (error) {
+      this.emitLog(`Auto login: Ignoring unreadable settings file ${settingsPath}: ${error.message}`, "warning");
+      return normalizeAutoLoginSettings({});
+    }
+
+    const settings = normalizeAutoLoginSettings(parsed);
+    if (!isDefaultAutoLoginSettings(settings)) {
+      this.emitLog(`Auto login: Using custom helper settings from ${settingsPath}.`);
+    }
+    return settings;
+  }
+
   async ensureAutoLoginHelperScript() {
     const helperContent = await fsp.readFile(AUTO_LOGIN_HELPER_SOURCE_PATH, "utf8");
     const helperDirectory = path.join(this.appUserDataPath, "auto-login");
@@ -3722,7 +3762,8 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
   }
 
   handleAutoLoginHelperEvent(event) {
-    const message = normalizeAutoLoginText(event?.message, 240);
+    // Diagnostics/timeout events carry geometry and probe colours; keep enough of them in the log.
+    const message = normalizeAutoLoginText(event?.message, 600);
     const tone = ["success", "warning", "error"].includes(event?.tone) ? event.tone : "info";
     const statusState = normalizeAutoLoginText(event?.statusState, 32);
     const statusLabel = normalizeAutoLoginText(event?.statusLabel, 80);
@@ -3755,25 +3796,15 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
 
   async runAutoLoginHelper({ eqGamePath, username, password, enterWorld = false }) {
     const helperPath = await this.ensureAutoLoginHelperScript();
-    const args = [
-      "-NoProfile",
-      "-NonInteractive",
-      "-ExecutionPolicy",
-      "Bypass",
-      "-File",
+    const settings = await this.loadAutoLoginSettings();
+    const helperTimeoutMs = computeAutoLoginHelperTimeoutMs(settings, { enterWorld });
+    const args = buildAutoLoginHelperArgs({
       helperPath,
-      "-EqGamePath",
       eqGamePath,
-      "-Username",
       username,
-      "-WindowWaitSeconds",
-      "45",
-      "-UdpWaitSeconds",
-      "10"
-    ];
-    if (enterWorld) {
-      args.push("-EnterWorld", "-ServerSelectWaitSeconds", "15");
-    }
+      settings,
+      enterWorld
+    });
 
     return new Promise((resolve, reject) => {
       let child;
@@ -3837,10 +3868,10 @@ $plainBytes = [System.Security.Cryptography.ProtectedData]::Unprotect($protected
             // Ignore termination errors and surface the timeout itself.
           }
         }
-        const error = new Error("Auto login did not finish within 60 seconds.");
+        const error = new Error(`Auto login did not finish within ${Math.round(helperTimeoutMs / 1000)} seconds (last step: ${this.state.autoLoginStatus?.label || "unknown"}).`);
         error.processId = startedProcessId;
         finish(reject, error);
-      }, AUTO_LOGIN_HELPER_TIMEOUT_MS);
+      }, helperTimeoutMs);
 
       child.stdout?.on?.("data", (chunk) => {
         stdoutRemainder += chunk.toString("utf8");
