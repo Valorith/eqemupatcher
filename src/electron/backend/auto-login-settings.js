@@ -1,6 +1,6 @@
 // Shared defaults and validation for the Windows auto-login helper
 // (src/electron/assets/auto-login/Invoke-EqAutoLogin.ps1). The helper embeds the
-// same defaults; keep the two tables in sync.
+// same defaults; test/auto-login-helper.test.js fails if the two tables drift apart.
 
 const AUTO_LOGIN_LAYOUT_MODES = ["fit", "centered", "stretch"];
 
@@ -66,7 +66,8 @@ const AUTO_LOGIN_SETTINGS_FILE_HELP = [
   "Advanced tuning for the EverQuest auto-login helper. Every value is optional and is clamped to a safe range.",
   "Timing values are seconds (…Seconds) or milliseconds (…Ms).",
   "uiLayoutMode: 'fit' shrinks a 1024x768 login canvas to fit the client area (default), 'centered' assumes a fixed 1024x768 canvas centred in the client (clipped when smaller), 'stretch' assumes the canvas fills the client.",
-  "points: [x, y] ratios (0-1) inside that canvas for each click/probe target."
+  "points: [x, y] ratios (0-1) inside that canvas for each click/probe target.",
+  "Only top-level keys are applied: copy a key from _defaults up one level to override it. Keys you leave out follow the launcher's built-in defaults, which may improve between releases."
 ].join(" ");
 
 function clampInteger(value, [minimum, maximum], fallback) {
@@ -136,12 +137,25 @@ function isDefaultAutoLoginSettings(settings) {
   return JSON.stringify(normalizeAutoLoginSettings(settings)) === JSON.stringify(normalizeAutoLoginSettings(AUTO_LOGIN_DEFAULT_SETTINGS));
 }
 
+// Covers PowerShell start-up and the helper's Add-Type compile.
 const AUTO_LOGIN_HELPER_TIMEOUT_MARGIN_MS = 20 * 1000;
 const AUTO_LOGIN_HELPER_MINIMUM_TIMEOUT_MS = 60 * 1000;
 const AUTO_LOGIN_CREDENTIAL_CHARACTER_ESTIMATE = 96;
+// Mirrors $WindowReacquireGraceMs in the helper; allow for EQ recreating its window twice.
+const AUTO_LOGIN_WINDOW_REACQUIRE_ALLOWANCE_MS = 2 * 3000;
 
-// The helper owns per-stage timeouts; the backend's wall-clock guard must exceed their sum
-// or slow machines get killed before any stage can report which step stalled.
+// Every foreground wait the helper can make outside a stage deadline, each bounded by
+// focusWaitSeconds: the initial launch focus, the login submit focus, the Play EverQuest
+// focus (enter world), two per credential field per attempt, and one overrun per polling
+// stage (each poll starts with a foreground wait that may begin just before the deadline).
+function countAutoLoginFocusWaits(settings, enterWorld) {
+  const pollingStages = enterWorld ? 4 : 3;
+  const credentialWaits = settings.credentialAttempts * 2 * 2;
+  return 2 + (enterWorld ? 1 : 0) + credentialWaits + pollingStages;
+}
+
+// The helper owns per-stage timeouts; the backend's wall-clock guard must exceed their
+// worst-case sum or slow machines get killed before any stage can report which step stalled.
 function computeAutoLoginHelperTimeoutMs(rawSettings, options = {}) {
   const settings = normalizeAutoLoginSettings(rawSettings);
   const enterWorld = options.enterWorld === true;
@@ -150,7 +164,7 @@ function computeAutoLoginHelperTimeoutMs(rawSettings, options = {}) {
     + settings.loginFormWaitSeconds
     + settings.loginOutcomeWaitSeconds
     + (enterWorld ? settings.serverSelectWaitSeconds : 0)
-    + (settings.focusWaitSeconds * 2);
+    + (settings.focusWaitSeconds * countAutoLoginFocusWaits(settings, enterWorld));
   const typingMs = settings.credentialAttempts * (
     ((settings.credentialClearBackspaceCount * 2) + AUTO_LOGIN_CREDENTIAL_CHARACTER_ESTIMATE) * settings.keyDelayMs
     + (settings.credentialFocusDelayMs * 2)
@@ -158,7 +172,7 @@ function computeAutoLoginHelperTimeoutMs(rawSettings, options = {}) {
 
   return Math.max(
     AUTO_LOGIN_HELPER_MINIMUM_TIMEOUT_MS,
-    (stageSeconds * 1000) + typingMs + AUTO_LOGIN_HELPER_TIMEOUT_MARGIN_MS
+    (stageSeconds * 1000) + typingMs + AUTO_LOGIN_WINDOW_REACQUIRE_ALLOWANCE_MS + AUTO_LOGIN_HELPER_TIMEOUT_MARGIN_MS
   );
 }
 
@@ -188,10 +202,12 @@ function buildAutoLoginHelperArgs({ helperPath, eqGamePath, username, settings, 
   return args;
 }
 
+// The generated file lists the defaults for reference only, so untouched installs keep
+// following the built-in defaults when a later release tunes them.
 function createAutoLoginSettingsFileContent() {
   return `${JSON.stringify({
     _help: AUTO_LOGIN_SETTINGS_FILE_HELP,
-    ...normalizeAutoLoginSettings(AUTO_LOGIN_DEFAULT_SETTINGS)
+    _defaults: normalizeAutoLoginSettings(AUTO_LOGIN_DEFAULT_SETTINGS)
   }, null, 2)}\n`;
 }
 

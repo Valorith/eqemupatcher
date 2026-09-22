@@ -10,6 +10,7 @@ const path = require("node:path");
 const { Readable } = require("node:stream");
 const { pathToFileURL } = require("node:url");
 
+const { computeAutoLoginHelperTimeoutMs } = require("../src/electron/backend/auto-login-settings");
 const { LauncherBackend } = require("../src/electron/backend/launcher-backend");
 
 function md5(text) {
@@ -1951,6 +1952,12 @@ test("auto-login helper resolves the EQ window and verifies state instead of bli
   assert.match(helperSource, /GetCursorPos\(out cursor\)/);
   assert.match(helperSource, /WindowFromPoint/);
   assert.match(helperSource, /PointerOnTarget/);
+  assert.match(helperSource, /if \(!result\.PointerOnTarget\)[\s\S]*?return result;[\s\S]*?SendMouseButton\(MOUSEEVENTF_LEFTDOWN\)/, "occluded clicks are skipped, not delivered");
+  assert.match(helperSource, /Invoke-WindowClick -PointName \$PointName -Stage \$Stage -Required/);
+  assert.match(helperSource, /lost the foreground before Enter could be pressed/);
+  assert.match(helperSource, /DWMWA_EXTENDED_FRAME_BOUNDS/);
+  assert.match(helperSource, /BitBlt\(memoryDc/);
+  assert.match(helperSource, /function Save-ProbeError/);
   assert.match(helperSource, /public static int SendText\(IntPtr hWnd, string text, int keyDelayMilliseconds\)/);
   assert.match(helperSource, /lost the foreground while typing/);
   assert.match(helperSource, /function Enter-CredentialField/);
@@ -2032,9 +2039,10 @@ test("runAutoLoginHelper passes user settings to the helper and sizes its timeou
   assert.deepEqual(firstResult, { confirmed: true, enteredWorld: true, processId: 777 });
   assert.equal(fs.existsSync(settingsPath), true, "a default settings file is created on first use");
   const defaultFile = JSON.parse(await fsp.readFile(settingsPath, "utf8"));
-  assert.equal(defaultFile.windowWaitSeconds, 45);
-  assert.equal(defaultFile.uiLayoutMode, "fit");
-  assert.deepEqual(defaultFile.points.serverSelectPlay, [0.724, 0.7]);
+  assert.equal(defaultFile._defaults.windowWaitSeconds, 45);
+  assert.equal(defaultFile._defaults.uiLayoutMode, "fit");
+  assert.deepEqual(defaultFile._defaults.points.serverSelectPlay, [0.724, 0.7]);
+  assert.equal(Object.hasOwn(defaultFile, "windowWaitSeconds"), false, "the generated file must not pin defaults as overrides");
 
   const firstArgs = spawnCalls[0].args;
   assert.equal(firstArgs[firstArgs.indexOf("-File") + 1], path.join(appUserDataPath, "auto-login", "Invoke-EqAutoLogin.ps1"));
@@ -2046,10 +2054,12 @@ test("runAutoLoginHelper passes user settings to the helper and sizes its timeou
   assert.equal(firstSettings.keyDelayMs, 8);
   assert.deepEqual(spawnCalls[0].options.stdio, ["pipe", "pipe", "pipe"]);
   assert.deepEqual(spawnCalls[0].args.includes("not-the-real-password"), false);
-  // 45 + 25 + 30 + 10 + 15 + 2*10 = 145 s of stage budget, plus typing and margin.
+  // 45 + 25 + 30 + 10 + 15 = 125 s of stage budget plus every possible 10 s focus wait,
+  // typing and margin.
   const firstTimeout = Math.max(...timeouts);
-  assert.ok(firstTimeout > 145 * 1000, `timeout ${firstTimeout} should exceed the summed stage budgets`);
-  assert.ok(firstTimeout < 200 * 1000, `timeout ${firstTimeout} should stay bounded`);
+  assert.equal(firstTimeout, computeAutoLoginHelperTimeoutMs({}, { enterWorld: true }));
+  assert.ok(firstTimeout > 125 * 1000, `timeout ${firstTimeout} should exceed the summed stage budgets`);
+  assert.ok(firstTimeout < 400 * 1000, `timeout ${firstTimeout} should stay bounded`);
 
   await fsp.writeFile(settingsPath, JSON.stringify({
     windowWaitSeconds: 90,
@@ -2080,7 +2090,8 @@ test("runAutoLoginHelper passes user settings to the helper and sizes its timeou
   assert.deepEqual(secondSettings.points.usernameField, [0.56, 0.39]);
   assert.equal(Object.hasOwn(secondSettings.points, "bogus"), false);
   const secondTimeout = Math.max(...timeouts);
-  assert.ok(secondTimeout > firstTimeout, "a longer window wait grows the wall-clock guard");
+  assert.equal(secondTimeout, computeAutoLoginHelperTimeoutMs(secondSettings, { enterWorld: false }), "the guard follows the user's settings");
+  assert.ok(secondTimeout > computeAutoLoginHelperTimeoutMs({ focusWaitSeconds: 5 }, { enterWorld: false }), "a longer window wait grows the wall-clock guard");
 });
 
 test("launchAutoLoginProfile prepares INI files and invokes the helper with the decrypted password", async (t) => {

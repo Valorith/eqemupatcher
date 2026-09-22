@@ -64,10 +64,19 @@ test("normalizeAutoLoginSettings rejects unknown layout modes", () => {
 test("computeAutoLoginHelperTimeoutMs always exceeds the summed stage budgets", () => {
   const defaults = computeAutoLoginHelperTimeoutMs(AUTO_LOGIN_DEFAULT_SETTINGS, { enterWorld: false });
   const withServerSelect = computeAutoLoginHelperTimeoutMs(AUTO_LOGIN_DEFAULT_SETTINGS, { enterWorld: true });
-  const summedStagesMs = (45 + 25 + 30 + 10 + (10 * 2)) * 1000;
+  // Stage deadlines plus every foreground wait that can run outside them: initial focus,
+  // submit focus, 2 per credential field per attempt (2 fields x 2 attempts), and one
+  // overrun per polling stage (pre-login, login form, login outcome).
+  const worstCaseFocusWaits = 1 + 1 + (2 * 2 * 2) + 3;
+  const summedStagesMs = (45 + 25 + 30 + 10 + (10 * worstCaseFocusWaits)) * 1000;
 
   assert.ok(defaults > summedStagesMs, `${defaults} > ${summedStagesMs}`);
-  assert.equal(withServerSelect - defaults, 15 * 1000);
+  // Enter world adds the server-select deadline, the Play focus wait and one more polling overrun.
+  assert.equal(withServerSelect - defaults, (15 + 10 + 10) * 1000);
+  assert.ok(
+    computeAutoLoginHelperTimeoutMs({ credentialAttempts: 3 }) - computeAutoLoginHelperTimeoutMs({ credentialAttempts: 2 }) >= 4 * 10 * 1000,
+    "each extra credential attempt budgets its four focus waits"
+  );
   assert.ok(computeAutoLoginHelperTimeoutMs({ windowWaitSeconds: 1, preLoginWaitSeconds: 1, loginFormWaitSeconds: 1, loginOutcomeWaitSeconds: 1, focusWaitSeconds: 1 }) >= 60 * 1000, "never shorter than the historical 60s guard");
   assert.ok(computeAutoLoginHelperTimeoutMs({ windowWaitSeconds: 300 }) > 300 * 1000);
   assert.ok(computeAutoLoginHelperTimeoutMs({ keyDelayMs: 250, credentialAttempts: 5 }) > computeAutoLoginHelperTimeoutMs({ keyDelayMs: 8 }), "slow typing widens the guard");
@@ -101,4 +110,15 @@ test("createAutoLoginSettingsFileContent is valid JSON that round-trips to defau
   assert.match(parsed._help, /uiLayoutMode/);
   assert.equal(isDefaultAutoLoginSettings(parsed), true);
   assert.ok(content.endsWith("\n"));
+});
+
+test("the generated settings file lists defaults without pinning them", () => {
+  const parsed = JSON.parse(createAutoLoginSettingsFileContent());
+  assert.deepEqual(Object.keys(parsed).sort(), ["_defaults", "_help"]);
+  assert.deepEqual(parsed._defaults, normalizeAutoLoginSettings({}));
+
+  // A later release changing a default must reach users who never edited the file.
+  const tunedDefault = normalizeAutoLoginSettings({ ...parsed, windowWaitSeconds: undefined });
+  assert.equal(tunedDefault.windowWaitSeconds, AUTO_LOGIN_DEFAULT_SETTINGS.windowWaitSeconds);
+  assert.equal(normalizeAutoLoginSettings({ ...parsed, windowWaitSeconds: 90 }).windowWaitSeconds, 90, "top-level keys still override");
 });

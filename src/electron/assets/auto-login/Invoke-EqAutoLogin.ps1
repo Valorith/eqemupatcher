@@ -338,6 +338,7 @@ namespace EqAutoLogin
         public bool CursorVerified { get; set; }
         public IntPtr WindowAtPoint { get; set; }
         public bool PointerOnTarget { get; set; }
+        public bool Clicked { get; set; }
         public string WindowAtPointTitle { get; set; }
         public string WindowAtPointClass { get; set; }
     }
@@ -346,7 +347,11 @@ namespace EqAutoLogin
     {
         private const int SW_RESTORE = 9;
         private const uint GA_ROOT = 2;
+        private const uint MONITOR_DEFAULTTONULL = 0;
         private const uint MONITOR_DEFAULTTONEAREST = 2;
+        private const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
+        private const uint SRCCOPY = 0x00CC0020;
+        public const int INVALID_PIXEL = -1;
         private const uint SWP_NOSIZE = 0x0001;
         private const uint SWP_NOZORDER = 0x0004;
         private const uint SWP_NOACTIVATE = 0x0010;
@@ -542,6 +547,30 @@ namespace EqAutoLogin
         private static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint dwFlags);
 
         [DllImport("user32.dll")]
+        private static extern IntPtr MonitorFromPoint(POINT pt, uint dwFlags);
+
+        [DllImport("dwmapi.dll")]
+        private static extern int DwmGetWindowAttribute(IntPtr hWnd, int dwAttribute, out RECT pvAttribute, int cbAttribute);
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        private static extern IntPtr CreateCompatibleBitmap(IntPtr hdc, int width, int height);
+
+        [DllImport("gdi32.dll")]
+        private static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
+
+        [DllImport("gdi32.dll", SetLastError = true)]
+        private static extern bool BitBlt(IntPtr hdcDest, int xDest, int yDest, int width, int height, IntPtr hdcSrc, int xSrc, int ySrc, uint rop);
+
+        [DllImport("gdi32.dll")]
+        private static extern bool DeleteObject(IntPtr obj);
+
+        [DllImport("gdi32.dll")]
+        private static extern bool DeleteDC(IntPtr hdc);
+
+        [DllImport("user32.dll")]
         private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
 
         [DllImport("user32.dll", SetLastError = true)]
@@ -718,7 +747,8 @@ namespace EqAutoLogin
         {
             if (hWnd == IntPtr.Zero || !IsWindow(hWnd))
             {
-                return "(none)";
+                // Windows reports no foreground window for a moment while focus is switching.
+                return "no window (focus was switching)";
             }
 
             uint processId;
@@ -736,10 +766,35 @@ namespace EqAutoLogin
                     return false;
                 }
 
+                // Leave the window alone while every corner of its client area is on some
+                // monitor: that covers windows flush with an edge (whose invisible DWM resize
+                // borders overhang the work area) and windows deliberately spanning monitors.
+                // Moving them would needlessly rewrite the position EQ saves to eqclient.ini.
+                RECT clientRect;
+                if (!GetClientRect(hWnd, out clientRect) || clientRect.Right <= 0 || clientRect.Bottom <= 0)
+                {
+                    return false;
+                }
+                var clientOrigin = new POINT { X = 0, Y = 0 };
+                if (!ClientToScreen(hWnd, ref clientOrigin))
+                {
+                    return false;
+                }
+                if (IsScreenRectOnMonitors(clientOrigin.X, clientOrigin.Y, clientRect.Right, clientRect.Bottom))
+                {
+                    return false;
+                }
+
                 RECT windowRect;
                 if (!GetWindowRect(hWnd, out windowRect))
                 {
                     return false;
+                }
+
+                RECT visible;
+                if (!TryGetVisibleFrame(hWnd, out visible))
+                {
+                    visible = windowRect;
                 }
 
                 RECT work;
@@ -748,33 +803,31 @@ namespace EqAutoLogin
                     return false;
                 }
 
-                int width = windowRect.Right - windowRect.Left;
-                int height = windowRect.Bottom - windowRect.Top;
-                int newLeft = windowRect.Left;
-                int newTop = windowRect.Top;
-                if (windowRect.Right > work.Right)
+                int dx = 0;
+                int dy = 0;
+                if (visible.Right > work.Right)
                 {
-                    newLeft = work.Right - width;
+                    dx = work.Right - visible.Right;
                 }
-                if (newLeft < work.Left)
+                if (visible.Left + dx < work.Left)
                 {
-                    newLeft = work.Left;
+                    dx = work.Left - visible.Left;
                 }
-                if (windowRect.Bottom > work.Bottom)
+                if (visible.Bottom > work.Bottom)
                 {
-                    newTop = work.Bottom - height;
+                    dy = work.Bottom - visible.Bottom;
                 }
-                if (newTop < work.Top)
+                if (visible.Top + dy < work.Top)
                 {
-                    newTop = work.Top;
+                    dy = work.Top - visible.Top;
                 }
 
-                if (newLeft == windowRect.Left && newTop == windowRect.Top)
+                if (dx == 0 && dy == 0)
                 {
                     return false;
                 }
 
-                return SetWindowPos(hWnd, IntPtr.Zero, newLeft, newTop, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
+                return SetWindowPos(hWnd, IntPtr.Zero, windowRect.Left + dx, windowRect.Top + dy, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE);
             }
             finally
             {
@@ -919,26 +972,38 @@ namespace EqAutoLogin
                 var result = new ClickResult { X = point.X, Y = point.Y };
 
                 POINT cursor = new POINT();
+                bool haveCursor = false;
                 for (int attempt = 0; attempt < 3; attempt += 1)
                 {
                     SetCursorPos(point.X, point.Y);
                     Thread.Sleep(attempt == 0 ? 0 : 15);
-                    if (GetCursorPos(out cursor) && Math.Abs(cursor.X - point.X) <= 1 && Math.Abs(cursor.Y - point.Y) <= 1)
+                    if (GetCursorPos(out cursor))
                     {
-                        result.CursorVerified = true;
-                        break;
+                        haveCursor = true;
+                        if (Math.Abs(cursor.X - point.X) <= 1 && Math.Abs(cursor.Y - point.Y) <= 1)
+                        {
+                            result.CursorVerified = true;
+                            break;
+                        }
                     }
                 }
                 result.CursorX = cursor.X;
                 result.CursorY = cursor.Y;
 
-                IntPtr windowAtPoint = GetAncestor(WindowFromPoint(point), GA_ROOT);
+                // Hit-test where the button press will actually land (the real cursor position)
+                // and never click when that is some other application's window.
+                POINT hit = haveCursor ? cursor : point;
+                IntPtr windowAtPoint = GetAncestor(WindowFromPoint(hit), GA_ROOT);
                 result.WindowAtPoint = windowAtPoint;
-                result.PointerOnTarget = windowAtPoint == hWnd;
-                if (!result.PointerOnTarget && windowAtPoint != IntPtr.Zero)
+                result.PointerOnTarget = IsSameWindowOrProcess(windowAtPoint, hWnd);
+                if (!result.PointerOnTarget)
                 {
-                    result.WindowAtPointTitle = GetTitle(windowAtPoint);
-                    result.WindowAtPointClass = GetClass(windowAtPoint);
+                    if (windowAtPoint != IntPtr.Zero)
+                    {
+                        result.WindowAtPointTitle = GetTitle(windowAtPoint);
+                        result.WindowAtPointClass = GetClass(windowAtPoint);
+                    }
+                    return result;
                 }
 
                 if (moveDelayMilliseconds > 0)
@@ -951,6 +1016,7 @@ namespace EqAutoLogin
                     Thread.Sleep(holdDelayMilliseconds);
                 }
                 SendMouseButton(MOUSEEVENTF_LEFTUP);
+                result.Clicked = true;
                 return result;
             }
             finally
@@ -959,58 +1025,115 @@ namespace EqAutoLogin
             }
         }
 
-        public static IntPtr GetRootWindowAtRelativePoint(IntPtr hWnd, double xRatio, double yRatio, string layoutMode, int uiWidth, int uiHeight)
+        // Samples every probe in one pass: for each (x, y) ratio pair it reads the centre pixel
+        // plus four neighbours (radius px) so a one-pixel rounding difference between machines
+        // cannot flip the classification. The bounding box of all samples is copied off the
+        // screen with a single BitBlt, because GetPixel on the screen DC is a separate
+        // compositor read-back per call. Samples that are not on any monitor are INVALID_PIXEL.
+        public static int[] GetWindowRelativePixels(IntPtr hWnd, double[] ratios, int radius, string layoutMode, int uiWidth, int uiHeight)
         {
-            IntPtr previousDpiContext = EnterDpiAwareThreadContext();
-            try
+            if (ratios == null || ratios.Length == 0 || ratios.Length % 2 != 0)
             {
-                POINT point = ResolveWindowRelativeScreenPoint(hWnd, xRatio, yRatio, layoutMode, uiWidth, uiHeight);
-                return GetAncestor(WindowFromPoint(point), GA_ROOT);
+                throw new ArgumentException("Pixel probes must be given as x/y ratio pairs.");
             }
-            finally
-            {
-                RestoreDpiThreadContext(previousDpiContext);
-            }
-        }
 
-        // Samples the centre pixel plus four neighbours (radius px) so a one-pixel rounding
-        // difference between machines cannot flip the classification.
-        public static int[] GetWindowRelativePixels(IntPtr hWnd, double xRatio, double yRatio, int radius, string layoutMode, int uiWidth, int uiHeight)
-        {
             IntPtr previousDpiContext = EnterDpiAwareThreadContext();
-            IntPtr hdc = IntPtr.Zero;
+            IntPtr screenDc = IntPtr.Zero;
+            IntPtr memoryDc = IntPtr.Zero;
+            IntPtr bitmap = IntPtr.Zero;
+            IntPtr previousBitmap = IntPtr.Zero;
             try
             {
-                POINT point = ResolveWindowRelativeScreenPoint(hWnd, xRatio, yRatio, layoutMode, uiWidth, uiHeight);
-                hdc = GetDC(IntPtr.Zero);
-                if (hdc == IntPtr.Zero)
+                int[] offsetsX = radius > 0 ? new int[] { 0, -radius, radius, 0, 0 } : new int[] { 0 };
+                int[] offsetsY = radius > 0 ? new int[] { 0, 0, 0, -radius, radius } : new int[] { 0 };
+                int probeCount = ratios.Length / 2;
+                var samples = new POINT[probeCount * offsetsX.Length];
+                var onScreen = new bool[samples.Length];
+                int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+                for (int probe = 0; probe < probeCount; probe += 1)
+                {
+                    POINT centre = ResolveWindowRelativeScreenPoint(hWnd, ratios[probe * 2], ratios[(probe * 2) + 1], layoutMode, uiWidth, uiHeight);
+                    for (int offset = 0; offset < offsetsX.Length; offset += 1)
+                    {
+                        int index = (probe * offsetsX.Length) + offset;
+                        samples[index] = new POINT { X = centre.X + offsetsX[offset], Y = centre.Y + offsetsY[offset] };
+                        onScreen[index] = MonitorFromPoint(samples[index], MONITOR_DEFAULTTONULL) != IntPtr.Zero;
+                        if (onScreen[index])
+                        {
+                            minX = Math.Min(minX, samples[index].X);
+                            minY = Math.Min(minY, samples[index].Y);
+                            maxX = Math.Max(maxX, samples[index].X);
+                            maxY = Math.Max(maxY, samples[index].Y);
+                        }
+                    }
+                }
+
+                var colors = new int[samples.Length];
+                for (int index = 0; index < colors.Length; index += 1)
+                {
+                    colors[index] = INVALID_PIXEL;
+                }
+                if (minX > maxX)
+                {
+                    return colors;
+                }
+
+                int width = (maxX - minX) + 1;
+                int height = (maxY - minY) + 1;
+                screenDc = GetDC(IntPtr.Zero);
+                if (screenDc == IntPtr.Zero)
                 {
                     throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to read the screen device context.");
                 }
-
-                int[] offsetsX = radius > 0 ? new int[] { 0, -radius, radius, 0, 0 } : new int[] { 0 };
-                int[] offsetsY = radius > 0 ? new int[] { 0, 0, 0, -radius, radius } : new int[] { 0 };
-                var colors = new int[offsetsX.Length];
-                for (int index = 0; index < offsetsX.Length; index += 1)
+                memoryDc = CreateCompatibleDC(screenDc);
+                bitmap = CreateCompatibleBitmap(screenDc, width, height);
+                if (memoryDc == IntPtr.Zero || bitmap == IntPtr.Zero)
                 {
-                    uint color = GetPixel(hdc, point.X + offsetsX[index], point.Y + offsetsY[index]);
-                    if (color == 0xFFFFFFFF)
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to allocate a " + width + "x" + height + " screen capture buffer.");
+                }
+                previousBitmap = SelectObject(memoryDc, bitmap);
+                if (!BitBlt(memoryDc, 0, 0, width, height, screenDc, minX, minY, SRCCOPY))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to copy the screen area at " + minX + "," + minY + " (" + width + "x" + height + ").");
+                }
+
+                for (int index = 0; index < samples.Length; index += 1)
+                {
+                    if (!onScreen[index])
                     {
-                        throw new Win32Exception(Marshal.GetLastWin32Error(), "Unable to read the target pixel at " + (point.X + offsetsX[index]) + "," + (point.Y + offsetsY[index]) + ".");
+                        continue;
                     }
-                    colors[index] = unchecked((int)color);
+                    uint color = GetPixel(memoryDc, samples[index].X - minX, samples[index].Y - minY);
+                    colors[index] = color == 0xFFFFFFFF ? INVALID_PIXEL : unchecked((int)color);
                 }
 
                 return colors;
             }
             finally
             {
-                if (hdc != IntPtr.Zero)
+                if (previousBitmap != IntPtr.Zero)
                 {
-                    ReleaseDC(IntPtr.Zero, hdc);
+                    SelectObject(memoryDc, previousBitmap);
+                }
+                if (bitmap != IntPtr.Zero)
+                {
+                    DeleteObject(bitmap);
+                }
+                if (memoryDc != IntPtr.Zero)
+                {
+                    DeleteDC(memoryDc);
+                }
+                if (screenDc != IntPtr.Zero)
+                {
+                    ReleaseDC(IntPtr.Zero, screenDc);
                 }
                 RestoreDpiThreadContext(previousDpiContext);
             }
+        }
+
+        public static int GetPixelSamplesPerProbe(int radius)
+        {
+            return radius > 0 ? 5 : 1;
         }
 
         private static POINT ResolveWindowRelativeScreenPoint(IntPtr hWnd, double xRatio, double yRatio, string layoutMode, int uiWidth, int uiHeight)
@@ -1080,8 +1203,66 @@ namespace EqAutoLogin
             return true;
         }
 
-        // Types text while verifying before every character that the target window still owns
-        // the foreground, so a stolen focus cannot leak a password into another application.
+        private static bool IsScreenRectOnMonitors(int left, int top, int width, int height)
+        {
+            int right = left + width - 1;
+            int bottom = top + height - 1;
+            return IsPointOnMonitor(left, top)
+                && IsPointOnMonitor(right, top)
+                && IsPointOnMonitor(left, bottom)
+                && IsPointOnMonitor(right, bottom);
+        }
+
+        private static bool IsPointOnMonitor(int x, int y)
+        {
+            return MonitorFromPoint(new POINT { X = x, Y = y }, MONITOR_DEFAULTTONULL) != IntPtr.Zero;
+        }
+
+        // GetWindowRect includes the invisible DWM resize borders on Windows 10+; the extended
+        // frame bounds are what the user actually sees.
+        private static bool TryGetVisibleFrame(IntPtr hWnd, out RECT rect)
+        {
+            rect = new RECT();
+            try
+            {
+                return DwmGetWindowAttribute(hWnd, DWMWA_EXTENDED_FRAME_BOUNDS, out rect, Marshal.SizeOf(typeof(RECT))) == 0
+                    && rect.Right > rect.Left
+                    && rect.Bottom > rect.Top;
+            }
+            catch (DllNotFoundException)
+            {
+                return false;
+            }
+            catch (EntryPointNotFoundException)
+            {
+                return false;
+            }
+        }
+
+        // EQ's own dialogs (error popups, the EULA on some clients) are separate top-level
+        // windows of the same process; clicking them is intended.
+        private static bool IsSameWindowOrProcess(IntPtr candidate, IntPtr target)
+        {
+            if (candidate == IntPtr.Zero || target == IntPtr.Zero)
+            {
+                return false;
+            }
+            if (candidate == target)
+            {
+                return true;
+            }
+
+            uint candidateProcessId;
+            uint targetProcessId;
+            GetWindowThreadProcessId(candidate, out candidateProcessId);
+            GetWindowThreadProcessId(target, out targetProcessId);
+            return candidateProcessId != 0 && candidateProcessId == targetProcessId;
+        }
+
+        // Types text while verifying around every character that the target window still owns
+        // the foreground, so a stolen focus stops typing immediately. Input is injected
+        // asynchronously, so a focus change in the instant between the check and delivery can
+        // still redirect one character; the post-send check reports that case explicitly.
         public static int SendText(IntPtr hWnd, string text, int keyDelayMilliseconds)
         {
             IntPtr layout = GetKeyboardLayoutForWindow(hWnd);
@@ -1096,6 +1277,10 @@ namespace EqAutoLogin
 
                 SendCharacter(c, layout);
                 sent += 1;
+                if (hWnd != IntPtr.Zero && GetForegroundWindow() != hWnd)
+                {
+                    throw new InvalidOperationException("The EverQuest window lost the foreground while typing (" + sent + " of " + total + " characters sent; the last one may have reached " + DescribeWindow(GetForegroundWindow()) + ").");
+                }
                 if (keyDelayMilliseconds > 0)
                 {
                     Thread.Sleep(keyDelayMilliseconds);
@@ -1126,6 +1311,10 @@ namespace EqAutoLogin
 
         public static void SendEnter(IntPtr hWnd, int keyDelayMilliseconds)
         {
+            if (hWnd != IntPtr.Zero && GetForegroundWindow() != hWnd)
+            {
+                throw new InvalidOperationException("The EverQuest window lost the foreground before Enter could be pressed (foreground is now " + DescribeWindow(GetForegroundWindow()) + ").");
+            }
             SendVirtualKeyAsScanCode(VK_RETURN, GetKeyboardLayoutForWindow(hWnd));
             if (keyDelayMilliseconds > 0)
             {
@@ -1597,7 +1786,8 @@ $Session = @{
   ClassName = ""
   LastProbes = $null
   LastState = ""
-  OcclusionWarned = $false
+  LastProbeError = $null
+  OcclusionWarnings = @{}
   CursorWarned = $false
 }
 $WindowReacquireGraceMs = 3000
@@ -1723,39 +1913,77 @@ function Invoke-WindowClick {
   param(
     [Parameter(Mandatory = $true)]
     [string]$PointName,
-    [string]$Stage = "click"
+    [string]$Stage = "click",
+    # Throw instead of silently skipping when the click could not be delivered to EverQuest.
+    [switch]$Required
   )
 
   $point = Get-Point -Name $PointName
   $handle = Resolve-TargetWindow -Stage $Stage
   $result = [EqAutoLogin.Native]::ClickWindowRelative($handle, $point[0], $point[1], $Settings.clickMoveDelayMs, $Settings.clickHoldDelayMs, $LayoutMode, $LayoutWidth, $LayoutHeight)
-  if (-not $result.PointerOnTarget -and $result.WindowAtPoint -ne [IntPtr]::Zero -and -not $Session.OcclusionWarned) {
-    $Session.OcclusionWarned = $true
-    Write-AutoLoginEvent -Stage "occlusion" -Message "The $PointName click at $($result.X),$($result.Y) resolved to another window '$($result.WindowAtPointTitle)' [$($result.WindowAtPointClass)] instead of EverQuest; something may be covering the client." -Tone "warning"
-  }
   if (-not $result.CursorVerified -and -not $Session.CursorWarned) {
     $Session.CursorWarned = $true
     Write-AutoLoginEvent -Stage "cursor" -Message "The pointer could not be positioned at $($result.X),$($result.Y) for $PointName (it is at $($result.CursorX),$($result.CursorY))." -Tone "warning"
   }
+  if (-not $result.Clicked) {
+    $covering = if ($result.WindowAtPoint -ne [IntPtr]::Zero) { "another window '$($result.WindowAtPointTitle)' [$($result.WindowAtPointClass)]" } else { "no window" }
+    $message = "Skipped the $PointName click at $($result.CursorX),$($result.CursorY) because it would land on $covering instead of EverQuest; something may be covering the client."
+    if (-not $Session.OcclusionWarnings.ContainsKey($covering)) {
+      $Session.OcclusionWarnings[$covering] = $true
+      Write-AutoLoginEvent -Stage "occlusion" -Message $message -Tone "warning"
+    }
+    if ($Required) {
+      throw [System.InvalidOperationException]::new($message)
+    }
+  }
   return $result
 }
 
-function Get-Probe {
+$LoginCanvasProbeNames = @("loginErrorButton", "loginErrorBorder", "mainMenuLogin", "mainMenuPasswordField", "mainMenuLoginButton", "mainMenuExitButton")
+
+# Reads every probe in one screen capture. Returns one pixel array per ratio pair; samples
+# that are not on any monitor are dropped, so an array can be empty.
+function Read-ProbeSamples {
   param(
     [Parameter(Mandatory = $true)]
-    [string]$PointName
+    [string]$Stage,
+    [Parameter(Mandatory = $true)]
+    [double[]]$Ratios
   )
 
-  $point = Get-Point -Name $PointName
-  $handle = Resolve-TargetWindow -Stage "screen probe"
-  $colors = @([EqAutoLogin.Native]::GetWindowRelativePixels($handle, $point[0], $point[1], $Settings.probeRadiusPx, $LayoutMode, $LayoutWidth, $LayoutHeight))
-  return New-ProbeSample -Pixels @($colors | ForEach-Object { Convert-ColorRef -Color $_ })
+  $handle = Resolve-TargetWindow -Stage $Stage
+  $colors = [EqAutoLogin.Native]::GetWindowRelativePixels($handle, $Ratios, $Settings.probeRadiusPx, $LayoutMode, $LayoutWidth, $LayoutHeight)
+  $perProbe = [EqAutoLogin.Native]::GetPixelSamplesPerProbe($Settings.probeRadiusPx)
+  $invalid = [EqAutoLogin.Native]::INVALID_PIXEL
+  $probes = New-Object System.Collections.Generic.List[object]
+  for ($start = 0; $start -lt $colors.Length; $start += $perProbe) {
+    $pixels = @()
+    for ($index = $start; $index -lt ($start + $perProbe); $index += 1) {
+      if ($colors[$index] -ne $invalid) {
+        $pixels += Convert-ColorRef -Color $colors[$index]
+      }
+    }
+    $probes.Add($pixels)
+  }
+  return ,$probes
 }
 
 function Get-LoginCanvasProbes {
+  $ratios = New-Object System.Collections.Generic.List[double]
+  foreach ($name in $LoginCanvasProbeNames) {
+    $point = Get-Point -Name $name
+    $ratios.Add([double]$point[0])
+    $ratios.Add([double]$point[1])
+  }
+
+  $samples = Read-ProbeSamples -Stage "screen probe" -Ratios $ratios.ToArray()
   $probes = [ordered]@{}
-  foreach ($name in @("loginErrorButton", "loginErrorBorder", "mainMenuLogin", "mainMenuPasswordField", "mainMenuLoginButton", "mainMenuExitButton")) {
-    $probes[$name] = Get-Probe -PointName $name
+  for ($index = 0; $index -lt $LoginCanvasProbeNames.Count; $index += 1) {
+    $name = $LoginCanvasProbeNames[$index]
+    if (@($samples[$index]).Count -eq 0) {
+      throw "The $name probe is not on any monitor; the EverQuest client may be off-screen or uiLayoutMode '$LayoutMode' does not match this client."
+    }
+    $probes[$name] = New-ProbeSample -Pixels @($samples[$index])
   }
   return $probes
 }
@@ -1763,25 +1991,47 @@ function Get-LoginCanvasProbes {
 function Get-LoginCanvasState {
   $probes = Get-LoginCanvasProbes
   $Session.LastProbes = $probes
+  $Session.LastProbeError = $null
   $state = Resolve-LoginCanvasState -Probes $probes
   $Session.LastState = $state
   return $state
 }
 
+# Polling loops tolerate transient probe failures; remember the latest one so a timeout
+# reports the real cause instead of a stale reading.
+function Save-ProbeError {
+  param(
+    [Parameter(Mandatory = $true)]
+    $ErrorRecord
+  )
+
+  $Session.LastProbeError = (Get-InnerException -ErrorRecord $ErrorRecord).Message
+}
+
 function Get-LastProbeDescription {
-  if ($null -eq $Session.LastProbes) {
-    return "no screen probes were read"
+  $parts = @()
+  if ($null -ne $Session.LastProbes) {
+    $parts += "last state '$($Session.LastState)' with probes $(Format-ProbeSummary -Probes $Session.LastProbes)"
+  } else {
+    $parts += "no screen probes were read"
   }
-  return "last state '$($Session.LastState)' with probes $(Format-ProbeSummary -Probes $Session.LastProbes)"
+  if ($Session.LastProbeError) {
+    $parts += "latest probe error: $($Session.LastProbeError)"
+  }
+  return ($parts -join "; ")
 }
 
 function Test-ServerSelectPlayButtonReady {
   $base = Get-Point -Name "serverSelectPlay"
-  $handle = Resolve-TargetWindow -Stage "server select"
-  $offsets = @(@(0, 0), @(-0.040, 0), @(0.040, 0), @(0, -0.012), @(0, 0.012))
-  foreach ($offset in $offsets) {
-    $colors = @([EqAutoLogin.Native]::GetWindowRelativePixels($handle, $base[0] + $offset[0], $base[1] + $offset[1], $Settings.probeRadiusPx, $LayoutMode, $LayoutWidth, $LayoutHeight))
-    $probe = New-ProbeSample -Pixels @($colors | ForEach-Object { Convert-ColorRef -Color $_ })
+  $ratios = New-Object System.Collections.Generic.List[double]
+  foreach ($offset in @(@(0, 0), @(-0.040, 0), @(0.040, 0), @(0, -0.012), @(0, 0.012))) {
+    $ratios.Add([double]$base[0] + $offset[0])
+    $ratios.Add([double]$base[1] + $offset[1])
+  }
+
+  $samples = Read-ProbeSamples -Stage "server select" -Ratios $ratios.ToArray()
+  foreach ($pixels in $samples) {
+    $probe = New-ProbeSample -Pixels @($pixels)
     if (Test-Probe -Probe $probe -Predicate ${function:Test-ServerSelectPlayButtonPixel}) {
       return $true
     }
@@ -1820,6 +2070,7 @@ function Wait-ForPreLoginScreen {
       $state = Get-LoginCanvasState
     } catch {
       # The client may still be creating its render surface; keep clicking through.
+      Save-ProbeError -ErrorRecord $_
     }
 
     if ($state -eq "main-menu" -or $state -eq "login-form") {
@@ -1853,6 +2104,7 @@ function Wait-ForLoginFormReady {
       $state = Get-LoginCanvasState
     } catch {
       # Transient surface swap; retry on the next poll.
+      Save-ProbeError -ErrorRecord $_
     }
     if ($state -eq "login-form") {
       return
@@ -1883,7 +2135,7 @@ function Enter-CredentialField {
   for ($attempt = 1; $attempt -le $Settings.credentialAttempts; $attempt += 1) {
     try {
       Wait-ForTargetWindowForeground -TimeoutSeconds $Settings.focusWaitSeconds -Stage $Stage | Out-Null
-      Invoke-WindowClick -PointName $PointName -Stage $Stage | Out-Null
+      Invoke-WindowClick -PointName $PointName -Stage $Stage -Required | Out-Null
       if ($Settings.credentialFocusDelayMs -gt 0) {
         Start-Sleep -Milliseconds $Settings.credentialFocusDelayMs
       }
@@ -1924,6 +2176,7 @@ function Wait-ForLoginOutcome {
     try {
       $state = Get-LoginCanvasState
     } catch {
+      Save-ProbeError -ErrorRecord $_
       $state = "advanced"
     }
 
@@ -1932,13 +2185,16 @@ function Wait-ForLoginOutcome {
     }
 
     $now = Get-Date
-    if ($DetectServerSelect -and $state -eq "advanced") {
+    # Give the login dialogs time to clear first: the Play-button colour test is permissive
+    # enough to match a grey "logging in" frame.
+    if ($DetectServerSelect -and $state -eq "advanced" -and $now -ge $eligibleAt) {
       try {
         if (Test-ServerSelectPlayButtonReady) {
           return "server-select"
         }
       } catch {
         # The client may briefly resize or swap surfaces while loading server select.
+        Save-ProbeError -ErrorRecord $_
       }
     }
 
@@ -1977,12 +2233,14 @@ function Wait-ForServerSelectReady {
       }
     } catch {
       # The client may briefly resize or swap surfaces while loading server select.
+      Save-ProbeError -ErrorRecord $_
     }
 
     Start-Sleep -Milliseconds 100
   } while ((Get-Date) -lt $deadline)
 
-  throw "Timed out after $TimeoutSeconds seconds waiting for the EverQuest server select screen."
+  $probeError = if ($Session.LastProbeError) { " Latest probe error: $($Session.LastProbeError)" } else { "" }
+  throw "Timed out after $TimeoutSeconds seconds waiting for the EverQuest server select screen.$probeError"
 }
 
 $password = ""
@@ -2057,7 +2315,7 @@ try {
         }
         Wait-ForTargetWindowForeground -TimeoutSeconds $Settings.focusWaitSeconds -Stage "Play EverQuest" | Out-Null
         Write-AutoLoginEvent -Stage "enter-world" -Message "Clicking Play EverQuest." -StatusState "running" -StatusLabel "Entering" -StatusDetail "Clicking Play EverQuest on the server select screen." -ProgressValue 98 -ProgressLabel "Clicking Play EverQuest"
-        Invoke-WindowClick -PointName "serverSelectPlay" -Stage "Play EverQuest" | Out-Null
+        Invoke-WindowClick -PointName "serverSelectPlay" -Stage "Play EverQuest" -Required | Out-Null
         Write-AutoLoginEvent -Stage "enter-world-complete" -Message "Play EverQuest was pressed." -Tone "success" -StatusState "success" -StatusLabel "Entering world" -StatusDetail "Play EverQuest was pressed on the server select screen." -ProgressValue 100 -ProgressLabel "Entering world"
         exit 0
       } catch {
