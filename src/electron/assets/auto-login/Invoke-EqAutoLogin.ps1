@@ -1988,7 +1988,8 @@ function Wait-ForServerSelectReady {
 $password = ""
 $currentStage = "startup"
 try {
-  $password = [Console]::In.ReadToEnd()
+  # Manual runs usually pipe the password in with a trailing newline; never type that as Enter.
+  $password = ([string][Console]::In.ReadToEnd()).TrimEnd([char]13, [char]10)
   if (-not $EqGamePath) {
     throw "No eqgame.exe path was provided to the auto-login helper."
   }
