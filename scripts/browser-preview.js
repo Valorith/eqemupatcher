@@ -65,4 +65,5 @@ server.listen(port, host, () => {
   console.log(`Missing client state: ${baseUrl}/src/electron/renderer/index.html?browser-preview=missing`);
   console.log(`Patching state: ${baseUrl}/src/electron/renderer/index.html?browser-preview=patching`);
   console.log(`Update state: ${baseUrl}/src/electron/renderer/index.html?browser-preview=update`);
+  console.log(`Account profiles state: ${baseUrl}/src/electron/renderer/index.html?browser-preview=profiles (add &profiles=<count> to change how many)`);
 });

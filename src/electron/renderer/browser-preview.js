@@ -25,6 +25,28 @@
     };
   }
 
+  function createAutoLoginProfiles() {
+    const accounts = [
+      ["Asakani", "nalanceseisary"], ["Troglodytam", "merbriken"], ["Marlzing", "delere"],
+      ["Mortem", "morsmangone"], ["Athazin", "marlzing"], ["Eloquii", "fascinare"],
+      ["Doktor", "mootok"], ["Taliant", "daranja"], ["Malvarien", "1iksarmonk"],
+      ["Growl", "growlwar"], ["Bestia", "1beastlord"], ["Avmenieu", "vendors"],
+      ["Ranthor", "ranthorpal"], ["Kelsa", "kelsadruid"]
+    ];
+    const requestedCount = Number.parseInt(params.get("profiles") || "", 10);
+    const count = Number.isFinite(requestedCount) && requestedCount >= 0 ? requestedCount : accounts.length;
+    return Array.from({ length: count }, (_, index) => {
+      const [label, username] = accounts[index % accounts.length];
+      const round = Math.floor(index / accounts.length);
+      return {
+        id: `preview-profile-${index + 1}`,
+        label: round ? `${label} ${round + 1}` : label,
+        username: round ? `${username}${round + 1}` : username,
+        isDefault: index === 0
+      };
+    });
+  }
+
   function createState(mode) {
     const base = {
       serverName: "Clumsy's World: Resurgence",
@@ -133,6 +155,15 @@
           ...base,
           launcherUpdate: createBaseLauncherUpdate("available")
         };
+      case "profiles": {
+        const autoLoginProfiles = createAutoLoginProfiles();
+        return {
+          ...base,
+          autoLoginProfiles,
+          selectedAutoLoginProfileId: autoLoginProfiles[0]?.id || "",
+          selectedAutoLoginProfileIds: autoLoginProfiles.slice(0, 2).map((profile) => profile.id)
+        };
+      }
       case "ready":
       default:
         return base;
@@ -462,6 +493,20 @@
         progressValue: 40,
         progressMax: 100,
         progressLabel: "Installing prerequisites"
+      });
+    },
+    async setAutoLoginProfileSelection({ activeId, ids } = {}) {
+      return updateState({
+        selectedAutoLoginProfileId: activeId || currentState.selectedAutoLoginProfileId || "",
+        selectedAutoLoginProfileIds: Array.isArray(ids) ? [...ids] : []
+      });
+    },
+    async reorderAutoLoginProfiles({ ids } = {}) {
+      const profiles = Array.isArray(currentState.autoLoginProfiles) ? currentState.autoLoginProfiles : [];
+      const byId = new Map(profiles.map((profile) => [profile.id, profile]));
+      const ordered = (Array.isArray(ids) ? ids : []).map((id) => byId.get(id)).filter(Boolean);
+      return updateState({
+        autoLoginProfiles: [...ordered, ...profiles.filter((profile) => !ordered.includes(profile))]
       });
     },
     async updateSettings(patch) {

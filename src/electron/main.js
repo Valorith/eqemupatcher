@@ -1,11 +1,13 @@
 const path = require("path");
 const { BrowserWindow, app, dialog, ipcMain, screen, shell } = require("electron");
 const { LauncherBackend } = require("./backend/launcher-backend");
+const { clampPositionToWorkArea, computeMainWindowFit } = require("./window-fit");
 const packageMetadata = require("../../package.json");
 
 let mainWindow = null;
 let backend = null;
 let activeWindowDrag = null;
+let mainWindowFit = null;
 let autoLoginOverlayWindow = null;
 let autoLoginOverlayStateKey = "";
 let autoLoginOverlaySuccessHoldTimer = null;
@@ -401,12 +403,71 @@ function syncAutoLoginOverlay(event) {
   scheduleAutoLoginOverlayState({ close: true });
 }
 
+function applyMainWindowZoom() {
+  if (!mainWindow || mainWindow.isDestroyed() || !mainWindowFit) {
+    return;
+  }
+
+  mainWindow.webContents.setZoomFactor(mainWindowFit.zoomFactor);
+}
+
+// The fitted zoom is what keeps the layout intact on small screens, so the default menu's
+// zoom shortcuts (Ctrl+0, Ctrl+=, Ctrl+-) must not change it.
+function isZoomShortcut(input) {
+  return input.type === "keyDown"
+    && (input.control || input.meta)
+    && !input.alt
+    && ["0", "-", "_", "=", "+"].includes(input.key);
+}
+
+// Re-fits the window after it lands on a display with a different work area (moved to
+// another monitor, resolution or scaling changed, taskbar resized). Skipped while minimized
+// (a fullscreen game changing the resolution must not resize or restore the launcher); the
+// window refits when it is restored instead.
+function refitMainWindowToDisplay() {
+  if (!mainWindow || mainWindow.isDestroyed() || !mainWindowFit || mainWindow.isMinimized()) {
+    return;
+  }
+
+  const bounds = mainWindow.getBounds();
+  const workArea = getWorkAreaForBounds(bounds);
+  const nextFit = computeMainWindowFit(workArea);
+  const currentFit = mainWindowFit;
+  if (
+    nextFit.width === currentFit.width
+    && nextFit.height === currentFit.height
+    && nextFit.zoomFactor === currentFit.zoomFactor
+  ) {
+    return;
+  }
+
+  mainWindowFit = nextFit;
+  const position = clampPositionToWorkArea(bounds, nextFit, workArea);
+  mainWindow.setBounds({ ...position, width: nextFit.width, height: nextFit.height }, false);
+  applyMainWindowZoom();
+}
+
+// Lets a developer preview the small-screen fit on a large monitor, e.g. EQEMU_SIMULATE_WORK_AREA=1360x728.
+function getSimulatedWorkArea() {
+  const match = /^(\d+)x(\d+)$/i.exec(String(process.env.EQEMU_SIMULATE_WORK_AREA || "").trim());
+  if (!match) {
+    return null;
+  }
+
+  return { x: 0, y: 0, width: Number(match[1]), height: Number(match[2]) };
+}
+
+function getWorkAreaForBounds(bounds) {
+  return getSimulatedWorkArea() || screen.getDisplayMatching(bounds).workArea;
+}
+
 function createWindow() {
+  mainWindowFit = computeMainWindowFit(getSimulatedWorkArea() || screen.getPrimaryDisplay().workArea);
   mainWindow = new BrowserWindow({
-    width: 1460,
-    height: 940,
-    minWidth: 1280,
-    minHeight: 820,
+    x: mainWindowFit.x,
+    y: mainWindowFit.y,
+    width: mainWindowFit.width,
+    height: mainWindowFit.height,
     resizable: false,
     maximizable: false,
     fullscreenable: false,
@@ -421,9 +482,20 @@ function createWindow() {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      zoomFactor: mainWindowFit.zoomFactor
     }
   });
+
+  mainWindow.webContents.on("did-finish-load", applyMainWindowZoom);
+  mainWindow.webContents.on("zoom-changed", () => setImmediate(applyMainWindowZoom));
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (isZoomShortcut(input)) {
+      event.preventDefault();
+    }
+  });
+  mainWindow.on("moved", refitMainWindowToDisplay);
+  mainWindow.on("restore", refitMainWindowToDisplay);
 
   mainWindow.once("ready-to-show", () => {
     mainWindow.show();
@@ -512,6 +584,9 @@ if (hasSingleInstanceLock) {
 
     await createBackend();
     createWindow();
+
+    screen.on("display-metrics-changed", refitMainWindowToDisplay);
+    screen.on("display-removed", refitMainWindowToDisplay);
 
     app.on("activate", () => {
       if (BrowserWindow.getAllWindows().length === 0) {
@@ -638,6 +713,7 @@ ipcMain.handle("launcher:moveWindowForDrag", async (_event, dragState = {}) => {
 });
 ipcMain.handle("launcher:endWindowDrag", async () => {
   activeWindowDrag = null;
+  refitMainWindowToDisplay();
   return true;
 });
 ipcMain.handle("launcher:openExternal", async (_event, url) => {

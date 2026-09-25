@@ -7500,3 +7500,13 @@ body .toggle-track {
     scroll-behavior: auto !important;
   }
 }
+
+/* Keep the profile popover inside the window; the profile list scrolls instead. */
+body .auto-login-popover {
+  max-height: calc(100vh - 24px);
+}
+
+/* The list is rebuilt on every state change; scroll anchoring would otherwise shift it a row per render. */
+body .auto-login-profile-list {
+  overflow-anchor: none;
+}
