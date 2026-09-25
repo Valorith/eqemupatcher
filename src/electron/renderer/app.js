@@ -171,6 +171,11 @@ const elements = {
   autoPatchToggle: document.getElementById("autoPatchToggle"),
   autoPlayToggle: document.getElementById("autoPlayToggle"),
   autoLoginToggle: document.getElementById("autoLoginToggle"),
+  launchOptionsButton: document.getElementById("launchOptionsButton"),
+  launchOptionsMenu: document.getElementById("launchOptionsMenu"),
+  autoPatchPip: document.getElementById("autoPatchPip"),
+  autoPlayPip: document.getElementById("autoPlayPip"),
+  autoLoginPip: document.getElementById("autoLoginPip"),
   reportLink: document.getElementById("reportLink"),
   progressLabel: document.getElementById("progressLabel"),
   progressValue: document.getElementById("progressValue"),
@@ -2323,6 +2328,34 @@ function toggleToolsMenu() {
   }
   closeToolsMenu();
 }
+function openLaunchOptionsMenu() {
+  elements.launchOptionsMenu.classList.remove("hidden");
+  elements.launchOptionsButton.setAttribute("aria-expanded", "true");
+}
+function closeLaunchOptionsMenu() {
+  elements.launchOptionsMenu.classList.add("hidden");
+  elements.launchOptionsButton.setAttribute("aria-expanded", "false");
+}
+function toggleLaunchOptionsMenu() {
+  if (elements.launchOptionsMenu.classList.contains("hidden")) {
+    openLaunchOptionsMenu();
+    return;
+  }
+  closeLaunchOptionsMenu();
+}
+function renderLaunchOptionsSummary() {
+  const options = [
+    { label: "Auto Patch", toggle: elements.autoPatchToggle, pip: elements.autoPatchPip },
+    { label: "Auto Play", toggle: elements.autoPlayToggle, pip: elements.autoPlayPip },
+    { label: "Auto Login", toggle: elements.autoLoginToggle, pip: elements.autoLoginPip }
+  ];
+  for (const option of options) {
+    option.pip.classList.toggle("is-on", option.toggle.checked);
+  }
+  elements.launchOptionsButton.title = `Launch options: ${options
+    .map((option) => `${option.label} ${option.toggle.checked ? "on" : "off"}`)
+    .join(", ")}`;
+}
 function openSettingsModal() {
   elements.settingsModal.classList.remove("hidden");
   elements.settingsModal.setAttribute("aria-hidden", "false");
@@ -3935,6 +3968,7 @@ function renderState(nextState) {
     label: nextState.progressLabel
   });
   renderAutoLogin(nextState);
+  renderLaunchOptionsSummary();
   renderUiManager();
 }
 function renderProgress(progress) {
@@ -4455,6 +4489,10 @@ function wireEvents() {
   elements.toolsButton.addEventListener("click", (event) => {
     event.stopPropagation();
     toggleToolsMenu();
+  });
+  elements.launchOptionsButton.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleLaunchOptionsMenu();
   });
   elements.toolsMenu.addEventListener("click", async (event) => {
     const link = event.target.closest("a.tools-menu-link");
@@ -5156,6 +5194,11 @@ function wireEvents() {
       closeToolsMenu();
       return;
     }
+    if (!elements.launchOptionsMenu.classList.contains("hidden")) {
+      closeLaunchOptionsMenu();
+      elements.launchOptionsButton.focus?.();
+      return;
+    }
     if (elements.autoLoginPopover && !elements.autoLoginPopover.classList.contains("hidden")) {
       closeAutoLoginPopover();
       return;
@@ -5203,6 +5246,9 @@ function wireEvents() {
     }
   });
   document.addEventListener("click", (event) => {
+    if (!closestElement(event.target, ".launch-options-menu")) {
+      closeLaunchOptionsMenu();
+    }
     if (closestElement(event.target, ".tools-menu")) {
       return;
     }

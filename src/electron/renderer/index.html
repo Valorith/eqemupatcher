@@ -212,29 +212,45 @@
                     <p class="eyebrow">Launcher Controls</p>
                   </div>
                   <div id="actionsRow" class="actions-row">
-                    <button id="patchButton" class="secondary-button utility-button patch-utility-button" disabled>Verify Integrity</button>
+                    <div class="utility-row">
+                      <button id="patchButton" class="secondary-button utility-button patch-utility-button" disabled>Verify Integrity</button>
+                      <div class="launch-options-menu">
+                        <button id="launchOptionsButton" class="secondary-button utility-button launch-options-button" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="launchOptionsMenu" title="Launch options">
+                          <span class="launch-options-label">Options</span>
+                          <span class="launch-options-pips" aria-hidden="true">
+                            <span id="autoPatchPip" class="launch-options-pip"></span>
+                            <span id="autoPlayPip" class="launch-options-pip"></span>
+                            <span id="autoLoginPip" class="launch-options-pip"></span>
+                          </span>
+                          <svg class="launch-options-chevron" viewBox="0 0 24 24" focusable="false" aria-hidden="true">
+                            <path d="M6 15l6-6 6 6"></path>
+                          </svg>
+                        </button>
+                        <div id="launchOptionsMenu" class="launch-options-panel hidden" role="group" aria-label="Launch options">
+                          <p class="launch-options-heading">Launch Options</p>
+                          <label class="toggle">
+                            <input id="autoPatchToggle" type="checkbox" />
+                            <span class="toggle-track"></span>
+                            <span class="toggle-label">Auto Patch</span>
+                          </label>
+                          <label class="toggle">
+                            <input id="autoPlayToggle" type="checkbox" />
+                            <span class="toggle-track"></span>
+                            <span class="toggle-label">Auto Play</span>
+                          </label>
+                          <label class="toggle auto-login-toggle-control">
+                            <input id="autoLoginToggle" type="checkbox" />
+                            <span class="toggle-track"></span>
+                            <span class="toggle-label">Auto Login</span>
+                            <span class="auto-login-beta-badge auto-login-toggle-beta-badge" aria-label="Auto Login beta feature">Beta</span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
                     <div class="action-slot">
                       <div id="actionStatus" class="action-status">Checking for patch</div>
                       <button id="launchButton" class="primary-button launch-button hidden">Launch Game</button>
                     </div>
-                  </div>
-                  <div class="toggle-row">
-                    <label class="toggle">
-                      <input id="autoPatchToggle" type="checkbox" />
-                      <span class="toggle-track"></span>
-                      <span class="toggle-label">Auto Patch</span>
-                    </label>
-                    <label class="toggle">
-                      <input id="autoPlayToggle" type="checkbox" />
-                      <span class="toggle-track"></span>
-                      <span class="toggle-label">Auto Play</span>
-                    </label>
-                    <label class="toggle auto-login-toggle-control">
-                      <input id="autoLoginToggle" type="checkbox" />
-                      <span class="toggle-track"></span>
-                      <span class="toggle-label">Auto Login</span>
-                      <span class="auto-login-beta-badge auto-login-toggle-beta-badge" aria-label="Auto Login beta feature">Beta</span>
-                    </label>
                   </div>
                   <div class="support-links">
                     <button id="manualPrerequisitesButton" class="secondary-button utility-button manual-prerequisites-button hidden" type="button">Manual Install</button>

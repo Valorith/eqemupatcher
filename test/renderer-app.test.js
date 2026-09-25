@@ -904,6 +904,7 @@ async function createRendererHarness(options = {}) {
   document.getElementById("uiManagerModal").classList.add("hidden");
   document.getElementById("uiManagerConfirmModal").classList.add("hidden");
   document.getElementById("toolsMenu").classList.add("hidden");
+  document.getElementById("launchOptionsMenu").classList.add("hidden");
   document.getElementById("loginServerContextMenu").classList.add("hidden");
   document.getElementById("autoLoginPopover").classList.add("hidden");
   document.getElementById("launcherUpdatePanel").classList.add("hidden");
@@ -1706,6 +1707,42 @@ test("renderer disables Auto Login until a saved account profile exists", async 
 
   assert.deepEqual(profileHarness.calls.updateSettings.at(-1), { autoLogin: true });
   assert.equal(profileHarness.elements.autoLoginToggle.checked, true);
+});
+
+test("renderer keeps launch toggles in the Options dropdown beside Verify Integrity", async () => {
+  assert.match(INDEX_SOURCE, /utility-row[\s\S]*?patchButton[\s\S]*?launchOptionsButton[\s\S]*?launchOptionsMenu[\s\S]*?autoPatchToggle[\s\S]*?autoPlayToggle[\s\S]*?autoLoginToggle/);
+  assert.doesNotMatch(INDEX_SOURCE, /class="toggle-row"/);
+
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    clientVersion: "Rain_Of_Fear_2_4GB",
+    clientLabel: "Rain of Fear 2 (4GB)",
+    clientSupported: true,
+    statusBadge: "Ready",
+    manifestVersion: "3.0.0",
+    needsPatch: false,
+    canPatch: true,
+    canLaunch: true,
+    autoPatch: true
+  });
+  const button = harness.document.getElementById("launchOptionsButton");
+  const menu = harness.document.getElementById("launchOptionsMenu");
+
+  assert.equal(harness.document.getElementById("autoPatchPip").classList.contains("is-on"), true);
+  assert.equal(harness.document.getElementById("autoPlayPip").classList.contains("is-on"), false);
+  assert.equal(button.title, "Launch options: Auto Patch on, Auto Play off, Auto Login off");
+
+  await button.dispatch("click");
+  assert.equal(menu.classList.contains("hidden"), false);
+  assert.equal(button.attributes["aria-expanded"], "true");
+
+  await harness.document.dispatch("click");
+  assert.equal(menu.classList.contains("hidden"), true);
+  assert.equal(button.attributes["aria-expanded"], "false");
+
+  await button.dispatch("click");
+  await harness.document.dispatch("keydown", { key: "Escape" });
+  assert.equal(menu.classList.contains("hidden"), true);
 });
 
 test("renderer saves the default account profile flag", async () => {
