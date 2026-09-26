@@ -2840,7 +2840,7 @@ test("checking a competing UI component variant replaces the flagged bundle for 
   assert.equal(harness.calls.activateUiOption[0].optionPath, "Options/Alt/Red");
 });
 
-test("pending component changes are cleared when a UISkin/package switch becomes the pending action", async () => {
+test("queued styles and character assignments apply together in one call", async () => {
   const harness = await createRendererHarness({
     gameDirectory: "C:\\EQ",
     uiManagerOverview: {
@@ -2885,18 +2885,25 @@ test("pending component changes are cleared when a UISkin/package switch becomes
   });
   await flushAsyncWork();
 
-  const confirmStageButton = harness.document.getElementById("uiManagerStageConfirmButton");
-  confirmStageButton.dataset.uiManagerStage = "confirm";
-  await harness.elements.uiManagerStageTabs.dispatch("click", {
-    target: {
-      closest(selector) {
-        return selector === "button[data-ui-manager-stage]" ? confirmStageButton : null;
-      }
-    }
-  });
+  assert.equal(getUiManagerOptionToggle(getUiManagerOptionCard(harness, "Options/Alt/Red")).checked, true);
+  assert.equal(harness.elements.uiManagerApplyOptionButton.disabled, false);
+
+  await harness.elements.uiManagerApplyOptionButton.dispatch("click");
+  await flushAsyncWork();
+  const confirmMessage = harness.document.getElementById("uiManagerConfirmMessage").textContent;
+  assert.match(confirmMessage, /1 component change .* and 1 UISkin change/);
+  assert.match(confirmMessage, /shared, so they will apply to all 2 characters/);
+
+  await harness.elements.uiManagerConfirmAcceptButton.dispatch("click");
   await flushAsyncWork();
 
-  assert.equal(harness.elements.uiManagerApplyOptionButton.disabled, false);
+  assert.equal(harness.calls.setUiSkinTargets.length, 0);
+  assert.equal(harness.calls.activateUiOption.length, 1);
+  assert.equal(harness.calls.activateUiOption[0].optionPath, "Options/Alt/Red");
+  assert.deepEqual(
+    Array.from(harness.calls.activateUiOption[0].iniPaths).sort(),
+    ["C:\\EQ\\UI_Alt_CW.ini", "C:\\EQ\\UI_Test_CW.ini"]
+  );
 });
 
 test("ui manager locks mutating controls while prerequisites are installing", async () => {

@@ -959,37 +959,6 @@ function updateUiManagerStagedOptionPath(optionPath, shouldStage) {
   }
   setUiManagerSelectedOptionPaths(Array.from(nextPaths));
 }
-function getUiManagerPendingSkinTargets() {
-  const selectedPackage = getUiManagerSelectedPackageSummary();
-  if (!selectedPackage) {
-    return [];
-  }
-  return getUiManagerReviewTargets().filter((target) => !isUiManagerSkinMatch(target.uiSkin, selectedPackage.name));
-}
-function isUiManagerLoadoutLocked() {
-  return getUiManagerPendingSkinTargets().length > 0;
-}
-function syncUiManagerStagedComponentsForSkinSwitch() {
-  const selectedPackage = getUiManagerSelectedPackageSummary();
-  if (!selectedPackage || !state.uiManager.detail || state.uiManager.detail.name !== selectedPackage.name) {
-    return;
-  }
-
-  // Switching characters onto an interface applies it as it stands on disk, so
-  // window-style changes wait until the assignment has been applied.
-  if (!isUiManagerLoadoutLocked()) {
-    return;
-  }
-
-  const activePaths = getUiManagerActiveBundles().map((bundle) => bundle.optionPath).sort();
-  const selectedPaths = [...(state.uiManager.selectedOptionPaths || [])].sort();
-  if (activePaths.length === selectedPaths.length && activePaths.every((entry, index) => entry === selectedPaths[index])) {
-    return;
-  }
-
-  setUiManagerSelectedOptionPaths(activePaths);
-  setUiManagerNotice("Queued window styles were cleared while characters switch to this interface.", "info");
-}
 function buildUiManagerConfirmationDiff() {
   const selectedPackage = getUiManagerSelectedPackageSummary();
   const reviewTargets = getUiManagerReviewTargets();
@@ -1082,7 +1051,6 @@ function syncUiManagerSelection() {
     }
   }
   state.uiManager.selectedTargetPaths = selectedPaths;
-  syncUiManagerStagedComponentsForSkinSwitch();
 }
 async function ensureUiManagerPackageMetadataChecks() {
   if (!isUiManagerModalOpen()) {
@@ -1410,16 +1378,6 @@ function renderUiManagerLoadoutState() {
     return;
   }
 
-  const pendingSkinTargets = getUiManagerPendingSkinTargets();
-  if (pendingSkinTargets.length) {
-    appendPanel(
-      "info",
-      `Loadout locked while ${pluralize(pendingSkinTargets.length, "character")} switch${pendingSkinTargets.length === 1 ? "es" : ""} to ${pkg.name}.`,
-      "Characters join this interface as it currently stands. Apply the assignment first, or clear them from the roster, to change window styles."
-    );
-    return;
-  }
-
   container.classList.add("hidden");
 }
 function getUiManagerSlotEntries() {
@@ -1487,7 +1445,7 @@ function renderUiManagerOptionList() {
   const groups = getUiManagerBundleGroups();
   const stagedPaths = new Set(state.uiManager.selectedOptionPaths || []);
   const changedCount = buildUiManagerConfirmationDiff().componentChanges.length;
-  const equipLocked = isUiManagerLoadoutLocked() || Boolean(pkg?.protected) || state.uiManager.actionLoading;
+  const equipLocked = Boolean(pkg?.protected) || state.uiManager.actionLoading;
 
   elements.uiManagerOptionMeta.textContent = bundles.length
     ? `${pluralize(groups.size, "window")} · ${pluralize(bundles.length, "style")}${changedCount ? ` · ${changedCount} queued` : ""}`
@@ -1659,7 +1617,7 @@ function renderUiManagerInspector() {
     const equipButton = createUiManagerElement("button", "uim-inspector-equip", isEquipped ? "Keep this style" : "Equip this style");
     equipButton.type = "button";
     equipButton.dataset.inspectorEquip = bundle.optionPath;
-    equipButton.disabled = isUiManagerLoadoutLocked() || state.uiManager.actionLoading;
+    equipButton.disabled = state.uiManager.actionLoading;
     copy.appendChild(equipButton);
   }
 
@@ -1875,7 +1833,9 @@ function renderUiManagerActionState() {
       : busy
         ? "Working. Please wait."
         : plan.pendingCount
-          ? `A backup of ${selectedPackage.name} is taken before anything is written.`
+          ? plan.componentChanges.length && state.uiManager.selectedTargetPaths.length > 1
+            ? `Window styles are shared by every character on ${getUiManagerPackageDisplayName(selectedPackage)}. A backup is taken before anything is written.`
+            : `A backup of ${getUiManagerPackageDisplayName(selectedPackage)} is taken before anything is written.`
           : selectedPackage.protected
             ? "The stock interface can't be edited, but you can assign it to characters."
             : "Equip window styles or select characters to queue changes.";
@@ -4922,8 +4882,12 @@ function wireEvents() {
       }))
     ];
 
+    // Styles live in the interface folder itself, so they reach every character on it, not just new arrivals.
+    const sharedStyleNote = pendingComponentChanges.length && selectedTargetPaths.length > 1
+      ? ` Window styles are shared, so they will apply to all ${selectedTargetPaths.length} characters using ${packageLabel}.`
+      : "";
     await promptUiManagerAction(
-      `Apply ${applyLabel} in ${packageLabel}?`,
+      `Apply ${applyLabel} in ${packageLabel}?${sharedStyleNote}`,
       async () => {
         await runUiManagerAction(`Applying ${applyLabel}...`, async () => {
           if (!pendingOptionPaths.length) {
