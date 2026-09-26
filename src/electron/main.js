@@ -638,6 +638,7 @@ ipcMain.handle("launcher:validateUiPackageOptionComments", async (_event, packag
 ipcMain.handle("launcher:checkUiPackageMetadata", async (_event, packageName) => backend.checkUiPackageMetadata(packageName));
 ipcMain.handle("launcher:getUiPackageDetails", async (_event, packageName) => backend.getUiPackageDetails(packageName));
 ipcMain.handle("launcher:activateUiOption", async (_event, options) => backend.activateUiOption(options || {}));
+ipcMain.handle("launcher:activateUiOptions", async (_event, options) => backend.activateUiOptions(options || {}));
 ipcMain.handle("launcher:setUiSkinTargets", async (_event, options) => backend.setUiSkinTargets(options || {}));
 ipcMain.handle("launcher:resetUiPackage", async (_event, packageName) => backend.resetUiPackage(packageName));
 ipcMain.handle("launcher:listUiManagerBackups", async (_event, packageName) => backend.listUiManagerBackups(packageName));

@@ -527,14 +527,31 @@ function createUiManagerDetailResponse() {
   };
 }
 
+function findFakeDescendant(node, predicate) {
+  for (const child of node?.children || []) {
+    if (!child || typeof child !== "object") {
+      continue;
+    }
+    if (predicate(child)) {
+      return child;
+    }
+    const found = findFakeDescendant(child, predicate);
+    if (found) {
+      return found;
+    }
+  }
+  return null;
+}
+
 function getUiManagerOptionCard(harness, optionPath) {
-  return harness.elements.uiManagerOptionList.children.find(
-    (child) => child && typeof child === "object" && child.dataset?.optionPath === optionPath
-  ) || null;
+  return findFakeDescendant(
+    harness.elements.uiManagerOptionList,
+    (child) => child.tagName === "ARTICLE" && child.dataset?.optionPath === optionPath
+  );
 }
 
 function getUiManagerOptionToggle(card) {
-  return card?.children?.[0]?.children?.[2]?.children?.[0] || null;
+  return findFakeDescendant(card, (child) => child.dataset?.optionToggle === "true");
 }
 
 async function flushAsyncWork(turns = 6) {
@@ -569,6 +586,8 @@ async function createRendererHarness(options = {}) {
     checkUiPackageMetadata: [],
     validateUiPackageOptionComments: [],
     activateUiOption: [],
+    activateUiOptions: [],
+    getPathForFile: [],
     setUiSkinTargets: [],
     resetUiPackage: [],
     restoreUiManagerBackup: [],
@@ -843,6 +862,20 @@ async function createRendererHarness(options = {}) {
         details: uiManagerDetail
       };
     },
+    ...(options.supportsBatchActivate
+      ? {
+        async activateUiOptions(requestOptions) {
+          calls.activateUiOptions.push(requestOptions);
+          return {
+            details: uiManagerDetail
+          };
+        }
+      }
+      : {}),
+    getPathForFile(file) {
+      calls.getPathForFile.push(file);
+      return file?.resolvedPath || "";
+    },
     async setUiSkinTargets(requestOptions) {
       calls.setUiSkinTargets.push(requestOptions);
       return {
@@ -851,6 +884,9 @@ async function createRendererHarness(options = {}) {
     },
     async resetUiPackage(packageName) {
       calls.resetUiPackage.push(packageName);
+      if (options.uiManagerDetailAfterReset) {
+        uiManagerDetail = options.uiManagerDetailAfterReset;
+      }
       return {
         details: uiManagerDetail
       };
@@ -2570,7 +2606,7 @@ test("recovery view shows backup retention summary and per-backup storage metada
   assert.match(collectTextContent(harness.elements.uiManagerBackupList), /INI-only/);
 });
 
-test("an unprepared package stays blocked from Stage 3 until prepared from Stage 2", async () => {
+test("an unprepared package shows no loadout until it is prepared", async () => {
   const harness = await createRendererHarness({
     gameDirectory: "C:\\EQ",
     uiManagerOverview: {
@@ -2596,8 +2632,6 @@ test("an unprepared package stays blocked from Stage 3 until prepared from Stage
   await flushAsyncWork();
   await harness.elements.openUiManagerButton.dispatch("click");
   await flushAsyncWork();
-  await harness.elements.uiManagerStagePackagesButton.dispatch("click");
-  await flushAsyncWork();
   await harness.elements.uiManagerPackageList.dispatch("click", {
     target: {
       closest(selector) {
@@ -2607,7 +2641,9 @@ test("an unprepared package stays blocked from Stage 3 until prepared from Stage
   });
   await flushAsyncWork();
 
-  assert.equal(harness.document.getElementById("uiManagerStageComponentsButton").getAttribute("aria-disabled"), "true");
+  assert.equal(harness.elements.uiManagerOptionList.children.length, 0);
+  assert.match(collectTextContent(harness.document.getElementById("uiManagerPackageDetail")), /hasn't been prepared/);
+  assert.equal(harness.elements.uiManagerResetButton.disabled, true);
 
   const prepareButton = {
     dataset: {
@@ -2627,29 +2663,22 @@ test("an unprepared package stays blocked from Stage 3 until prepared from Stage
   assert.deepEqual(harness.calls.prepareUiPackage, ["FancyUI"]);
 });
 
-test("opening Stage 2 automatically runs the UI Meta Data health check for prepared custom packages", async () => {
+test("opening the workshop automatically runs the UI Meta Data health check for prepared custom packages", async () => {
   const harness = await createRendererHarness({
     gameDirectory: "C:\\EQ"
   });
 
   await harness.elements.uiManagerTabButton.dispatch("click");
   await flushAsyncWork();
+  assert.deepEqual(harness.calls.checkUiPackageMetadata, []);
+
   await harness.elements.openUiManagerButton.dispatch("click");
-  await flushAsyncWork();
-  harness.elements.uiManagerStagePackagesButton.dataset.uiManagerStage = "packages";
-  await harness.elements.uiManagerStageTabs.dispatch("click", {
-    target: {
-      closest(selector) {
-        return selector === "button[data-ui-manager-stage]" ? harness.elements.uiManagerStagePackagesButton : null;
-      }
-    }
-  });
   await flushAsyncWork();
 
   assert.deepEqual(harness.calls.checkUiPackageMetadata, ["FancyUI"]);
 });
 
-test("Stage 2 package cards use a tooltip on the health check instead of a visible UI Meta Data label", async () => {
+test("library rows keep the UI Meta Data wording in the health tooltip, not the visible row", async () => {
   const harness = await createRendererHarness({
     gameDirectory: "C:\\EQ"
   });
@@ -2658,17 +2687,14 @@ test("Stage 2 package cards use a tooltip on the health check instead of a visib
   await flushAsyncWork();
   await harness.elements.openUiManagerButton.dispatch("click");
   await flushAsyncWork();
-  await harness.elements.uiManagerStagePackagesButton.dispatch("click");
-  await flushAsyncWork();
 
-  const firstPackageCard = harness.elements.uiManagerPackageList.children[0];
-  const healthRow = firstPackageCard.children[1];
-  const healthCopy = healthRow.children[0];
-  const healthCheck = healthRow.children[1];
+  const firstPackageRow = harness.elements.uiManagerPackageList.children[0];
+  const rowCopy = findFakeDescendant(firstPackageRow, (child) => child.className === "uim-package-copy");
+  const healthMark = findFakeDescendant(firstPackageRow, (child) => String(child.className).startsWith("uim-health "));
 
-  assert.doesNotMatch(collectTextContent(healthCopy), /UI Meta Data/);
-  assert.match(collectTextContent(healthCopy), /checked|Healthy|Pending|Checking/i);
-  assert.match(healthCheck.getAttribute("title") || "", /UI Meta Data health/i);
+  assert.doesNotMatch(collectTextContent(rowCopy), /UI Meta Data/);
+  assert.match(collectTextContent(healthMark), /checked|Healthy|Pending|Checking/i);
+  assert.match(healthMark.getAttribute("title") || "", /UI Meta Data health/i);
 });
 
 test("confirming Apply Option sends the selected package, option, and targets to the backend", async () => {
@@ -3132,4 +3158,291 @@ test("validating UI Meta Data routes through the backend package action", async 
 
   assert.deepEqual(harness.calls.validateUiPackageOptionComments, ["FancyUI"]);
   assert.match(harness.elements.uiManagerNotice.textContent, /Validated UI Meta Data for 2 option XML file\(s\); corrected 1\./);
+});
+
+async function openUiManagerWorkshop(harness) {
+  await harness.elements.uiManagerTabButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.openUiManagerButton.dispatch("click");
+  await flushAsyncWork();
+}
+
+async function stageUiManagerOption(harness, optionPath, checked = true) {
+  const toggle = getUiManagerOptionToggle(getUiManagerOptionCard(harness, optionPath));
+  toggle.checked = checked;
+  toggle.closest = (selector) => selector === "input[data-option-toggle='true']" ? toggle : null;
+  await harness.elements.uiManagerOptionList.dispatch("change", { target: toggle });
+  await flushAsyncWork();
+}
+
+function createDefaultUiPackageOverview(targets) {
+  return {
+    ...createUiManagerOverviewResponse(),
+    packages: [
+      {
+        name: "FancyUI",
+        path: "C:\\EQ\\uifiles\\FancyUI",
+        protected: false,
+        prepared: true,
+        optionCount: 2,
+        rootXmlCount: 3
+      },
+      {
+        name: "default",
+        path: "C:\\EQ\\uifiles\\default",
+        protected: true,
+        prepared: false,
+        optionCount: 0,
+        rootXmlCount: 200
+      }
+    ],
+    targets
+  };
+}
+
+test("characters can be assigned back to the protected stock interface", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    uiManagerOverview: createDefaultUiPackageOverview([
+      {
+        path: "C:\\EQ\\UI_Test_CW.ini",
+        fileName: "UI_Test_CW.ini",
+        characterName: "Test",
+        serverName: "CW",
+        uiSkin: "FancyUI"
+      }
+    ])
+  });
+
+  await openUiManagerWorkshop(harness);
+  const defaultRow = harness.elements.uiManagerPackageList.children[1];
+  await harness.elements.uiManagerPackageList.dispatch("click", {
+    target: {
+      closest(selector) {
+        return selector === "button[data-package-name]" ? defaultRow : null;
+      }
+    }
+  });
+  await flushAsyncWork();
+
+  assert.equal(harness.elements.uiManagerApplyOptionButton.disabled, true);
+
+  const targetInput = harness.elements.uiManagerTargetList.children[0].children[0];
+  targetInput.checked = true;
+  await harness.elements.uiManagerTargetList.dispatch("change", { target: targetInput });
+  await flushAsyncWork();
+
+  assert.equal(harness.elements.uiManagerApplyOptionButton.disabled, false);
+  await harness.elements.uiManagerApplyOptionButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.uiManagerConfirmAcceptButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(
+    JSON.stringify(harness.calls.setUiSkinTargets),
+    JSON.stringify([{ packageName: "default", iniPaths: ["C:\\EQ\\UI_Test_CW.ini"] }])
+  );
+});
+
+test("characters already on the selected interface stay selected", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    uiManagerOverview: {
+      ...createUiManagerOverviewResponse(),
+      targets: [
+        {
+          path: "C:\\EQ\\UI_Test_CW.ini",
+          fileName: "UI_Test_CW.ini",
+          characterName: "Test",
+          serverName: "CW",
+          uiSkin: "FancyUI"
+        }
+      ]
+    }
+  });
+
+  await openUiManagerWorkshop(harness);
+  const targetInput = harness.elements.uiManagerTargetList.children[0].children[0];
+  assert.equal(targetInput.checked, true);
+  assert.equal(targetInput.disabled, true);
+
+  targetInput.checked = false;
+  await harness.elements.uiManagerTargetList.dispatch("change", { target: targetInput });
+  await flushAsyncWork();
+  await harness.document.getElementById("uiManagerClearTargetsButton").dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.elements.uiManagerTargetList.children[0].children[0].checked, true);
+  assert.equal(harness.elements.uiManagerApplyOptionButton.disabled, true);
+});
+
+test("un-equipping a queued style returns its slot to the style on disk", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ"
+  });
+
+  await openUiManagerWorkshop(harness);
+  await stageUiManagerOption(harness, "Options/Alt/Red", true);
+  assert.equal(harness.elements.uiManagerApplyOptionButton.disabled, false);
+
+  await stageUiManagerOption(harness, "Options/Alt/Red", false);
+  assert.equal(harness.elements.uiManagerApplyOptionButton.disabled, true);
+  assert.equal(getUiManagerOptionToggle(getUiManagerOptionCard(harness, "Options/Alt/Blue")).checked, true);
+
+  // Un-equipping the style already on disk cannot leave the slot empty.
+  await stageUiManagerOption(harness, "Options/Alt/Blue", false);
+  assert.equal(harness.elements.uiManagerApplyOptionButton.disabled, true);
+  assert.equal(getUiManagerOptionToggle(getUiManagerOptionCard(harness, "Options/Alt/Blue")).checked, true);
+});
+
+test("the ledger remove button drops a queued style change", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ"
+  });
+
+  await openUiManagerWorkshop(harness);
+  await stageUiManagerOption(harness, "Options/Alt/Red", true);
+  assert.match(collectTextContent(harness.document.getElementById("uiManagerConfirmationSummary")), /Blue→Red/);
+
+  const revertButton = {
+    dataset: { ledgerRevert: "component", ledgerValue: "Options/Alt/Red" },
+    closest(selector) {
+      return selector === "button[data-ledger-revert]" ? this : null;
+    }
+  };
+  await harness.document.getElementById("uiManagerConfirmationSummary").dispatch("click", { target: revertButton });
+  await flushAsyncWork();
+
+  assert.doesNotMatch(collectTextContent(harness.document.getElementById("uiManagerConfirmationSummary")), /→/);
+  assert.equal(harness.elements.uiManagerApplyOptionButton.disabled, true);
+});
+
+test("a reset does not leave phantom pending changes in the ledger", async () => {
+  const resetDetail = createUiManagerDetailResponse();
+  resetDetail.bundles = resetDetail.bundles.map((bundle) => ({
+    ...bundle,
+    activeState: bundle.optionPath === "Options/Alt/Red" ? "active" : "inactive"
+  }));
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    uiManagerDetailAfterReset: resetDetail
+  });
+
+  await openUiManagerWorkshop(harness);
+  await harness.elements.uiManagerResetButton.dispatch("click");
+  await flushAsyncWork();
+  await harness.elements.uiManagerConfirmAcceptButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.resetUiPackage, ["FancyUI"]);
+  assert.equal(harness.elements.uiManagerApplyOptionButton.disabled, true);
+  assert.doesNotMatch(collectTextContent(harness.document.getElementById("uiManagerConfirmationSummary")), /→/);
+});
+
+test("several queued styles apply as one batch when the backend supports it", async () => {
+  const detail = createUiManagerDetailResponse();
+  detail.bundles = [
+    ...detail.bundles,
+    {
+      optionPath: "Options/Target/Dragon",
+      label: "Dragon",
+      categoryPath: "Target",
+      isDefault: false,
+      xmlFiles: ["EQUI_TargetWindow.xml"],
+      tgaFiles: [],
+      previewImageUrl: "",
+      instructions: "",
+      activeState: "active"
+    },
+    {
+      optionPath: "Options/Target/Classic",
+      label: "Classic",
+      categoryPath: "Target",
+      isDefault: false,
+      xmlFiles: ["EQUI_TargetWindow.xml"],
+      tgaFiles: [],
+      previewImageUrl: "",
+      instructions: "",
+      activeState: "inactive"
+    }
+  ];
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ",
+    supportsBatchActivate: true,
+    uiManagerDetail: detail
+  });
+
+  await openUiManagerWorkshop(harness);
+  await stageUiManagerOption(harness, "Options/Alt/Red", true);
+  await stageUiManagerOption(harness, "Options/Target/Classic", true);
+  await harness.elements.uiManagerApplyOptionButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.match(harness.document.getElementById("uiManagerConfirmMessage").textContent, /Apply 2 component changes/);
+  assert.equal(harness.document.getElementById("uiManagerConfirmDetail").children.length, 2);
+
+  await harness.elements.uiManagerConfirmAcceptButton.dispatch("click");
+  await flushAsyncWork();
+
+  assert.equal(harness.calls.activateUiOption.length, 0);
+  assert.equal(harness.calls.activateUiOptions.length, 1);
+  assert.deepEqual(
+    Array.from(harness.calls.activateUiOptions[0].optionPaths).sort(),
+    ["Options/Alt/Red", "Options/Target/Classic"]
+  );
+});
+
+test("dropping a folder imports it through the webUtils path bridge", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ"
+  });
+
+  await openUiManagerWorkshop(harness);
+  const droppedFolder = { name: "NewUI", resolvedPath: "C:\\Downloads\\NewUI" };
+  await harness.document.getElementById("uiManagerDropZone").dispatch("drop", {
+    preventDefault() {}
+  });
+  await flushAsyncWork();
+  assert.deepEqual(harness.calls.importUiPackageFolder, []);
+
+  const dropListeners = harness.document.getElementById("uiManagerDropZone").listeners.get("drop");
+  for (const listener of dropListeners) {
+    await listener({
+      preventDefault() {},
+      dataTransfer: { files: [droppedFolder] }
+    });
+  }
+  await flushAsyncWork();
+
+  assert.deepEqual(harness.calls.getPathForFile, [droppedFolder]);
+  assert.deepEqual(harness.calls.importUiPackageFolder, ["C:\\Downloads\\NewUI"]);
+});
+
+test("re-rendering the workshop keeps scrolled lists in place", async () => {
+  const harness = await createRendererHarness({
+    gameDirectory: "C:\\EQ"
+  });
+
+  await openUiManagerWorkshop(harness);
+  // Like a real browser, emptying a list collapses it and snaps its scroll back to the top.
+  for (const list of [harness.elements.uiManagerTargetList, harness.elements.uiManagerOptionList]) {
+    Object.defineProperty(list, "innerHTML", {
+      configurable: true,
+      get() {
+        return "";
+      },
+      set() {
+        this.scrollTop = 0;
+      }
+    });
+  }
+  harness.elements.uiManagerTargetList.scrollTop = 240;
+  harness.elements.uiManagerOptionList.scrollTop = 180;
+
+  const searchInput = harness.document.getElementById("uiManagerTargetSearchInput");
+  await searchInput.dispatch("input", { target: { value: "" } });
+  await flushAsyncWork();
+
+  assert.equal(harness.elements.uiManagerTargetList.scrollTop, 240);
+  assert.equal(harness.elements.uiManagerOptionList.scrollTop, 180);
 });

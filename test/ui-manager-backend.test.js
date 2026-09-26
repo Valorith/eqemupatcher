@@ -386,3 +386,105 @@ test("resetUiPackage flattens nested Options/Default files back into the package
   assert.equal(await fs.stat(path.join(packagePath, "Inventory")).then(() => true).catch(() => false), false);
   assert.equal(await fs.stat(path.join(packagePath, "Textures")).then(() => true).catch(() => false), false);
 });
+
+test("activateUiOptions applies several bundles under a single backup", async (t) => {
+  const { backend, gameDirectory } = await createHarness(t);
+  const packagePath = path.join(gameDirectory, "uifiles", "FancyUI");
+  const iniPath = await seedUiIni(gameDirectory, "UI_Test_CW.ini", "Default");
+
+  await writeFile(path.join(packagePath, "EQUI_Inventory.xml"), createXml("default-inventory", "<!-- Options/Default -->"));
+  await writeFile(path.join(packagePath, "EQUI_TargetWindow.xml"), createXml("default-target", "<!-- Options/Default -->"));
+  await writeFile(path.join(packagePath, "Options", "Default", "EQUI_Inventory.xml"), createXml("default-inventory", "<!-- Options/Default -->"));
+  await writeFile(path.join(packagePath, "Options", "Default", "EQUI_TargetWindow.xml"), createXml("default-target", "<!-- Options/Default -->"));
+  await writeFile(path.join(packagePath, "Options", "Inventory", "Wide", "EQUI_Inventory.xml"), createXml("wide", "<!-- Options/Inventory/Wide -->"));
+  await writeFile(path.join(packagePath, "Options", "Target", "Dragon", "EQUI_TargetWindow.xml"), createXml("dragon", "<!-- Options/Target/Dragon -->"));
+  await writeFile(path.join(packagePath, "Options", "Target", "Dragon", "dragon.tga"), "dragon-art");
+
+  const result = await backend.activateUiOptions({
+    packageName: "FancyUI",
+    optionPaths: ["Options/Inventory/Wide", "Options/Target/Dragon"],
+    iniPaths: [iniPath]
+  });
+
+  assert.match(await readFile(path.join(packagePath, "EQUI_Inventory.xml")), /wide/);
+  assert.match(await readFile(path.join(packagePath, "EQUI_TargetWindow.xml")), /dragon/);
+  assert.equal(await readFile(path.join(packagePath, "dragon.tga")), "dragon-art");
+  assert.match(await readFile(iniPath), /UISkin=FancyUI/);
+
+  const backups = await backend.listUiManagerBackups("FancyUI");
+  assert.equal(backups.length, 1);
+  assert.equal(backups[0].reason, "activate");
+  assert.equal(result.details.bundles.find((bundle) => bundle.optionPath === "Options/Target/Dragon").activeState, "active");
+});
+
+test("activateUiOptions validates every option before writing anything", async (t) => {
+  const { backend, gameDirectory } = await createHarness(t);
+  const packagePath = path.join(gameDirectory, "uifiles", "FancyUI");
+
+  await writeFile(path.join(packagePath, "EQUI_Inventory.xml"), createXml("default-inventory", "<!-- Options/Default -->"));
+  await writeFile(path.join(packagePath, "Options", "Default", "EQUI_Inventory.xml"), createXml("default-inventory", "<!-- Options/Default -->"));
+  await writeFile(path.join(packagePath, "Options", "Inventory", "Wide", "EQUI_Inventory.xml"), createXml("wide", "<!-- Options/Inventory/Wide -->"));
+
+  await assert.rejects(
+    backend.activateUiOptions({
+      packageName: "FancyUI",
+      optionPaths: ["Options/Inventory/Wide", "Options/Missing/Style"]
+    }),
+    /UI option not found/
+  );
+
+  assert.match(await readFile(path.join(packagePath, "EQUI_Inventory.xml")), /default-inventory/);
+  assert.deepEqual(await backend.listUiManagerBackups("FancyUI"), []);
+});
+
+test("activateUiOption refuses option paths that escape the Options folder", async (t) => {
+  const { backend, gameDirectory } = await createHarness(t);
+  const packagePath = path.join(gameDirectory, "uifiles", "FancyUI");
+
+  await writeFile(path.join(packagePath, "EQUI_Inventory.xml"), createXml("default-inventory", "<!-- Options/Default -->"));
+  await writeFile(path.join(packagePath, "Options", "Default", "EQUI_Inventory.xml"), createXml("default-inventory", "<!-- Options/Default -->"));
+  await writeFile(path.join(gameDirectory, "uifiles", "OtherUI", "EQUI_Inventory.xml"), createXml("other"));
+
+  await assert.rejects(
+    backend.activateUiOption({ packageName: "FancyUI", optionPath: "Options/../../OtherUI" }),
+    /outside Options/
+  );
+  assert.match(await readFile(path.join(packagePath, "EQUI_Inventory.xml")), /default-inventory/);
+});
+
+test("restoreUiManagerBackup rejects backup ids that point outside the backup folder", async (t) => {
+  const { backend, gameDirectory } = await createHarness(t);
+  const packagePath = path.join(gameDirectory, "uifiles", "FancyUI");
+  await writeFile(path.join(packagePath, "EQUI_Inventory.xml"), createXml("current"));
+
+  for (const backupId of ["../OtherUI/some-backup", "..", "nested/backup", ""]) {
+    await assert.rejects(
+      backend.restoreUiManagerBackup({ packageName: "FancyUI", backupId }),
+      /could not be found/
+    );
+  }
+  assert.match(await readFile(path.join(packagePath, "EQUI_Inventory.xml")), /current/);
+});
+
+test("restoreUiManagerBackup saves the current state first, even when restoring the oldest kept backup", async (t) => {
+  const { backend, gameDirectory } = await createHarness(t);
+  const packagePath = path.join(gameDirectory, "uifiles", "FancyUI");
+  await writeFile(path.join(packagePath, "EQUI_Inventory.xml"), createXml("oldest"));
+
+  const oldest = await backend.uiManager.createBackup("FancyUI", { reason: "oldest" });
+  for (let index = 1; index < MAX_UI_MANAGER_BACKUPS_PER_PACKAGE; index += 1) {
+    await backend.uiManager.createBackup("FancyUI", { reason: `filler-${index}` });
+  }
+  await writeFile(path.join(packagePath, "EQUI_Inventory.xml"), createXml("current-work"));
+
+  await backend.restoreUiManagerBackup({ packageName: "FancyUI", backupId: oldest.id });
+
+  assert.match(await readFile(path.join(packagePath, "EQUI_Inventory.xml")), /oldest/);
+  const backups = await backend.listUiManagerBackups("FancyUI");
+  assert.equal(backups.length, MAX_UI_MANAGER_BACKUPS_PER_PACKAGE);
+  const safetyBackup = backups.find((backup) => backup.reason === "restore");
+  assert.ok(safetyBackup, "expected a restore safety backup");
+
+  await backend.restoreUiManagerBackup({ packageName: "FancyUI", backupId: safetyBackup.id });
+  assert.match(await readFile(path.join(packagePath, "EQUI_Inventory.xml")), /current-work/);
+});

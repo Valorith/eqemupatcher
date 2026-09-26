@@ -1,4 +1,4 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webUtils } = require("electron");
 
 contextBridge.exposeInMainWorld("launcher", {
   initialize: () => ipcRenderer.invoke("launcher:initialize"),
@@ -18,10 +18,19 @@ contextBridge.exposeInMainWorld("launcher", {
   checkUiPackageMetadata: (packageName) => ipcRenderer.invoke("launcher:checkUiPackageMetadata", packageName),
   getUiPackageDetails: (packageName) => ipcRenderer.invoke("launcher:getUiPackageDetails", packageName),
   activateUiOption: (options) => ipcRenderer.invoke("launcher:activateUiOption", options),
+  activateUiOptions: (options) => ipcRenderer.invoke("launcher:activateUiOptions", options),
   setUiSkinTargets: (options) => ipcRenderer.invoke("launcher:setUiSkinTargets", options),
   resetUiPackage: (packageName) => ipcRenderer.invoke("launcher:resetUiPackage", packageName),
   listUiManagerBackups: (packageName) => ipcRenderer.invoke("launcher:listUiManagerBackups", packageName),
   restoreUiManagerBackup: (options) => ipcRenderer.invoke("launcher:restoreUiManagerBackup", options),
+  // File.path was removed in Electron 32; dropped folders resolve through webUtils instead.
+  getPathForFile: (file) => {
+    try {
+      return webUtils.getPathForFile(file) || "";
+    } catch (_error) {
+      return "";
+    }
+  },
   startPatch: () => ipcRenderer.invoke("launcher:startPatch"),
   cancelPatch: () => ipcRenderer.invoke("launcher:cancelPatch"),
   launchGame: () => ipcRenderer.invoke("launcher:launchGame"),

@@ -2873,6 +2873,11 @@ class LauncherBackend {
     return this.uiManager.activateUiOption(options);
   }
 
+  async activateUiOptions(options = {}) {
+    this.throwIfUiManagerActionLocked();
+    return this.uiManager.activateUiOptions(options);
+  }
+
   async setUiSkinTargets(options = {}) {
     this.throwIfUiManagerActionLocked();
     return this.uiManager.setUiSkinTargets(options);

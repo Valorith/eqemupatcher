@@ -40,19 +40,16 @@ const state = {
     packageMetadataHealth: {},
     packageMetadataHealthRunning: false,
     packageMetadataHealthRunId: 0,
-    activeStage: "targets",
     selectedPackageName: "",
     selectedOptionPath: "",
     selectedOptionPaths: [],
     selectedTargetPaths: [],
-    packageDetailTab: "overview",
     packageContextMenuOpen: false,
     packageContextMenuX: 0,
     packageContextMenuY: 0,
     packageContextPackageName: "",
     targetSearchQuery: "",
     targetServerFilter: "",
-    targetPickerOpen: false,
     noticeText: "",
     noticeTone: "info",
     optionSearchQuery: "",
@@ -236,27 +233,18 @@ const elements = {
   uiManagerPackageList: document.getElementById("uiManagerPackageList"),
   uiManagerPackageMeta: document.getElementById("uiManagerPackageMeta"),
   uiManagerPackageDetail: document.getElementById("uiManagerPackageDetail"),
-  uiManagerStageTabs: document.getElementById("uiManagerStageTabs"),
-  uiManagerStageTargetsButton: document.getElementById("uiManagerStageTargetsButton"),
-  uiManagerStagePackagesButton: document.getElementById("uiManagerStagePackagesButton"),
-  uiManagerStageComponentsButton: document.getElementById("uiManagerStageComponentsButton"),
-  uiManagerStageConfirmButton: document.getElementById("uiManagerStageConfirmButton"),
-  uiManagerTargetsStage: document.getElementById("uiManagerTargetsStage"),
-  uiManagerPackagesStage: document.getElementById("uiManagerPackagesStage"),
-  uiManagerComponentsStage: document.getElementById("uiManagerComponentsStage"),
-  uiManagerConfirmStage: document.getElementById("uiManagerConfirmStage"),
+  uiManagerHeaderMeta: document.getElementById("uiManagerHeaderMeta"),
+  uiManagerLoadoutTools: document.getElementById("uiManagerLoadoutTools"),
+  uiManagerPackageName: document.getElementById("uiManagerPackageName"),
+  uiManagerPackagePath: document.getElementById("uiManagerPackagePath"),
+  uiManagerValidateButton: document.getElementById("uiManagerValidateButton"),
+  uiManagerLedgerCount: document.getElementById("uiManagerLedgerCount"),
+  uiManagerApplyLabel: document.getElementById("uiManagerApplyLabel"),
   uiManagerTargetMeta: document.getElementById("uiManagerTargetMeta"),
   uiManagerTargetServerFilter: document.getElementById("uiManagerTargetServerFilter"),
-  uiManagerTargetPickerButton: document.getElementById("uiManagerTargetPickerButton"),
-  uiManagerTargetPickerSummary: document.getElementById("uiManagerTargetPickerSummary"),
-  uiManagerTargetPickerPanel: document.getElementById("uiManagerTargetPickerPanel"),
   uiManagerTargetSearchInput: document.getElementById("uiManagerTargetSearchInput"),
-  uiManagerAllTargetsCheckbox: document.getElementById("uiManagerAllTargetsCheckbox"),
   uiManagerTargetList: document.getElementById("uiManagerTargetList"),
-  uiManagerTargetSelectionSummary: document.getElementById("uiManagerTargetSelectionSummary"),
   uiManagerOptionMeta: document.getElementById("uiManagerOptionMeta"),
-  uiManagerOptionPrevButton: document.getElementById("uiManagerOptionPrevButton"),
-  uiManagerOptionNextButton: document.getElementById("uiManagerOptionNextButton"),
   uiManagerOptionSearchInput: document.getElementById("uiManagerOptionSearchInput"),
   uiManagerOptionList: document.getElementById("uiManagerOptionList"),
   uiManagerPreviewPanel: document.getElementById("uiManagerPreviewPanel"),
@@ -269,8 +257,6 @@ const elements = {
   uiManagerRecoveryMeta: document.getElementById("uiManagerRecoveryMeta"),
   uiManagerRecoveryStats: document.getElementById("uiManagerRecoveryStats"),
   uiManagerActionMeta: document.getElementById("uiManagerActionMeta"),
-  uiManagerPreviousStageButton: document.getElementById("uiManagerPreviousStageButton"),
-  uiManagerNextStageButton: document.getElementById("uiManagerNextStageButton"),
   uiManagerApplyOptionButton: document.getElementById("uiManagerApplyOptionButton"),
   uiManagerResetButton: document.getElementById("uiManagerResetButton"),
   uiManagerSelectAllTargetsButton: document.getElementById("uiManagerSelectAllTargetsButton"),
@@ -278,7 +264,9 @@ const elements = {
   uiManagerConfirmModal: document.getElementById("uiManagerConfirmModal"),
   uiManagerConfirmBackdrop: document.getElementById("uiManagerConfirmBackdrop"),
   uiManagerConfirmCloseButton: document.getElementById("uiManagerConfirmCloseButton"),
+  uiManagerConfirmTitle: document.getElementById("uiManagerConfirmTitle"),
   uiManagerConfirmMessage: document.getElementById("uiManagerConfirmMessage"),
+  uiManagerConfirmDetail: document.getElementById("uiManagerConfirmDetail"),
   uiManagerConfirmCancelButton: document.getElementById("uiManagerConfirmCancelButton"),
   uiManagerConfirmAcceptButton: document.getElementById("uiManagerConfirmAcceptButton")
 };
@@ -480,103 +468,74 @@ function renderPatcherVersion(version) {
   const normalized = String(version || "").trim() || "0.0.0";
   elements.patcherVersionValue.textContent = `Patcher v${normalized}`;
 }
-function applyHorizontalWheelDelta(rail, delta) {
-  if (!rail || !delta || rail.scrollWidth <= rail.clientWidth) {
-    return false;
+function createUiManagerElement(tagName, className = "", text = "") {
+  const element = document.createElement(tagName);
+  if (className) {
+    element.className = className;
   }
-
-  const scrollAmount = Math.sign(delta) * Math.min(Math.max(Math.abs(delta), 72), 220);
-  rail.scrollLeft += scrollAmount;
-  return true;
-}
-function scrollUiManagerRail(element, direction = 1, stepMultiplier = 0.82) {
-  if (!element) {
-    return;
+  if (text) {
+    element.textContent = text;
   }
-
-  const viewportWidth = typeof element.clientWidth === "number" && element.clientWidth > 0
-    ? element.clientWidth
-    : 320;
-  const scrollAmount = Math.max(180, Math.round(viewportWidth * stepMultiplier)) * direction;
-
-  if (typeof element.scrollBy === "function") {
-    element.scrollBy({ left: scrollAmount, behavior: "smooth" });
-    return;
-  }
-
-  element.scrollLeft += scrollAmount;
-}
-function handleHorizontalWheelEvent(rail, event, delta) {
-  if (!rail || event.ctrlKey) {
-    return false;
-  }
-
-  if (!applyHorizontalWheelDelta(rail, delta)) {
-    return false;
-  }
-
-  event.preventDefault();
-  return true;
-}
-function bindHorizontalWheelScroll(element) {
-  if (!element) {
-    return;
-  }
-
-  if (element.dataset.horizontalWheelBound !== "true") {
-    element.dataset.horizontalWheelBound = "true";
-    element.addEventListener("wheel", (event) => {
-      if (event.target && typeof event.target.closest === "function" && event.target.closest("input[type='search'], input[type='text'], textarea")) {
-        return;
-      }
-
-      const primaryDelta = Math.abs(event.deltaY) > Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
-      handleHorizontalWheelEvent(element, event, primaryDelta);
-    }, { passive: false });
-    element.addEventListener("mousewheel", (event) => {
-      if (event.target && typeof event.target.closest === "function" && event.target.closest("input[type='search'], input[type='text'], textarea")) {
-        return;
-      }
-
-      const legacyDelta = typeof event.wheelDelta === "number" ? -event.wheelDelta : 0;
-      handleHorizontalWheelEvent(element, event, legacyDelta);
-    }, { passive: false });
-  }
-}
-function createUiManagerPill(label, tone = "") {
-  const pill = document.createElement("span");
-  pill.className = "ui-manager-pill";
-  pill.textContent = label;
-  if (tone) {
-    pill.dataset.tone = tone;
-  }
-  return pill;
+  return element;
 }
 function createUiManagerEmptyState(title, copy) {
-  const empty = document.createElement("div");
-  empty.className = "ui-manager-empty-state";
-
-  const heading = document.createElement("p");
-  heading.className = "ui-manager-empty-title";
-  heading.textContent = title;
-  empty.appendChild(heading);
-
-  const body = document.createElement("p");
-  body.className = "ui-manager-package-subcopy";
-  body.textContent = copy;
-  empty.appendChild(body);
+  const empty = createUiManagerElement("div", "uim-empty");
+  empty.appendChild(createUiManagerElement("p", "uim-empty-title", title));
+  if (copy) {
+    empty.appendChild(createUiManagerElement("p", "uim-empty-copy", copy));
+  }
   return empty;
 }
-const UI_MANAGER_STAGES = ["targets", "packages", "components", "confirm"];
-function setUiManagerActiveStage(stageName) {
-  const supportedStages = new Set(UI_MANAGER_STAGES);
-  state.uiManager.activeStage = supportedStages.has(stageName) ? stageName : "targets";
+function getUiManagerFocusKey(element) {
+  const data = element?.dataset || {};
+  if (data.optionToggle) {
+    return `toggle:${data.optionPath}`;
+  }
+  return data.optionPath || data.packageName || data.backupId || data.ledgerValue || element?.value || "";
 }
-function getUiManagerStageIndex(stageName = state.uiManager.activeStage) {
-  return Math.max(0, UI_MANAGER_STAGES.indexOf(stageName));
+function renderUiManagerRegion(element, render) {
+  // Every state push re-renders the workshop, so keep scroll lists (and keyboard
+  // focus) where the user left them.
+  const scrollTop = Number(element?.scrollTop) || 0;
+  const active = document.activeElement;
+  const focusKey = active && active !== element && typeof element?.contains === "function" && element.contains(active)
+    ? { tagName: active.tagName, key: getUiManagerFocusKey(active) }
+    : null;
+  clearElementContent(element);
+  render();
+  if (scrollTop) {
+    element.scrollTop = scrollTop;
+  }
+  if (focusKey?.key && typeof element.querySelectorAll === "function") {
+    const match = Array.from(element.querySelectorAll(focusKey.tagName)).find((candidate) => getUiManagerFocusKey(candidate) === focusKey.key);
+    match?.focus({ preventScroll: true });
+  }
+}
+function pluralize(count, singular, plural = `${singular}s`) {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+function getUiManagerPackages() {
+  return Array.isArray(state.uiManager.overview?.packages) ? state.uiManager.overview.packages : [];
 }
 function getUiManagerTargets() {
   return Array.isArray(state.uiManager.overview?.targets) ? state.uiManager.overview.targets : [];
+}
+function getUiManagerBundles() {
+  const detail = state.uiManager.detail;
+  if (!detail || detail.name !== state.uiManager.selectedPackageName) {
+    return [];
+  }
+  return Array.isArray(detail.bundles) ? detail.bundles : [];
+}
+function isUiManagerSkinMatch(uiSkin, packageName) {
+  return Boolean(packageName) && String(uiSkin || "Default").trim().toLowerCase() === String(packageName).trim().toLowerCase();
+}
+function getUiManagerPackageDisplayName(pkg) {
+  // The stock folder is literally "default"; show it the way players refer to it.
+  return pkg?.protected ? "Default" : pkg?.name || "";
+}
+function getUiManagerPackageUserCount(packageName) {
+  return getUiManagerTargets().filter((target) => isUiManagerSkinMatch(target.uiSkin, packageName)).length;
 }
 function getUiManagerSelectedTargets() {
   return getUiManagerTargets().filter((entry) => state.uiManager.selectedTargetPaths.includes(entry.path));
@@ -584,55 +543,17 @@ function getUiManagerSelectedTargets() {
 function getUiManagerReviewTargets() {
   return areAllUiManagerTargetsSelected() ? getUiManagerTargets() : getUiManagerSelectedTargets();
 }
-function appendUiManagerLabelPills(container, labels, tone = "", maxVisible = 10) {
-  const visibleLabels = labels.slice(0, maxVisible);
-  for (const label of visibleLabels) {
-    container.appendChild(createUiManagerPill(label, tone));
-  }
-
-  const remainder = labels.length - visibleLabels.length;
-  if (remainder > 0) {
-    container.appendChild(createUiManagerPill(`+${remainder} more`, "warning"));
-  }
-}
-function canUiManagerOpenStage(stageName) {
-  const selectedPackage = getUiManagerSelectedPackageSummary();
-  if (stageName === "targets" || stageName === "packages") {
-    return true;
-  }
-
-  if (stageName === "components" || stageName === "confirm") {
-    return Boolean(selectedPackage && (selectedPackage.protected || selectedPackage.prepared));
-  }
-
-  return false;
-}
-function getUiManagerAdjacentStage(step) {
-  const currentIndex = getUiManagerStageIndex();
-  const nextIndex = currentIndex + step;
-  if (nextIndex < 0 || nextIndex >= UI_MANAGER_STAGES.length) {
-    return null;
-  }
-
-  return UI_MANAGER_STAGES[nextIndex];
-}
 function getUiManagerFilteredTargets() {
   const query = String(state.uiManager.targetSearchQuery || "").trim().toLowerCase();
   const serverFilter = String(state.uiManager.targetServerFilter || "").trim().toLowerCase();
-  const targets = getUiManagerTargets();
-  return targets.filter((target) => {
+  return getUiManagerTargets().filter((target) => {
     if (serverFilter && String(target.serverName || "").trim().toLowerCase() !== serverFilter) {
       return false;
     }
     if (!query) {
       return true;
     }
-    const haystack = [
-      target.characterName,
-      target.serverName,
-      target.fileName,
-      target.uiSkin
-    ]
+    const haystack = [target.characterName, target.serverName, target.fileName, target.uiSkin]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
@@ -653,6 +574,12 @@ function areAllUiManagerTargetsSelected() {
   return Boolean(targets.length) && targets.every((target) => state.uiManager.selectedTargetPaths.includes(target.path));
 }
 function toggleUiManagerTargetSelection(targetPath, forceSelected = null) {
+  const target = getUiManagerTargets().find((entry) => entry.path === targetPath);
+  // Characters already on this interface stay selected: there is nothing to un-assign them to.
+  if (target && isUiManagerSkinMatch(target.uiSkin, state.uiManager.selectedPackageName)) {
+    return;
+  }
+
   const alreadySelected = state.uiManager.selectedTargetPaths.includes(targetPath);
   const shouldSelect = forceSelected === null ? !alreadySelected : Boolean(forceSelected);
 
@@ -670,9 +597,13 @@ function openUiManagerModal() {
 }
 function closeUiManagerModal() {
   closeUiManagerPackageContextMenu();
+  renderUiManagerPackageContextMenu();
   closeUiManagerRecoveryModal();
   elements.uiManagerModal.classList.add("hidden");
   elements.uiManagerModal.setAttribute("aria-hidden", "true");
+}
+function isUiManagerModalOpen() {
+  return !elements.uiManagerModal.classList.contains("hidden");
 }
 function openUiManagerRecoveryModal() {
   elements.uiManagerRecoveryModal.classList.remove("hidden");
@@ -738,11 +669,41 @@ function formatLoginServerOptionTarget(role) {
   const option = state.current?.loginServerOptions?.[role] || {};
   return option.host ? `${option.host}:${option.port || 5999}` : "";
 }
-function openUiManagerConfirmModal(message, action) {
+function openUiManagerConfirmModal(message, action, options = {}) {
+  const {
+    title = "Confirm action",
+    detailLines = [],
+    acceptLabel = "Continue",
+    tone = "default"
+  } = options;
   state.uiManagerConfirmationAction = typeof action === "function" ? action : null;
+  if (elements.uiManagerConfirmTitle) {
+    elements.uiManagerConfirmTitle.textContent = title;
+  }
   elements.uiManagerConfirmMessage.textContent = message;
+  if (elements.uiManagerConfirmDetail) {
+    clearElementContent(elements.uiManagerConfirmDetail);
+    for (const line of detailLines) {
+      const item = createUiManagerElement("li", "uim-confirm-line");
+      item.dataset.kind = line.kind || "note";
+      item.appendChild(createUiManagerElement("span", "uim-confirm-line-subject", line.subject || ""));
+      if (line.from || line.to) {
+        const change = createUiManagerElement("span", "uim-confirm-line-change");
+        change.appendChild(createUiManagerElement("s", "uim-from", line.from || "None"));
+        change.appendChild(createUiManagerElement("span", "uim-arrow", "→"));
+        change.appendChild(createUiManagerElement("span", "uim-to", line.to || ""));
+        item.appendChild(change);
+      }
+      elements.uiManagerConfirmDetail.appendChild(item);
+    }
+    elements.uiManagerConfirmDetail.classList.toggle("hidden", !detailLines.length);
+  }
+  elements.uiManagerConfirmAcceptButton.textContent = acceptLabel;
+  elements.uiManagerConfirmAcceptButton.dataset.tone = tone;
+  elements.uiManagerConfirmModal.dataset.tone = tone;
   elements.uiManagerConfirmModal.classList.remove("hidden");
   elements.uiManagerConfirmModal.setAttribute("aria-hidden", "false");
+  elements.uiManagerConfirmAcceptButton.focus?.();
 }
 function closeUiManagerConfirmModal() {
   state.uiManagerConfirmationAction = null;
@@ -778,7 +739,7 @@ function setUiManagerNotice(message, tone = "info", options = {}) {
     state.uiManager.noticeText = "";
     renderUiManagerNotice();
     uiManagerNoticeTimeoutId = null;
-  }, tone === "error" ? 5200 : 2600);
+  }, tone === "error" ? 6400 : 2800);
 }
 function renderUiManagerNotice() {
   if (!state.uiManager.noticeText) {
@@ -792,20 +753,17 @@ function renderUiManagerNotice() {
   elements.uiManagerNotice.textContent = state.uiManager.noticeText;
 }
 function getUiManagerSelectedPackageSummary() {
-  const packages = Array.isArray(state.uiManager.overview?.packages) ? state.uiManager.overview.packages : [];
-  return packages.find((entry) => entry.name === state.uiManager.selectedPackageName) || null;
+  return getUiManagerPackageSummaryByName(state.uiManager.selectedPackageName);
 }
 function getUiManagerPackageSummaryByName(packageName) {
-  const packages = Array.isArray(state.uiManager.overview?.packages) ? state.uiManager.overview.packages : [];
-  return packages.find((entry) => entry.name === packageName) || null;
+  return getUiManagerPackages().find((entry) => entry.name === packageName) || null;
 }
 function resetUiManagerPackageMetadataHealthState() {
-  const packages = Array.isArray(state.uiManager.overview?.packages) ? state.uiManager.overview.packages : [];
   const nextHealth = {};
 
-  for (const pkg of packages) {
+  for (const pkg of getUiManagerPackages()) {
     nextHealth[pkg.name] = {
-      status: pkg.protected ? "read-only" : "pending",
+      status: pkg.protected ? "read-only" : pkg.prepared ? "pending" : "unavailable",
       scannedCount: 0,
       invalidCount: 0
     };
@@ -851,34 +809,24 @@ function getUiManagerPackageMetadataTooltip(health) {
     case "healthy":
       return "UI Meta Data health check passed for this package.";
     case "issues":
-      return "UI Meta Data health check found issues in this package.";
+      return "UI Meta Data health check found issues in this package. Right-click it or use Validate to repair them.";
     case "error":
       return "UI Meta Data health check could not be completed for this package.";
-    case "prepare-first":
+    case "unavailable":
       return "Prepare this package before running a UI Meta Data health check.";
     default:
       return "UI Meta Data health status for this package.";
   }
 }
 function getUiManagerSelectedBundle() {
-  const bundles = Array.isArray(state.uiManager.detail?.bundles) ? state.uiManager.detail.bundles : [];
-  return bundles.find((entry) => entry.optionPath === state.uiManager.selectedOptionPath) || null;
+  return getUiManagerBundles().find((entry) => entry.optionPath === state.uiManager.selectedOptionPath) || null;
 }
 function getUiManagerSelectedBundles() {
-  const bundles = Array.isArray(state.uiManager.detail?.bundles) ? state.uiManager.detail.bundles : [];
   const selectedPaths = new Set(state.uiManager.selectedOptionPaths || []);
-  return bundles.filter((entry) => selectedPaths.has(entry.optionPath));
+  return getUiManagerBundles().filter((entry) => selectedPaths.has(entry.optionPath));
 }
 function getUiManagerActiveBundles() {
-  const bundles = Array.isArray(state.uiManager.detail?.bundles) ? state.uiManager.detail.bundles : [];
-  return bundles.filter((entry) => entry.activeState === "active");
-}
-function createUiManagerBundleGroupMap(bundles) {
-  const index = new Map();
-  for (const bundle of bundles || []) {
-    index.set(getUiManagerBundleGroupKey(bundle), bundle);
-  }
-  return index;
+  return getUiManagerBundles().filter((entry) => entry.activeState === "active");
 }
 function getUiManagerBundleGroupKey(bundle) {
   const xmlFiles = Array.isArray(bundle?.xmlFiles) ? bundle.xmlFiles : [];
@@ -932,19 +880,34 @@ function formatUiManagerBundleVariantLabel(bundle) {
   }
   return title;
 }
-function getUiManagerBundleGroupLabel(bundle) {
+function formatUiManagerWindowName(fileName) {
+  return formatUiManagerHumanLabel(formatUiManagerBundleElementLabel(fileName))
+    .replace(/\bWnd\b/g, "Window")
+    .replace(/\bWindow Window\b/g, "Window");
+}
+function getUiManagerBundleGroupLabel(bundle, groupBundles = null) {
   const xmlFiles = Array.isArray(bundle?.xmlFiles) ? [...bundle.xmlFiles].sort() : [];
   if (!xmlFiles.length) {
     return "Standalone";
   }
 
-  const primaryLabel = formatUiManagerBundleElementLabel(xmlFiles[0]);
-  return xmlFiles.length === 1 ? primaryLabel : `${primaryLabel} +${xmlFiles.length - 1}`;
+  // Package authors name their Options folders ("Options/Spell Gems/Large"), which
+  // reads far better than the XML file name when every style in the slot agrees.
+  const siblings = groupBundles || getUiManagerBundleGroups().get(getUiManagerBundleGroupKey(bundle)) || [bundle];
+  const categories = new Set(siblings.map((entry) => formatUiManagerPrettyPath(entry.categoryPath || "")).filter(Boolean));
+  if (categories.size === 1) {
+    return Array.from(categories)[0];
+  }
+
+  const names = xmlFiles.map((fileName) => formatUiManagerWindowName(fileName));
+  if (names.length === 1) {
+    return names[0];
+  }
+  return names.length === 2 ? `${names[0]} & ${names[1]}` : `${names[0]} +${names.length - 1}`;
 }
 function getUiManagerBundleGroups() {
-  const bundles = Array.isArray(state.uiManager.detail?.bundles) ? state.uiManager.detail.bundles : [];
   const groups = new Map();
-  for (const bundle of bundles) {
+  for (const bundle of getUiManagerBundles()) {
     const key = getUiManagerBundleGroupKey(bundle);
     if (!groups.has(key)) {
       groups.set(key, []);
@@ -953,9 +916,11 @@ function getUiManagerBundleGroups() {
   }
   return groups;
 }
+function getUiManagerBundleVariantName(bundle) {
+  return formatUiManagerBundleVariantLabel(bundle) || formatUiManagerHumanLabel(bundle?.label || bundle?.optionPath || "");
+}
 function setUiManagerSelectedOptionPaths(optionPaths) {
-  const bundles = Array.isArray(state.uiManager.detail?.bundles) ? state.uiManager.detail.bundles : [];
-  const validPaths = new Set(bundles.map((entry) => entry.optionPath));
+  const validPaths = new Set(getUiManagerBundles().map((entry) => entry.optionPath));
   const nextPaths = [];
   for (const optionPath of optionPaths || []) {
     if (!validPaths.has(optionPath) || nextPaths.includes(optionPath)) {
@@ -965,43 +930,54 @@ function setUiManagerSelectedOptionPaths(optionPaths) {
   }
   state.uiManager.selectedOptionPaths = nextPaths;
 }
+function resetUiManagerStagedOptionPaths() {
+  setUiManagerSelectedOptionPaths(getUiManagerActiveBundles().map((bundle) => bundle.optionPath));
+}
 function updateUiManagerStagedOptionPath(optionPath, shouldStage) {
-  const bundles = Array.isArray(state.uiManager.detail?.bundles) ? state.uiManager.detail.bundles : [];
+  const bundles = getUiManagerBundles();
   const bundle = bundles.find((entry) => entry.optionPath === optionPath);
   if (!bundle) {
     return;
   }
 
+  // Each window slot holds exactly one style. Staging swaps within the slot;
+  // un-staging returns the slot to whatever is equipped on disk.
+  const groupKey = getUiManagerBundleGroupKey(bundle);
   const nextPaths = new Set(state.uiManager.selectedOptionPaths || []);
-  if (!shouldStage) {
-    nextPaths.delete(bundle.optionPath);
-    setUiManagerSelectedOptionPaths(Array.from(nextPaths));
-    return;
+  const groupBundles = bundles.filter((entry) => getUiManagerBundleGroupKey(entry) === groupKey);
+  for (const entry of groupBundles) {
+    nextPaths.delete(entry.optionPath);
   }
 
-  const groupKey = getUiManagerBundleGroupKey(bundle);
-  for (const entry of bundles) {
-    if (entry.optionPath === bundle.optionPath) {
-      continue;
-    }
-    if (getUiManagerBundleGroupKey(entry) === groupKey) {
-      nextPaths.delete(entry.optionPath);
+  if (shouldStage) {
+    nextPaths.add(bundle.optionPath);
+  } else {
+    const equipped = groupBundles.find((entry) => entry.activeState === "active");
+    if (equipped) {
+      nextPaths.add(equipped.optionPath);
     }
   }
-  nextPaths.add(bundle.optionPath);
   setUiManagerSelectedOptionPaths(Array.from(nextPaths));
+}
+function getUiManagerPendingSkinTargets() {
+  const selectedPackage = getUiManagerSelectedPackageSummary();
+  if (!selectedPackage) {
+    return [];
+  }
+  return getUiManagerReviewTargets().filter((target) => !isUiManagerSkinMatch(target.uiSkin, selectedPackage.name));
+}
+function isUiManagerLoadoutLocked() {
+  return getUiManagerPendingSkinTargets().length > 0;
 }
 function syncUiManagerStagedComponentsForSkinSwitch() {
   const selectedPackage = getUiManagerSelectedPackageSummary();
-  const reviewTargets = getUiManagerReviewTargets();
-  if (!selectedPackage || !reviewTargets.length || !state.uiManager.detail || state.uiManager.detail.name !== selectedPackage.name) {
+  if (!selectedPackage || !state.uiManager.detail || state.uiManager.detail.name !== selectedPackage.name) {
     return;
   }
 
-  const hasPendingSkinSwitch = reviewTargets.some(
-    (target) => String(target.uiSkin || "Default").toLowerCase() !== String(selectedPackage.name || "").toLowerCase()
-  );
-  if (!hasPendingSkinSwitch) {
+  // Switching characters onto an interface applies it as it stands on disk, so
+  // window-style changes wait until the assignment has been applied.
+  if (!isUiManagerLoadoutLocked()) {
     return;
   }
 
@@ -1012,45 +988,51 @@ function syncUiManagerStagedComponentsForSkinSwitch() {
   }
 
   setUiManagerSelectedOptionPaths(activePaths);
+  setUiManagerNotice("Queued window styles were cleared while characters switch to this interface.", "info");
 }
 function buildUiManagerConfirmationDiff() {
   const selectedPackage = getUiManagerSelectedPackageSummary();
   const reviewTargets = getUiManagerReviewTargets();
   const selectedBundles = getUiManagerSelectedBundles();
-  const activeBundles = getUiManagerActiveBundles();
-  const selectedBundleMap = createUiManagerBundleGroupMap(selectedBundles);
-  const activeBundleMap = createUiManagerBundleGroupMap(activeBundles);
-  const componentKeys = new Set([...activeBundleMap.keys(), ...selectedBundleMap.keys()]);
+  const groups = getUiManagerBundleGroups();
 
-  const skinChanges = reviewTargets
-    .filter((target) => selectedPackage && String(target.uiSkin || "Default").toLowerCase() !== String(selectedPackage.name || "").toLowerCase())
-    .map((target) => ({
-      label: `${target.characterName} • ${target.serverName}`,
-      fileName: target.fileName,
-      from: target.uiSkin || "Default",
-      to: selectedPackage.name
-    }));
+  const skinChanges = selectedPackage
+    ? reviewTargets
+      .filter((target) => !isUiManagerSkinMatch(target.uiSkin, selectedPackage.name))
+      .map((target) => ({
+        path: target.path,
+        label: `${target.characterName} • ${target.serverName}`,
+        characterName: target.characterName,
+        serverName: target.serverName,
+        fileName: target.fileName,
+        from: target.uiSkin || "Default",
+        to: getUiManagerPackageDisplayName(selectedPackage)
+      }))
+    : [];
 
-  const componentChanges = Array.from(componentKeys)
-    .map((key) => {
-      const fromBundle = activeBundleMap.get(key) || null;
-      const toBundle = selectedBundleMap.get(key) || null;
-      if ((fromBundle?.optionPath || "") === (toBundle?.optionPath || "")) {
-        return null;
-      }
-
-      const referenceBundle = toBundle || fromBundle;
-      return {
-        groupLabel: getUiManagerBundleGroupLabel(referenceBundle),
-        xmlFiles: Array.isArray(referenceBundle?.xmlFiles) ? referenceBundle.xmlFiles : [],
-        from: fromBundle?.label || fromBundle?.optionPath || "Inactive",
-        to: toBundle?.label || toBundle?.optionPath || "Inactive",
-        fromPath: fromBundle?.optionPath || "",
-        toPath: toBundle?.optionPath || ""
-      };
-    })
-    .filter(Boolean)
-    .sort((left, right) => left.groupLabel.localeCompare(right.groupLabel));
+  const componentChanges = selectedPackage?.protected
+    ? []
+    : selectedBundles
+      .map((toBundle) => {
+        const groupKey = getUiManagerBundleGroupKey(toBundle);
+        const groupBundles = groups.get(groupKey) || [toBundle];
+        const fromBundle = groupBundles.find((entry) => entry.activeState === "active") || null;
+        if (fromBundle?.optionPath === toBundle.optionPath) {
+          return null;
+        }
+        const mixed = !fromBundle && groupBundles.some((entry) => entry.activeState === "mixed");
+        return {
+          groupKey,
+          groupLabel: getUiManagerBundleGroupLabel(toBundle),
+          xmlFiles: Array.isArray(toBundle.xmlFiles) ? toBundle.xmlFiles : [],
+          from: fromBundle ? getUiManagerBundleVariantName(fromBundle) : mixed ? "Mixed" : "Unknown",
+          to: getUiManagerBundleVariantName(toBundle),
+          fromPath: fromBundle?.optionPath || "",
+          toPath: toBundle.optionPath
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => left.groupLabel.localeCompare(right.groupLabel));
 
   return {
     selectedPackage,
@@ -1060,58 +1042,59 @@ function buildUiManagerConfirmationDiff() {
     componentChanges,
     plannedActions: [
       skinChanges.length ? "Set UISkin" : "",
-      componentChanges.length && !selectedPackage?.protected ? "Apply Components" : "",
-      !selectedPackage?.prepared && !selectedPackage?.protected ? "Prepare Package First" : ""
+      componentChanges.length ? "Apply Components" : ""
     ].filter(Boolean)
   };
 }
 function syncUiManagerSelection() {
-  setUiManagerActiveStage(state.uiManager.activeStage);
-  const packages = Array.isArray(state.uiManager.overview?.packages) ? state.uiManager.overview.packages : [];
+  const packages = getUiManagerPackages();
   if (!packages.length) {
     state.uiManager.selectedPackageName = "";
     state.uiManager.selectedOptionPath = "";
     state.uiManager.selectedOptionPaths = [];
     state.uiManager.selectedTargetPaths = [];
-    state.uiManager.targetSearchQuery = "";
-    state.uiManager.targetServerFilter = "";
-    state.uiManager.targetPickerOpen = false;
     state.uiManager.detail = null;
     return;
   }
 
   if (!packages.some((entry) => entry.name === state.uiManager.selectedPackageName)) {
-    const preferredPackage = packages.find((entry) => !entry.protected) || packages[0];
+    // Open on the custom interface most characters actually use, falling back to any prepared one.
+    const customPackages = packages.filter((entry) => !entry.protected);
+    const mostUsedPackage = customPackages
+      .map((entry) => ({ entry, users: getUiManagerPackageUserCount(entry.name) }))
+      .filter((candidate) => candidate.users > 0)
+      .sort((left, right) => right.users - left.users)[0]?.entry;
+    const preferredPackage = mostUsedPackage
+      || customPackages.find((entry) => entry.prepared)
+      || customPackages[0]
+      || packages[0];
     state.uiManager.selectedPackageName = preferredPackage?.name || "";
     state.uiManager.selectedOptionPath = "";
     state.uiManager.selectedOptionPaths = [];
+    state.uiManager.selectedTargetPaths = [];
   }
 
   const targets = getUiManagerTargets();
-  if (!state.uiManager.selectedTargetPaths.length && state.uiManager.selectedPackageName) {
-    state.uiManager.selectedTargetPaths = targets
-      .filter((entry) => String(entry.uiSkin || "").toLowerCase() === state.uiManager.selectedPackageName.toLowerCase())
-      .map((entry) => entry.path);
+  const selectedPaths = state.uiManager.selectedTargetPaths.filter((entry) => targets.some((target) => target.path === entry));
+  for (const target of targets) {
+    if (isUiManagerSkinMatch(target.uiSkin, state.uiManager.selectedPackageName) && !selectedPaths.includes(target.path)) {
+      selectedPaths.push(target.path);
+    }
   }
-
-  state.uiManager.selectedTargetPaths = state.uiManager.selectedTargetPaths.filter((entry) => targets.some((target) => target.path === entry));
+  state.uiManager.selectedTargetPaths = selectedPaths;
   syncUiManagerStagedComponentsForSkinSwitch();
-
-  if (!canUiManagerOpenStage(state.uiManager.activeStage)) {
-    setUiManagerActiveStage(state.uiManager.selectedPackageName ? "packages" : "targets");
-  }
 }
 async function ensureUiManagerPackageMetadataChecks() {
-  if (state.uiManager.activeStage !== "packages" || elements.uiManagerModal.classList.contains("hidden")) {
+  if (!isUiManagerModalOpen()) {
     return;
   }
 
-  const packages = Array.isArray(state.uiManager.overview?.packages) ? state.uiManager.overview.packages : [];
+  const packages = getUiManagerPackages();
   if (!packages.length || state.uiManager.overviewLoading || state.uiManager.actionLoading || state.uiManager.packageMetadataHealthRunning) {
     return;
   }
 
-  const candidates = packages.filter((pkg) => !pkg.protected && getUiManagerPackageMetadataHealth(pkg.name).status === "pending");
+  const candidates = packages.filter((pkg) => !pkg.protected && pkg.prepared && getUiManagerPackageMetadataHealth(pkg.name).status === "pending");
   if (!candidates.length) {
     return;
   }
@@ -1157,11 +1140,13 @@ async function ensureUiManagerPackageMetadataChecks() {
     }
 
     renderUiManagerPackageList();
+    renderUiManagerPackageHead();
   }
 
   if (state.uiManager.packageMetadataHealthRunId === runId) {
     state.uiManager.packageMetadataHealthRunning = false;
     renderUiManagerPackageList();
+    renderUiManagerPackageHead();
   }
 }
 async function selectUiManagerPackage(packageName, options = {}) {
@@ -1176,17 +1161,16 @@ async function selectUiManagerPackage(packageName, options = {}) {
   }
 
   const currentPackageName = state.uiManager.selectedPackageName;
-  const pendingComponentChanges = Array.isArray(buildUiManagerConfirmationDiff().componentChanges)
-    ? buildUiManagerConfirmationDiff().componentChanges
-    : [];
+  const pendingComponentChanges = buildUiManagerConfirmationDiff().componentChanges;
 
   const applyPackageSelection = async () => {
-    state.uiManager.selectedPackageName = packageName;
-    state.uiManager.selectedOptionPath = "";
-    state.uiManager.selectedOptionPaths = [];
-    state.uiManager.packageDetailTab = "overview";
-    state.uiManager.targetPickerOpen = false;
-    setUiManagerActiveStage("packages");
+    if (packageName !== currentPackageName) {
+      state.uiManager.selectedPackageName = packageName;
+      state.uiManager.selectedOptionPath = "";
+      state.uiManager.selectedOptionPaths = [];
+      // Roster selection means "uses this interface after apply", so start from its current users.
+      state.uiManager.selectedTargetPaths = [];
+    }
 
     if (openContextMenu) {
       openUiManagerPackageContextMenu(packageName, contextX, contextY);
@@ -1201,7 +1185,11 @@ async function selectUiManagerPackage(packageName, options = {}) {
   if (currentPackageName && currentPackageName !== packageName && pendingComponentChanges.length) {
     await promptUiManagerAction(
       `Switch to ${packageName}? Pending component changes for ${currentPackageName} will be lost if you change UI packages.`,
-      applyPackageSelection
+      applyPackageSelection,
+      {
+        title: "Discard queued styles?",
+        acceptLabel: `Switch to ${packageName}`
+      }
     );
     return;
   }
@@ -1209,8 +1197,8 @@ async function selectUiManagerPackage(packageName, options = {}) {
   await applyPackageSelection();
 }
 function renderUiManagerLaunchSurface() {
-  const packages = Array.isArray(state.uiManager.overview?.packages) ? state.uiManager.overview.packages : [];
-  const targets = Array.isArray(state.uiManager.overview?.targets) ? state.uiManager.overview.targets : [];
+  const packages = getUiManagerPackages();
+  const targets = getUiManagerTargets();
   const preparedCount = packages.filter((entry) => entry.prepared).length;
   const selectedPackage = getUiManagerSelectedPackageSummary();
 
@@ -1222,211 +1210,701 @@ function renderUiManagerLaunchSurface() {
     return;
   }
 
+  const setLaunchState = (name, meta, badge, tone) => {
+    elements.uiManagerPreviewName.textContent = name;
+    elements.uiManagerPreviewMeta.textContent = meta;
+    elements.uiManagerStatusBadge.textContent = badge;
+    elements.uiManagerStatusBadge.dataset.tone = tone;
+  };
+
   if (!state.current?.gameDirectory) {
-    elements.uiManagerPreviewName.textContent = "No game directory selected.";
-    elements.uiManagerPreviewMeta.textContent = "Run the launcher from your EQ folder so the UI Manager can inspect uifiles and character UI settings.";
-    elements.uiManagerStatusBadge.textContent = "Unavailable";
-    elements.uiManagerStatusBadge.dataset.tone = "warning";
+    setLaunchState(
+      "No game directory selected.",
+      "Run the launcher from your EverQuest folder so the workshop can read uifiles and your character UI settings.",
+      "Unavailable",
+      "warning"
+    );
     return;
   }
 
-  if (state.uiManager.overviewLoading) {
-    elements.uiManagerPreviewName.textContent = "Scanning UI packages...";
-    elements.uiManagerPreviewMeta.textContent = "Loading UI package folders and character UI settings from the current EverQuest directory.";
-    elements.uiManagerStatusBadge.textContent = "Loading";
-    elements.uiManagerStatusBadge.dataset.tone = "active";
+  if (state.uiManager.overviewLoading && !state.uiManager.overview) {
+    setLaunchState("Scanning interfaces...", "Reading uifiles and character UI settings.", "Loading", "active");
     return;
   }
 
   if (!selectedPackage) {
-    elements.uiManagerPreviewName.textContent = packages.length ? "Select a package to manage." : "No UI packages detected.";
-    elements.uiManagerPreviewMeta.textContent = packages.length
-      ? "Open the manager workspace to prepare packages, preview options, and assign UISkin values."
-      : "Import a custom UI package folder into uifiles to begin.";
-    elements.uiManagerStatusBadge.textContent = packages.length ? "Ready" : "Standby";
-    elements.uiManagerStatusBadge.dataset.tone = packages.length ? "success" : "attention";
+    setLaunchState(
+      packages.length ? "Select an interface to manage." : "No UI packages detected.",
+      packages.length
+        ? "Open the workshop to equip window styles and assign interfaces to characters."
+        : "Import a custom UI folder to begin.",
+      packages.length ? "Ready" : "Standby",
+      packages.length ? "success" : "attention"
+    );
     return;
   }
 
-  elements.uiManagerPreviewName.textContent = selectedPackage.name;
-  elements.uiManagerPreviewMeta.textContent = selectedPackage.protected
-    ? "Protected default package. UISkin assignment is available, but content changes are disabled."
-    : selectedPackage.prepared
-      ? `${selectedPackage.optionCount} option bundles detected. ${state.uiManager.selectedTargetPaths.length} character target(s) selected.`
-      : "This package needs preparation before option switching and reset workflows are available.";
-  elements.uiManagerStatusBadge.textContent = selectedPackage.protected ? "Read Only" : selectedPackage.prepared ? "Prepared" : "Needs Prep";
-  elements.uiManagerStatusBadge.dataset.tone = selectedPackage.protected ? "warning" : selectedPackage.prepared ? "success" : "warning";
+  const userCount = getUiManagerPackageUserCount(selectedPackage.name);
+  setLaunchState(
+    getUiManagerPackageDisplayName(selectedPackage),
+    selectedPackage.protected
+      ? `Stock interface, read only. Used by ${pluralize(userCount, "character")}.`
+      : selectedPackage.prepared
+        ? `${pluralize(selectedPackage.optionCount, "window style")} available. Used by ${pluralize(userCount, "character")}.`
+        : "Needs preparation before window styles can be swapped.",
+    selectedPackage.protected ? "Read Only" : selectedPackage.prepared ? "Prepared" : "Needs Prep",
+    selectedPackage.protected ? "neutral" : selectedPackage.prepared ? "success" : "warning"
+  );
+}
+function renderUiManagerHeader() {
+  if (!elements.uiManagerHeaderMeta) {
+    return;
+  }
+  const directory = state.uiManager.overview?.uiFilesDirectory || "";
+  elements.uiManagerHeaderMeta.textContent = state.uiManager.overviewLoading
+    ? "Scanning uifiles..."
+    : directory;
+  elements.uiManagerHeaderMeta.title = directory;
 }
 function renderUiManagerPackageList() {
-  clearElementContent(elements.uiManagerPackageList);
-  const packages = Array.isArray(state.uiManager.overview?.packages) ? state.uiManager.overview.packages : [];
+  const packages = getUiManagerPackages();
   elements.uiManagerSidebarMeta.textContent = `${packages.length} loaded`;
 
-  if (!packages.length) {
-    elements.uiManagerPackageList.appendChild(
-      createUiManagerEmptyState("No packages found", "The manager could not find any UI packages in your uifiles directory.")
-    );
-    return;
-  }
+  renderUiManagerRegion(elements.uiManagerPackageList, () => {
+    if (!packages.length) {
+      elements.uiManagerPackageList.appendChild(
+        createUiManagerEmptyState(
+          state.uiManager.overviewLoading ? "Scanning..." : "No interfaces found",
+          state.uiManager.overviewLoading ? "" : "Nothing was found in your uifiles folder. Import a UI folder to begin."
+        )
+      );
+      return;
+    }
 
-  for (const pkg of packages) {
-    const button = document.createElement("button");
-    button.className = "ui-manager-package-card";
-    button.type = "button";
-    button.dataset.packageName = pkg.name;
-    button.classList.toggle("is-selected", pkg.name === state.uiManager.selectedPackageName);
+    for (const pkg of packages) {
+      const isSelected = pkg.name === state.uiManager.selectedPackageName;
+      const button = createUiManagerElement("button", "uim-package-row");
+      button.type = "button";
+      button.dataset.packageName = pkg.name;
+      button.setAttribute("role", "option");
+      button.setAttribute("aria-selected", isSelected ? "true" : "false");
+      button.classList.toggle("is-selected", isSelected);
+      button.classList.toggle("is-protected", Boolean(pkg.protected));
+      button.classList.toggle("is-unprepared", !pkg.protected && !pkg.prepared);
+      button.title = pkg.path || pkg.name;
 
-    const title = document.createElement("p");
-    title.className = "ui-manager-package-title";
-    title.textContent = pkg.name;
-    button.appendChild(title);
+      const glyph = createUiManagerElement("span", "uim-package-glyph", String(getUiManagerPackageDisplayName(pkg) || "?").trim().charAt(0).toUpperCase());
+      glyph.setAttribute("aria-hidden", "true");
+      button.appendChild(glyph);
 
-    const health = getUiManagerPackageMetadataHealth(pkg.name);
-    const healthRow = document.createElement("div");
-    healthRow.className = "ui-manager-package-health";
+      const copy = createUiManagerElement("span", "uim-package-copy");
+      copy.appendChild(createUiManagerElement("span", "uim-package-title", getUiManagerPackageDisplayName(pkg)));
+      const userCount = getUiManagerPackageUserCount(pkg.name);
+      const subParts = pkg.protected
+        ? ["Stock UI"]
+        : pkg.prepared
+          ? [pluralize(pkg.optionCount, "style")]
+          : ["Not prepared"];
+      if (userCount) {
+        subParts.push(pluralize(userCount, "character"));
+      }
+      copy.appendChild(createUiManagerElement("span", "uim-package-sub", subParts.join(" · ")));
+      button.appendChild(copy);
 
-    const healthCopy = document.createElement("div");
-    healthCopy.className = "ui-manager-package-health-copy";
+      const health = getUiManagerPackageMetadataHealth(pkg.name);
+      const healthMark = createUiManagerElement("span", `uim-health is-${health.status || "pending"}`);
+      const tooltip = getUiManagerPackageMetadataTooltip(health);
+      healthMark.setAttribute("title", tooltip);
+      healthMark.setAttribute("aria-label", tooltip);
+      healthMark.appendChild(createUiManagerElement("span", "uim-health-label", getUiManagerPackageMetadataLabel(health)));
+      button.appendChild(healthMark);
 
-    const healthMeta = document.createElement("span");
-    healthMeta.className = "ui-manager-package-health-meta";
-    healthMeta.textContent = getUiManagerPackageMetadataLabel(health);
-    healthCopy.appendChild(healthMeta);
-
-    const healthCheck = document.createElement("span");
-    healthCheck.className = `ui-manager-package-health-check is-${health.status || "pending"}`;
-    healthCheck.setAttribute("aria-hidden", "true");
-    healthCheck.setAttribute("title", getUiManagerPackageMetadataTooltip(health));
-    healthCheck.setAttribute("aria-label", getUiManagerPackageMetadataTooltip(health));
-    healthCheck.textContent = health.status === "healthy" || health.status === "read-only"
-      ? "✓"
-      : health.status === "checking"
-        ? "…"
-        : health.status === "issues" || health.status === "error"
-          ? "!"
-          : "";
-
-    healthRow.appendChild(healthCopy);
-    healthRow.appendChild(healthCheck);
-    button.appendChild(healthRow);
-
-    const copy = document.createElement("p");
-    copy.className = "ui-manager-package-subcopy";
-    copy.textContent = `${pkg.rootXmlCount} primary and ${pkg.optionCount} optional UI elements`;
-    button.appendChild(copy);
-
-    const pills = document.createElement("div");
-    pills.className = "ui-manager-pill-row";
-    pills.appendChild(createUiManagerPill(pkg.protected ? "Protected" : "Custom", pkg.protected ? "warning" : ""));
-    pills.appendChild(
-      createUiManagerPill(
-        pkg.protected ? "Read Only" : pkg.prepared ? "Prepared" : "Needs Prep",
-        pkg.protected ? "warning" : pkg.prepared ? "success" : "warning"
-      )
-    );
-    button.appendChild(pills);
-    elements.uiManagerPackageList.appendChild(button);
-  }
+      elements.uiManagerPackageList.appendChild(button);
+    }
+  });
 }
-function renderUiManagerPackageDetail() {
-  clearElementContent(elements.uiManagerPackageDetail);
+function renderUiManagerPackageHead() {
   const pkg = getUiManagerSelectedPackageSummary();
-  const detail = state.uiManager.detail;
-  elements.uiManagerPackageMeta.textContent = pkg ? pkg.name : "No selection";
+  const uiManagerLocked = isUiManagerActionLocked();
+  const busy = state.uiManager.actionLoading;
+
+  if (elements.uiManagerPackageName) {
+    elements.uiManagerPackageName.textContent = pkg ? getUiManagerPackageDisplayName(pkg) : "Choose an interface";
+  }
+  if (elements.uiManagerPackagePath) {
+    elements.uiManagerPackagePath.textContent = pkg?.path || "";
+    elements.uiManagerPackagePath.title = pkg?.path || "";
+  }
 
   if (!pkg) {
-    elements.uiManagerPackageDetail.appendChild(
-      createUiManagerEmptyState("Choose a package", "Select a package from the library to inspect its structure and option bundles.")
+    elements.uiManagerPackageMeta.textContent = "No interface selected";
+    elements.uiManagerPackageMeta.dataset.tone = "neutral";
+  } else if (pkg.protected) {
+    elements.uiManagerPackageMeta.textContent = "Stock interface · Read only";
+    elements.uiManagerPackageMeta.dataset.tone = "neutral";
+  } else if (!pkg.prepared) {
+    elements.uiManagerPackageMeta.textContent = "Custom interface · Needs preparation";
+    elements.uiManagerPackageMeta.dataset.tone = "warning";
+  } else {
+    const health = getUiManagerPackageMetadataHealth(pkg.name);
+    const healthText = health.status === "issues"
+      ? ` · ${getUiManagerPackageMetadataLabel(health)} in metadata`
+      : health.status === "healthy"
+        ? " · Metadata healthy"
+        : "";
+    elements.uiManagerPackageMeta.textContent = `Custom interface · Prepared${healthText}`;
+    elements.uiManagerPackageMeta.dataset.tone = health.status === "issues" || health.status === "error" ? "warning" : "success";
+  }
+
+  const mutable = Boolean(pkg && pkg.prepared && !pkg.protected);
+  elements.uiManagerRecoveryButton.disabled = uiManagerLocked || !pkg;
+  if (elements.uiManagerValidateButton) {
+    elements.uiManagerValidateButton.disabled = uiManagerLocked || busy || !mutable;
+  }
+  elements.uiManagerResetButton.disabled = uiManagerLocked || busy || !mutable;
+}
+function renderUiManagerLoadoutState() {
+  const pkg = getUiManagerSelectedPackageSummary();
+  const container = elements.uiManagerPackageDetail;
+  clearElementContent(container);
+
+  const appendPanel = (tone, title, copy, action = null) => {
+    const panel = createUiManagerElement("div", "uim-callout");
+    panel.dataset.tone = tone;
+    const text = createUiManagerElement("div", "uim-callout-copy");
+    text.appendChild(createUiManagerElement("strong", "uim-callout-title", title));
+    text.appendChild(createUiManagerElement("p", "uim-callout-text", copy));
+    panel.appendChild(text);
+    if (action) {
+      panel.appendChild(action);
+    }
+    container.appendChild(panel);
+  };
+
+  if (!pkg) {
+    container.classList.add("hidden");
+    return;
+  }
+
+  container.classList.remove("hidden");
+  if (pkg.protected) {
+    appendPanel(
+      "neutral",
+      "The stock interface is read only.",
+      "Its window files can't be swapped, but you can still assign it to characters from the roster."
     );
     return;
   }
 
-  const workspace = document.createElement("div");
-  workspace.className = "ui-manager-package-workspace";
-
-  const panel = document.createElement("div");
-  panel.className = "ui-manager-package-overview-panel";
-
-  const heroCopy = document.createElement("div");
-  heroCopy.className = "ui-manager-package-hero-copy";
-
-  const heroPills = document.createElement("div");
-  heroPills.className = "ui-manager-pill-row";
-  heroPills.appendChild(createUiManagerPill(pkg.protected ? "Protected Default" : "Custom Package", pkg.protected ? "warning" : ""));
-  heroPills.appendChild(
-    createUiManagerPill(
-      pkg.protected ? "Read Only" : pkg.prepared ? "Prepared" : "Needs Preparation",
-      pkg.protected ? "warning" : pkg.prepared ? "success" : "warning"
-    )
-  );
-  heroCopy.appendChild(heroPills);
-
-  const heading = document.createElement("h4");
-  heading.className = "ui-manager-package-heading";
-  heading.textContent = pkg.name;
-  heroCopy.appendChild(heading);
-
-  if (pkg.path) {
-    const pathLine = document.createElement("p");
-    pathLine.className = "ui-manager-path-line";
-    pathLine.textContent = pkg.path;
-    heroCopy.appendChild(pathLine);
-  }
-
-  const summaryCopy = document.createElement("p");
-  summaryCopy.className = "ui-manager-package-subcopy";
-  summaryCopy.textContent = pkg.protected
-    ? "The stock default package is visible for UISkin assignment and inspection, but its files remain read-only."
-    : pkg.prepared
-      ? "This package is ready for Stage 3 component selection and Stage 4 confirmation."
-      : "Prepare this package before moving on to component selection and reset workflows.";
-  heroCopy.appendChild(summaryCopy);
-
-  const grid = document.createElement("div");
-  grid.className = "ui-manager-detail-grid";
-
-  const preparedItem = document.createElement("div");
-  preparedItem.className = "ui-manager-detail-item";
-  preparedItem.innerHTML = `<span class="summary-label">Status</span><strong>${pkg.protected ? "Read Only" : pkg.prepared ? "Prepared" : "Needs Prep"}</strong>`;
-  grid.appendChild(preparedItem);
-
-  const elementItem = document.createElement("div");
-  elementItem.className = "ui-manager-detail-item";
-  elementItem.innerHTML = `<span class="summary-label">UI Elements</span><strong>${detail?.rootFiles?.length || 0} primary • ${pkg.optionCount} optional</strong>`;
-  grid.appendChild(elementItem);
-
-  const protectionItem = document.createElement("div");
-  protectionItem.className = "ui-manager-detail-item";
-  protectionItem.innerHTML = `<span class="summary-label">Package Type</span><strong>${pkg.protected ? "Protected Default" : "Custom Package"}</strong>`;
-  grid.appendChild(protectionItem);
-
-  const readyCard = document.createElement("div");
-  readyCard.className = "ui-manager-package-brief";
-  readyCard.innerHTML = `<span class="summary-label">Ready State</span><strong>${pkg.protected ? "Protected package. You can assign UISkin, but content changes remain disabled." : pkg.prepared ? "Ready for UI Components and confirmation." : "Needs preparation before component switching is available."}</strong>`;
-  if (!pkg.protected && !pkg.prepared) {
-    const prepareCopy = document.createElement("p");
-    prepareCopy.className = "ui-manager-package-subcopy";
-    prepareCopy.textContent = "Prepare this package here to standardize its structure before moving on to Stage 3.";
-    readyCard.appendChild(prepareCopy);
-
-    const prepareButton = document.createElement("button");
-    prepareButton.className = "secondary-button utility-button ui-manager-package-prepare-button";
+  if (!pkg.prepared) {
+    const prepareButton = createUiManagerElement("button", "uim-callout-action", "Prepare interface");
     prepareButton.type = "button";
     prepareButton.dataset.uiManagerPackageAction = "prepare";
-    prepareButton.textContent = "Prepare Package";
-    readyCard.appendChild(prepareButton);
+    prepareButton.disabled = isUiManagerActionLocked() || state.uiManager.actionLoading;
+    appendPanel(
+      "warning",
+      "This interface hasn't been prepared yet.",
+      "Preparing backs it up, moves its alternate windows into an Options library, and records where each window came from. After that its styles can be swapped here. You can already assign it to characters.",
+      prepareButton
+    );
+    return;
   }
 
-  const hero = document.createElement("div");
-  hero.className = "ui-manager-package-hero";
-  hero.appendChild(heroCopy);
-  hero.appendChild(grid);
+  const pendingSkinTargets = getUiManagerPendingSkinTargets();
+  if (pendingSkinTargets.length) {
+    appendPanel(
+      "info",
+      `Loadout locked while ${pluralize(pendingSkinTargets.length, "character")} switch${pendingSkinTargets.length === 1 ? "es" : ""} to ${pkg.name}.`,
+      "Characters join this interface as it currently stands. Apply the assignment first, or clear them from the roster, to change window styles."
+    );
+    return;
+  }
 
-  panel.appendChild(hero);
-  panel.appendChild(readyCard);
+  container.classList.add("hidden");
+}
+function getUiManagerSlotEntries() {
+  const groups = getUiManagerBundleGroups();
+  const stagedPaths = new Set(state.uiManager.selectedOptionPaths || []);
+  const query = String(state.uiManager.optionSearchQuery || "").trim().toLowerCase();
+  const filterMode = state.uiManager.optionFilterMode || "all";
+  const slots = [];
 
-  workspace.appendChild(panel);
-  elements.uiManagerPackageDetail.appendChild(workspace);
+  for (const [groupKey, bundles] of groups) {
+    const equipped = bundles.find((entry) => entry.activeState === "active") || null;
+    const staged = bundles.find((entry) => stagedPaths.has(entry.optionPath)) || null;
+    const changed = Boolean(staged && staged.optionPath !== equipped?.optionPath);
+    const label = getUiManagerBundleGroupLabel(bundles[0], bundles);
+    const slot = { groupKey, bundles, equipped, staged, changed, label };
+
+    if (filterMode === "changed" && !changed) {
+      continue;
+    }
+    if (filterMode === "active" && !equipped) {
+      continue;
+    }
+
+    if (query) {
+      const slotHaystack = [label, ...(bundles[0].xmlFiles || [])].join(" ").toLowerCase();
+      if (!slotHaystack.includes(query)) {
+        const matchingBundles = bundles.filter((bundle) =>
+          [getUiManagerBundleVariantName(bundle), bundle.categoryPath, bundle.optionPath].join(" ").toLowerCase().includes(query)
+        );
+        if (!matchingBundles.length) {
+          continue;
+        }
+        slot.bundles = matchingBundles;
+      }
+    }
+
+    slots.push(slot);
+  }
+
+  return slots.sort((left, right) => left.label.localeCompare(right.label, undefined, { sensitivity: "base", numeric: true }));
+}
+function createUiManagerVariantThumb(bundle, className) {
+  const thumb = createUiManagerElement("div", className);
+  if (bundle.previewImageUrl) {
+    const image = document.createElement("img");
+    image.src = bundle.previewImageUrl;
+    image.alt = "";
+    image.loading = "lazy";
+    thumb.appendChild(image);
+  } else {
+    // No screenshot shipped with this style: sketch an EQ window in its place.
+    thumb.classList.add("is-empty");
+    const wireframe = createUiManagerElement("span", "uim-wireframe");
+    wireframe.setAttribute("aria-hidden", "true");
+    wireframe.appendChild(createUiManagerElement("span", "uim-wireframe-bar"));
+    wireframe.appendChild(createUiManagerElement("span", "uim-wireframe-body"));
+    thumb.appendChild(wireframe);
+    thumb.appendChild(createUiManagerElement("span", "uim-wireframe-caption", "No preview"));
+  }
+  return thumb;
+}
+function renderUiManagerOptionList() {
+  const pkg = getUiManagerSelectedPackageSummary();
+  const bundles = getUiManagerBundles();
+  const groups = getUiManagerBundleGroups();
+  const stagedPaths = new Set(state.uiManager.selectedOptionPaths || []);
+  const changedCount = buildUiManagerConfirmationDiff().componentChanges.length;
+  const equipLocked = isUiManagerLoadoutLocked() || Boolean(pkg?.protected) || state.uiManager.actionLoading;
+
+  elements.uiManagerOptionMeta.textContent = bundles.length
+    ? `${pluralize(groups.size, "window")} · ${pluralize(bundles.length, "style")}${changedCount ? ` · ${changedCount} queued` : ""}`
+    : "";
+  elements.uiManagerOptionList.classList.toggle("is-locked", equipLocked);
+  const hasLoadout = Boolean(pkg && pkg.prepared && !pkg.protected && bundles.length);
+  elements.uiManagerLoadoutTools?.classList.toggle("hidden", !hasLoadout);
+
+  renderUiManagerRegion(elements.uiManagerOptionList, () => {
+    if (!pkg || pkg.protected || !pkg.prepared) {
+      return;
+    }
+
+    if (state.uiManager.detailLoading && !bundles.length) {
+      elements.uiManagerOptionList.appendChild(createUiManagerEmptyState(`Reading ${pkg.name}...`, ""));
+      return;
+    }
+
+    if (!bundles.length) {
+      elements.uiManagerOptionList.appendChild(
+        createUiManagerEmptyState(
+          "No alternate window styles",
+          "This interface is prepared, but its Options folder has no alternate window styles to swap in."
+        )
+      );
+      return;
+    }
+
+    const slots = getUiManagerSlotEntries();
+    if (!slots.length) {
+      elements.uiManagerOptionList.appendChild(
+        createUiManagerEmptyState(
+          state.uiManager.optionFilterMode === "changed" ? "Nothing queued" : "No matches",
+          state.uiManager.optionFilterMode === "changed"
+            ? "Equip a different style in any window to queue a change."
+            : "No window or style matches that search."
+        )
+      );
+      return;
+    }
+
+    for (const slot of slots) {
+      const section = createUiManagerElement("section", "uim-slot");
+      section.dataset.groupKey = slot.groupKey;
+      section.classList.toggle("is-changed", slot.changed);
+
+      const head = createUiManagerElement("header", "uim-slot-head");
+      head.appendChild(createUiManagerElement("h4", "uim-slot-name", slot.label));
+      const files = createUiManagerElement("span", "uim-slot-files", (slot.bundles[0].xmlFiles || []).join(", "));
+      head.appendChild(files);
+      const status = createUiManagerElement("span", "uim-slot-status");
+      status.dataset.state = slot.changed ? "changed" : slot.equipped ? "equipped" : "unknown";
+      if (slot.changed) {
+        status.appendChild(createUiManagerElement("s", "uim-from", slot.equipped ? getUiManagerBundleVariantName(slot.equipped) : "Unknown"));
+        status.appendChild(createUiManagerElement("span", "uim-arrow", "→"));
+        status.appendChild(createUiManagerElement("span", "uim-to", getUiManagerBundleVariantName(slot.staged)));
+      } else {
+        status.textContent = slot.equipped
+          ? getUiManagerBundleVariantName(slot.equipped)
+          : slot.bundles.some((entry) => entry.activeState === "mixed") ? "Mixed" : "Not equipped";
+      }
+      head.appendChild(status);
+      section.appendChild(head);
+
+      const row = createUiManagerElement("div", "uim-variant-row");
+      for (const bundle of slot.bundles) {
+        const isStaged = stagedPaths.has(bundle.optionPath);
+        const isEquipped = bundle.activeState === "active";
+        const variantName = getUiManagerBundleVariantName(bundle);
+        const card = createUiManagerElement("article", "uim-variant");
+        card.dataset.optionPath = bundle.optionPath;
+        card.dataset.optionGroupKey = slot.groupKey;
+        card.tabIndex = 0;
+        card.setAttribute("role", "button");
+        card.setAttribute("aria-label", `Inspect ${variantName} for ${slot.label}`);
+        card.classList.toggle("is-selected", bundle.optionPath === state.uiManager.selectedOptionPath);
+        card.classList.toggle("is-staged", isStaged);
+        card.classList.toggle("is-active-bundle", isEquipped);
+        card.classList.toggle("is-mixed-bundle", bundle.activeState === "mixed");
+        card.classList.toggle("is-queued", isStaged && !isEquipped);
+
+        card.appendChild(createUiManagerVariantThumb(bundle, "uim-variant-thumb"));
+
+        const copy = createUiManagerElement("div", "uim-variant-copy");
+        copy.appendChild(createUiManagerElement("span", "uim-variant-name", variantName));
+        const category = formatUiManagerPrettyPath(bundle.categoryPath || "");
+        if (category && category.toLowerCase() !== variantName.toLowerCase() && category !== slot.label) {
+          copy.appendChild(createUiManagerElement("span", "uim-variant-category", category));
+        }
+        card.appendChild(copy);
+
+        const equip = createUiManagerElement("label", "uim-equip");
+        const equipInput = document.createElement("input");
+        equipInput.type = "checkbox";
+        equipInput.checked = isStaged;
+        equipInput.disabled = equipLocked;
+        equipInput.dataset.optionToggle = "true";
+        equipInput.dataset.optionPath = bundle.optionPath;
+        equipInput.setAttribute("aria-label", `Equip ${variantName} in ${slot.label}`);
+        equip.appendChild(equipInput);
+        equip.appendChild(createUiManagerElement("span", "uim-equip-gem"));
+        equip.appendChild(createUiManagerElement(
+          "span",
+          "uim-equip-label",
+          isStaged ? (isEquipped ? "Equipped" : "Queued") : isEquipped ? "On disk" : "Equip"
+        ));
+        card.appendChild(equip);
+        row.appendChild(card);
+      }
+      section.appendChild(row);
+      elements.uiManagerOptionList.appendChild(section);
+    }
+  });
+}
+function renderUiManagerInspector() {
+  const panel = elements.uiManagerPreviewPanel;
+  clearElementContent(panel);
+  const pkg = getUiManagerSelectedPackageSummary();
+  const bundle = getUiManagerSelectedBundle();
+  const visible = Boolean(pkg && pkg.prepared && !pkg.protected && bundle);
+  panel.classList.toggle("hidden", !visible);
+  if (!visible) {
+    return;
+  }
+
+  const groups = getUiManagerBundleGroups();
+  const groupKey = getUiManagerBundleGroupKey(bundle);
+  const relatedBundles = groups.get(groupKey) || [bundle];
+  const isStaged = (state.uiManager.selectedOptionPaths || []).includes(bundle.optionPath);
+  const isEquipped = bundle.activeState === "active";
+  const variantName = getUiManagerBundleVariantName(bundle);
+
+  panel.appendChild(createUiManagerVariantThumb(bundle, "uim-inspector-frame"));
+
+  const copy = createUiManagerElement("div", "uim-inspector-copy");
+  copy.appendChild(createUiManagerElement("p", "uim-inspector-kicker", getUiManagerBundleGroupLabel(bundle)));
+  copy.appendChild(createUiManagerElement("h4", "uim-inspector-title", variantName));
+
+  const status = createUiManagerElement(
+    "p",
+    "uim-inspector-status",
+    isEquipped
+      ? isStaged ? "Equipped" : "Equipped now · another style is queued"
+      : isStaged ? "Queued to equip on apply" : bundle.activeState === "mixed" ? "Partly equipped" : "Not equipped"
+  );
+  status.dataset.tone = isStaged && !isEquipped ? "queued" : isEquipped ? "equipped" : "idle";
+  copy.appendChild(status);
+
+  const facts = createUiManagerElement("dl", "uim-inspector-facts");
+  const addFact = (term, value) => {
+    const wrap = createUiManagerElement("div", "uim-fact");
+    wrap.appendChild(createUiManagerElement("dt", "", term));
+    wrap.appendChild(createUiManagerElement("dd", "", value));
+    facts.appendChild(wrap);
+  };
+  addFact("Windows", (bundle.xmlFiles || []).map((file) => formatUiManagerWindowName(file)).join(", ") || "None");
+  addFact("Artwork", bundle.isDefault
+    ? "Uses the interface's own art"
+    : (bundle.tgaFiles || []).length ? pluralize(bundle.tgaFiles.length, "texture") : "No extra textures");
+  addFact("Styles in slot", String(relatedBundles.length));
+  addFact("Source", bundle.optionPath);
+  copy.appendChild(facts);
+
+  if (bundle.instructions) {
+    copy.appendChild(createUiManagerElement("p", "uim-inspector-notes", bundle.instructions));
+  }
+
+  if (!isStaged) {
+    const equipButton = createUiManagerElement("button", "uim-inspector-equip", isEquipped ? "Keep this style" : "Equip this style");
+    equipButton.type = "button";
+    equipButton.dataset.inspectorEquip = bundle.optionPath;
+    equipButton.disabled = isUiManagerLoadoutLocked() || state.uiManager.actionLoading;
+    copy.appendChild(equipButton);
+  }
+
+  panel.appendChild(copy);
+}
+function renderUiManagerTargetList() {
+  const targets = getUiManagerTargets();
+  const filteredTargets = getUiManagerFilteredTargets();
+  const serverNames = getUiManagerAvailableServerNames();
+  const pkg = getUiManagerSelectedPackageSummary();
+  const selectedCount = state.uiManager.selectedTargetPaths.length;
+  elements.uiManagerTargetMeta.textContent = !targets.length
+    ? "None found"
+    : areAllUiManagerTargetsSelected()
+      ? "All selected"
+      : `${selectedCount} of ${targets.length}`;
+  if (elements.uiManagerTargetSearchInput.value !== (state.uiManager.targetSearchQuery || "")) {
+    elements.uiManagerTargetSearchInput.value = state.uiManager.targetSearchQuery || "";
+  }
+
+  clearElementContent(elements.uiManagerTargetServerFilter);
+  const allServersOption = document.createElement("option");
+  allServersOption.value = "";
+  allServersOption.textContent = "All servers";
+  elements.uiManagerTargetServerFilter.appendChild(allServersOption);
+  for (const serverName of serverNames) {
+    const option = document.createElement("option");
+    option.value = serverName;
+    option.textContent = serverName;
+    elements.uiManagerTargetServerFilter.appendChild(option);
+  }
+  if (state.uiManager.targetServerFilter && !serverNames.includes(state.uiManager.targetServerFilter)) {
+    state.uiManager.targetServerFilter = "";
+  }
+  elements.uiManagerTargetServerFilter.value = state.uiManager.targetServerFilter || "";
+  elements.uiManagerTargetServerFilter.classList.toggle("hidden", serverNames.length < 2);
+
+  renderUiManagerRegion(elements.uiManagerTargetList, () => {
+    if (!targets.length) {
+      elements.uiManagerTargetList.appendChild(
+        createUiManagerEmptyState(
+          "No characters found",
+          "EverQuest writes a UI_<name>_<server>.ini file the first time each character camps. None were found in this folder."
+        )
+      );
+      return;
+    }
+
+    if (!filteredTargets.length) {
+      elements.uiManagerTargetList.appendChild(
+        createUiManagerEmptyState("No matches", "No character matches that server filter and search.")
+      );
+      return;
+    }
+
+    const showServerHeadings = new Set(filteredTargets.map((target) => target.serverName)).size > 1;
+    let currentServer = null;
+    for (const target of filteredTargets) {
+      if (showServerHeadings && target.serverName !== currentServer) {
+        currentServer = target.serverName;
+        const heading = createUiManagerElement("p", "uim-roster-server-heading", currentServer || "Unknown server");
+        elements.uiManagerTargetList.appendChild(heading);
+      }
+
+      const isUsing = Boolean(pkg) && isUiManagerSkinMatch(target.uiSkin, pkg.name);
+      const isSelected = state.uiManager.selectedTargetPaths.includes(target.path);
+      const isPending = Boolean(pkg) && isSelected && !isUsing;
+      const row = createUiManagerElement("label", "uim-roster-row");
+      row.classList.toggle("is-selected", isSelected);
+      row.classList.toggle("is-using", isUsing);
+      row.classList.toggle("is-pending", isPending);
+      row.title = target.fileName;
+
+      const input = document.createElement("input");
+      input.type = "checkbox";
+      input.value = target.path;
+      input.checked = isSelected;
+      input.disabled = isUsing || !pkg;
+      input.setAttribute("aria-label", isUsing
+        ? `${target.characterName} already uses ${pkg.name}`
+        : `Assign ${pkg?.name || "the selected interface"} to ${target.characterName}`);
+      row.appendChild(input);
+      row.appendChild(createUiManagerElement("span", "uim-roster-check"));
+
+      const copy = createUiManagerElement("span", "uim-roster-copy");
+      copy.appendChild(createUiManagerElement("span", "uim-roster-name", target.characterName || target.fileName));
+      if (!showServerHeadings) {
+        copy.appendChild(createUiManagerElement("span", "uim-roster-server", target.serverName));
+      }
+      row.appendChild(copy);
+
+      const skin = createUiManagerElement("span", "uim-roster-skin");
+      if (isPending) {
+        skin.appendChild(createUiManagerElement("s", "uim-from", target.uiSkin || "Default"));
+        skin.appendChild(createUiManagerElement("span", "uim-arrow", "→"));
+        skin.appendChild(createUiManagerElement("span", "uim-to", getUiManagerPackageDisplayName(pkg)));
+      } else {
+        skin.textContent = isUsing ? "Using" : target.uiSkin || "Default";
+      }
+      row.appendChild(skin);
+      elements.uiManagerTargetList.appendChild(row);
+    }
+  });
+}
+function createUiManagerLedgerEntry({ kind, subject, detail, from, to, revertKind, revertValue }) {
+  const entry = createUiManagerElement("li", "uim-ledger-entry");
+  entry.dataset.kind = kind;
+
+  const copy = createUiManagerElement("div", "uim-ledger-copy");
+  copy.appendChild(createUiManagerElement("span", "uim-ledger-subject", subject));
+  const change = createUiManagerElement("span", "uim-ledger-change");
+  change.appendChild(createUiManagerElement("s", "uim-from", from));
+  change.appendChild(createUiManagerElement("span", "uim-arrow", "→"));
+  change.appendChild(createUiManagerElement("span", "uim-to", to));
+  copy.appendChild(change);
+  if (detail) {
+    copy.appendChild(createUiManagerElement("span", "uim-ledger-detail", detail));
+  }
+  entry.appendChild(copy);
+
+  const revert = createUiManagerElement("button", "uim-ledger-revert");
+  revert.type = "button";
+  revert.dataset.ledgerRevert = revertKind;
+  revert.dataset.ledgerValue = revertValue;
+  revert.setAttribute("aria-label", `Remove ${subject} from the ledger`);
+  revert.title = "Remove from ledger";
+  revert.appendChild(createUiManagerElement("span", "", "×"));
+  entry.appendChild(revert);
+  return entry;
+}
+function renderUiManagerConfirmationSummary() {
+  const { selectedPackage, skinChanges, componentChanges } = buildUiManagerConfirmationDiff();
+  const pendingCount = skinChanges.length + componentChanges.length;
+  if (elements.uiManagerLedgerCount) {
+    elements.uiManagerLedgerCount.textContent = pendingCount ? `${pendingCount} pending` : "Nothing pending";
+  }
+
+  renderUiManagerRegion(elements.uiManagerConfirmationSummary, () => {
+    if (!selectedPackage) {
+      elements.uiManagerConfirmationSummary.appendChild(
+        createUiManagerEmptyState("Nothing to review yet", "Choose an interface, then equip styles or pick characters.")
+      );
+      return;
+    }
+
+    if (!pendingCount) {
+      elements.uiManagerConfirmationSummary.appendChild(createUiManagerEmptyState("The ledger is clear.", ""));
+      return;
+    }
+
+    const list = createUiManagerElement("ul", "uim-ledger-entries");
+    for (const change of componentChanges) {
+      list.appendChild(createUiManagerLedgerEntry({
+        kind: "component",
+        subject: formatUiManagerHumanLabel(change.groupLabel),
+        detail: change.toPath,
+        from: change.from,
+        to: change.to,
+        revertKind: "component",
+        revertValue: change.toPath
+      }));
+    }
+    for (const change of skinChanges) {
+      list.appendChild(createUiManagerLedgerEntry({
+        kind: "skin",
+        subject: change.characterName || change.label,
+        detail: `${change.serverName} · UISkin`,
+        from: change.from,
+        to: change.to,
+        revertKind: "skin",
+        revertValue: change.path
+      }));
+    }
+    elements.uiManagerConfirmationSummary.appendChild(list);
+  });
+}
+function getUiManagerApplyPlan() {
+  const diff = buildUiManagerConfirmationDiff();
+  const selectedPackage = diff.selectedPackage;
+  const componentChanges = selectedPackage && selectedPackage.prepared && !selectedPackage.protected
+    ? diff.componentChanges
+    : [];
+  return {
+    ...diff,
+    componentChanges,
+    pendingCount: componentChanges.length + diff.skinChanges.length
+  };
+}
+function renderUiManagerActionState() {
+  const selectedPackage = getUiManagerSelectedPackageSummary();
+  const plan = getUiManagerApplyPlan();
+  const uiManagerLocked = isUiManagerActionLocked();
+  const busy = state.uiManager.actionLoading;
+  const canApply = Boolean(selectedPackage && plan.pendingCount);
+
+  elements.uiManagerApplyOptionButton.disabled = uiManagerLocked || busy || !canApply;
+  elements.uiManagerApplyOptionButton.classList.toggle("is-busy", busy);
+  const applyLabel = busy
+    ? "Working..."
+    : plan.pendingCount
+      ? `Apply ${pluralize(plan.pendingCount, "change")}`
+      : "Nothing to apply";
+  if (elements.uiManagerApplyLabel) {
+    elements.uiManagerApplyLabel.textContent = applyLabel;
+  } else {
+    elements.uiManagerApplyOptionButton.textContent = applyLabel;
+  }
+
+  elements.uiManagerActionMeta.textContent = !selectedPackage
+    ? "Choose an interface to begin."
+    : uiManagerLocked
+      ? "Changes are paused while prerequisites install."
+      : busy
+        ? "Working. Please wait."
+        : plan.pendingCount
+          ? `A backup of ${selectedPackage.name} is taken before anything is written.`
+          : selectedPackage.protected
+            ? "The stock interface can't be edited, but you can assign it to characters."
+            : "Equip window styles or select characters to queue changes.";
+}
+function renderUiManagerFilterButtons() {
+  const filterMode = state.uiManager.optionFilterMode || "all";
+  document.querySelectorAll("[data-ui-manager-option-filter]").forEach((button) => {
+    const isActive = button.dataset.uiManagerOptionFilter === filterMode;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", isActive ? "true" : "false");
+  });
+}
+function renderUiManager() {
+  syncUiManagerSelection();
+  renderUiManagerNotice();
+  renderUiManagerPackageContextMenu();
+  renderUiManagerLaunchSurface();
+  renderUiManagerHeader();
+  renderUiManagerPackageList();
+  renderUiManagerPackageHead();
+  renderUiManagerLoadoutState();
+  renderUiManagerFilterButtons();
+  renderUiManagerOptionList();
+  renderUiManagerInspector();
+  renderUiManagerTargetList();
+  renderUiManagerRecovery();
+  renderUiManagerConfirmationSummary();
+  renderUiManagerActionState();
+  void ensureUiManagerPackageMetadataChecks();
 }
 function renderUiManagerPackageContextMenu() {
   const isOpen = Boolean(state.uiManager.packageContextMenuOpen && state.uiManager.packageContextPackageName);
@@ -1442,427 +1920,52 @@ function renderUiManagerPackageContextMenu() {
   elements.uiManagerPackageContextMenu.style.left = `${state.uiManager.packageContextMenuX}px`;
   elements.uiManagerPackageContextMenu.style.top = `${state.uiManager.packageContextMenuY}px`;
 }
-function renderUiManagerStageState() {
-  const activeStage = state.uiManager.activeStage || "targets";
-  const stageMap = [
-    { name: "targets", button: elements.uiManagerStageTargetsButton, panel: elements.uiManagerTargetsStage, label: "Select Character(s)" },
-    { name: "packages", button: elements.uiManagerStagePackagesButton, panel: elements.uiManagerPackagesStage, label: "Select UI Package" },
-    { name: "components", button: elements.uiManagerStageComponentsButton, panel: elements.uiManagerComponentsStage, label: "UI Components" },
-    { name: "confirm", button: elements.uiManagerStageConfirmButton, panel: elements.uiManagerConfirmStage, label: "Confirmation" }
-  ];
-
-  for (const entry of stageMap) {
-    const isActive = entry.name === activeStage;
-    const canOpen = canUiManagerOpenStage(entry.name);
-    entry.button.classList.toggle("is-active", isActive);
-    entry.button.classList.toggle("is-disabled", !canOpen && !isActive);
-    entry.button.setAttribute("aria-selected", isActive ? "true" : "false");
-    entry.button.setAttribute("aria-disabled", !canOpen && !isActive ? "true" : "false");
-    entry.panel.classList.toggle("hidden", !isActive);
-  }
-
-  const activeIndex = getUiManagerStageIndex(activeStage);
-  elements.uiManagerPreviousStageButton.disabled = activeIndex === 0;
-  const nextStage = getUiManagerAdjacentStage(1);
-  elements.uiManagerNextStageButton.disabled = !nextStage || !canUiManagerOpenStage(nextStage);
-}
-function renderUiManagerConfirmationSummary() {
-  clearElementContent(elements.uiManagerConfirmationSummary);
-  const diff = buildUiManagerConfirmationDiff();
-  const { selectedPackage, selectedBundles, reviewTargets, skinChanges, componentChanges, plannedActions } = diff;
-
-  if (!selectedPackage) {
-    elements.uiManagerConfirmationSummary.appendChild(
-      createUiManagerEmptyState("Nothing to review yet", "Select characters, a UI package, and components to build a change review.")
-    );
-    return;
-  }
-
-  const overview = document.createElement("div");
-  overview.className = "ui-manager-confirm-overview";
-
-  const overviewHeader = document.createElement("div");
-  overviewHeader.className = "ui-manager-confirm-overview-header";
-  overviewHeader.innerHTML = `<span class="summary-label">Change Review</span><strong>${plannedActions.length ? plannedActions.join(" + ") : "No pending changes"}</strong>`;
-  overview.appendChild(overviewHeader);
-
-  const overviewPills = document.createElement("div");
-  overviewPills.className = "ui-manager-pill-row ui-manager-confirm-hero-pills";
-  overviewPills.appendChild(createUiManagerPill(selectedPackage.name, "success"));
-  overviewPills.appendChild(createUiManagerPill(`${reviewTargets.length} target(s)`));
-  overviewPills.appendChild(createUiManagerPill(`${skinChanges.length} UISkin diff(s)`, skinChanges.length ? "success" : ""));
-  overviewPills.appendChild(createUiManagerPill(`${componentChanges.length} component diff(s)`, componentChanges.length ? "success" : ""));
-  if (selectedBundles.length) {
-    overviewPills.appendChild(createUiManagerPill(`${selectedBundles.length} flagged bundle(s)`));
-  }
-  overview.appendChild(overviewPills);
-
-  const overviewCopy = document.createElement("p");
-  overviewCopy.className = "ui-manager-package-subcopy";
-  overviewCopy.textContent = plannedActions.length
-    ? `Review the before/after diff for ${selectedPackage.name} before applying the queued changes.`
-    : `No differences are queued for ${selectedPackage.name}. Adjust earlier stages if you expect to see pending changes here.`;
-  overview.appendChild(overviewCopy);
-  elements.uiManagerConfirmationSummary.appendChild(overview);
-
-  const buildDiffSection = (label, status, emptyCopy) => {
-    const section = document.createElement("section");
-    section.className = "ui-manager-confirm-diff-section";
-    const header = document.createElement("div");
-    header.className = "ui-manager-confirm-diff-section-header";
-    header.innerHTML = `<span class="summary-label">${label}</span><strong>${status}</strong>`;
-    section.appendChild(header);
-    if (emptyCopy) {
-      const copy = document.createElement("p");
-      copy.className = "ui-manager-package-subcopy";
-      copy.textContent = emptyCopy;
-      section.appendChild(copy);
-    }
-    return section;
-  };
-
-  const targetSection = buildDiffSection(
-    "UISkin Diff",
-    skinChanges.length ? `${skinChanges.length} pending` : "No changes detected",
-    !reviewTargets.length
-      ? "Select one or more characters in Stage 1 to review target-specific UISkin changes."
-      : !skinChanges.length
-        ? `All reviewed targets already use UISkin=${selectedPackage.name}.`
-        : ""
-  );
-
-  if (skinChanges.length) {
-    const list = document.createElement("div");
-    list.className = "ui-manager-confirm-diff-stack";
-    for (const change of skinChanges) {
-      const file = document.createElement("article");
-      file.className = "ui-manager-confirm-file";
-      file.innerHTML = `
-        <div class="ui-manager-confirm-file-header">
-          <strong>${change.label}</strong>
-          <span>${change.fileName}</span>
-        </div>
-      `;
-      const body = document.createElement("div");
-      body.className = "ui-manager-confirm-file-body";
-      body.appendChild(createUiManagerDiffLine("remove", `UISkin=${change.from}`));
-      body.appendChild(createUiManagerDiffLine("add", `UISkin=${change.to}`));
-      file.appendChild(body);
-      list.appendChild(file);
-    }
-    targetSection.appendChild(list);
-  }
-  elements.uiManagerConfirmationSummary.appendChild(targetSection);
-
-  const componentSection = buildDiffSection(
-    "Component Diff",
-    selectedPackage.protected ? "Read-only package" : componentChanges.length ? `${componentChanges.length} pending` : "No changes detected",
-    selectedPackage.protected
-      ? "Component file changes are unavailable for the protected default package. Use this stage to review UISkin assignments only."
-      : !componentChanges.length
-        ? "No component variants differ from the package’s current active state."
-        : ""
-  );
-
-  if (!selectedPackage.protected && componentChanges.length) {
-    const list = document.createElement("div");
-    list.className = "ui-manager-confirm-diff-stack";
-    for (const change of componentChanges) {
-      const file = document.createElement("article");
-      file.className = "ui-manager-confirm-file";
-
-      const header = document.createElement("div");
-      header.className = "ui-manager-confirm-file-header";
-      header.innerHTML = `<strong>${change.groupLabel}</strong><span>${change.fromPath || change.toPath || "Component variant"}</span>`;
-      file.appendChild(header);
-
-      const body = document.createElement("div");
-      body.className = "ui-manager-confirm-file-body";
-      body.appendChild(createUiManagerDiffLine("context", `XML: ${(change.xmlFiles || []).join(", ") || "No mapped XML files"}`));
-      body.appendChild(createUiManagerDiffLine("remove", `variant=${change.from}`));
-      body.appendChild(createUiManagerDiffLine("remove", `source=${change.fromPath || "Inactive"}`));
-      body.appendChild(createUiManagerDiffLine("add", `variant=${change.to}`));
-      body.appendChild(createUiManagerDiffLine("add", `source=${change.toPath || "Inactive"}`));
-      file.appendChild(body);
-      list.appendChild(file);
-    }
-    componentSection.appendChild(list);
-  }
-  elements.uiManagerConfirmationSummary.appendChild(componentSection);
-
-  const footerNote = document.createElement("div");
-  footerNote.className = "ui-manager-preview-callout";
-  footerNote.textContent = plannedActions.length
-    ? "Use the footer actions to apply the reviewed changes, or return to earlier stages to adjust the diff."
-    : "No changes are currently queued. Adjust your selections in the earlier stages if you want this review to show pending work.";
-  elements.uiManagerConfirmationSummary.appendChild(footerNote);
-}
-function createUiManagerDiffLine(type, text) {
-  const line = document.createElement("div");
-  line.className = `ui-manager-confirm-line is-${type}`;
-
-  const marker = document.createElement("span");
-  marker.className = "ui-manager-confirm-line-marker";
-  marker.textContent = type === "add" ? "+" : type === "remove" ? "-" : " ";
-  line.appendChild(marker);
-
-  const code = document.createElement("code");
-  code.className = "ui-manager-confirm-line-code";
-  code.textContent = text;
-  line.appendChild(code);
-  return line;
-}
-function renderUiManagerTargetList() {
-  clearElementContent(elements.uiManagerTargetList);
-  const targets = getUiManagerTargets();
-  const filteredTargets = getUiManagerFilteredTargets();
-  const serverNames = getUiManagerAvailableServerNames();
-  const selectedCount = state.uiManager.selectedTargetPaths.length;
-  elements.uiManagerTargetMeta.textContent = areAllUiManagerTargetsSelected()
-    ? "All selected"
-    : `${selectedCount} selected`;
-  elements.uiManagerTargetSearchInput.value = state.uiManager.targetSearchQuery || "";
-  clearElementContent(elements.uiManagerTargetServerFilter);
-  const allServersOption = document.createElement("option");
-  allServersOption.value = "";
-  allServersOption.textContent = "All Servers";
-  elements.uiManagerTargetServerFilter.appendChild(allServersOption);
-  for (const serverName of serverNames) {
-    const option = document.createElement("option");
-    option.value = serverName;
-    option.textContent = serverName;
-    elements.uiManagerTargetServerFilter.appendChild(option);
-  }
-  if (state.uiManager.targetServerFilter && !serverNames.includes(state.uiManager.targetServerFilter)) {
-    state.uiManager.targetServerFilter = "";
-  }
-  elements.uiManagerTargetServerFilter.value = state.uiManager.targetServerFilter || "";
-
-  if (!targets.length) {
-    elements.uiManagerTargetList.appendChild(
-      createUiManagerEmptyState("No targets detected", "Character-specific UI settings files were not found in the current EQ directory.")
-    );
-    return;
-  }
-
-  if (!filteredTargets.length) {
-    elements.uiManagerTargetList.appendChild(
-      createUiManagerEmptyState("No matches", "No character UI settings matched the current server filter and search.")
-    );
-    return;
-  }
-
-  for (const target of filteredTargets) {
-    const wrapper = document.createElement("label");
-    wrapper.className = "ui-manager-target-card";
-
-    const input = document.createElement("input");
-    input.type = "checkbox";
-    input.value = target.path;
-    input.checked = state.uiManager.selectedTargetPaths.includes(target.path);
-    wrapper.classList.toggle("is-selected", input.checked);
-    wrapper.appendChild(input);
-
-    const copyWrap = document.createElement("div");
-    const title = document.createElement("p");
-    title.className = "ui-manager-target-name";
-    title.textContent = `${target.characterName} • ${target.serverName}`;
-    copyWrap.appendChild(title);
-
-    const meta = document.createElement("div");
-    meta.className = "ui-manager-target-meta";
-    meta.appendChild(createUiManagerPill(target.uiSkin || "Default", state.uiManager.selectedPackageName && String(target.uiSkin || "").toLowerCase() === state.uiManager.selectedPackageName.toLowerCase() ? "success" : ""));
-    meta.appendChild(createUiManagerPill(target.fileName));
-    copyWrap.appendChild(meta);
-    wrapper.appendChild(copyWrap);
-    elements.uiManagerTargetList.appendChild(wrapper);
+function formatUiManagerBackupReason(reason) {
+  switch (String(reason || "").toLowerCase()) {
+    case "activate":
+      return "Before equipping styles";
+    case "set-uiskin":
+      return "Before assigning characters";
+    case "reset":
+      return "Before reset";
+    case "prepare":
+      return "Before preparing";
+    case "validate-ui-metadata":
+      return "Before metadata repair";
+    case "restore":
+      return "Before restoring a backup";
+    case "manual":
+      return "Manual backup";
+    default:
+      return formatUiManagerHumanLabel(reason) || "Backup";
   }
 }
-function getFilteredUiManagerBundles() {
-  const bundles = Array.isArray(state.uiManager.detail?.bundles) ? state.uiManager.detail.bundles : [];
-  const selectedPaths = new Set(state.uiManager.selectedOptionPaths || []);
-  const query = (state.uiManager.optionSearchQuery || "").trim().toLowerCase();
-  const filter = state.uiManager.optionFilterMode || "all";
-
-  return bundles.filter((bundle) => {
-    if (filter === "active" && bundle.activeState !== "active") return false;
-    if (filter === "flagged" && !selectedPaths.has(bundle.optionPath)) return false;
-
-    if (query) {
-      const label = (bundle.label || bundle.optionPath || "").toLowerCase();
-      const category = (bundle.categoryPath || "").toLowerCase();
-      const groupLabel = getUiManagerBundleGroupLabel(bundle).toLowerCase();
-      if (!label.includes(query) && !category.includes(query) && !groupLabel.includes(query)) return false;
-    }
-    return true;
+function formatUiManagerBackupDate(value) {
+  const date = new Date(value || "");
+  if (!value || Number.isNaN(date.getTime())) {
+    return "Unknown date";
+  }
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
   });
 }
-function renderUiManagerOptionList() {
-  clearElementContent(elements.uiManagerOptionList);
-  const bundles = Array.isArray(state.uiManager.detail?.bundles) ? state.uiManager.detail.bundles : [];
-  const selectedPaths = new Set(state.uiManager.selectedOptionPaths || []);
-  const bundleGroups = getUiManagerBundleGroups();
-  const activeCount = bundles.filter((bundle) => bundle.activeState === "active").length;
-  elements.uiManagerOptionMeta.textContent = bundles.length ? `${bundles.length} bundles • ${activeCount} active • ${selectedPaths.size} flagged` : "No options";
-
-  if (!bundles.length) {
-    elements.uiManagerOptionList.appendChild(
-      createUiManagerEmptyState(
-        getUiManagerSelectedPackageSummary()?.prepared ? "No option bundles found" : "Package preparation required",
-        getUiManagerSelectedPackageSummary()?.prepared
-          ? "This package is prepared, but no selectable option bundles were discovered under Options."
-          : "Prepare the package to standardize its structure and populate the option library."
-      )
-    );
-    return;
-  }
-
-  const filtered = getFilteredUiManagerBundles();
-
-  if (!filtered.length) {
-    elements.uiManagerOptionList.appendChild(
-      createUiManagerEmptyState("No matching components", "Try adjusting your search or filter criteria.")
-    );
-    return;
-  }
-
-  const uniqueCategories = new Set(filtered.map((b) => (b.categoryPath || "").trim().toLowerCase() || "_uncategorized"));
-  const showGroupHeaders = uniqueCategories.size > 1;
-  const seenCategories = new Set();
-  for (const bundle of filtered) {
-    const categoryKey = (bundle.categoryPath || "").trim().toLowerCase() || "_uncategorized";
-    if (showGroupHeaders && !seenCategories.has(categoryKey)) {
-      const isFirst = seenCategories.size === 0;
-      seenCategories.add(categoryKey);
-      if (!isFirst) {
-        const categoryBundles = filtered.filter((b) => ((b.categoryPath || "").trim().toLowerCase() || "_uncategorized") === categoryKey);
-        const header = document.createElement("div");
-        header.className = "ui-manager-option-group-header";
-        const headerLabel = document.createElement("span");
-        headerLabel.className = "ui-manager-option-group-label";
-        headerLabel.textContent = formatUiManagerPrettyPath(bundle.categoryPath || "") || "General";
-        header.appendChild(headerLabel);
-        const headerCount = document.createElement("span");
-        headerCount.className = "ui-manager-option-group-count";
-        headerCount.textContent = `${categoryBundles.length}`;
-        header.appendChild(headerCount);
-        elements.uiManagerOptionList.appendChild(header);
-      }
-    }
-
-    const groupKey = getUiManagerBundleGroupKey(bundle);
-    const relatedBundles = bundleGroups.get(groupKey) || [bundle];
-    const groupLabel = getUiManagerBundleGroupLabel(bundle);
-    const sectionLabel = formatUiManagerPrettyPath(bundle.categoryPath || "");
-    const variantLabel = formatUiManagerBundleVariantLabel(bundle);
-    const card = document.createElement("article");
-    card.className = "ui-manager-option-card";
-    card.dataset.optionPath = bundle.optionPath;
-    card.dataset.optionGroupKey = groupKey;
-    card.tabIndex = 0;
-    card.setAttribute("role", "button");
-    card.setAttribute("aria-label", `Preview ${bundle.label || bundle.optionPath}`);
-    card.classList.toggle("is-selected", bundle.optionPath === state.uiManager.selectedOptionPath);
-    card.classList.toggle("is-staged", selectedPaths.has(bundle.optionPath));
-    card.classList.toggle("is-active-bundle", bundle.activeState === "active");
-    card.classList.toggle("is-mixed-bundle", bundle.activeState === "mixed");
-
-    const head = document.createElement("div");
-    head.className = "ui-manager-option-head";
-
-    const mark = document.createElement("div");
-    mark.className = "ui-manager-option-mark";
-    mark.textContent = bundle.isDefault ? "DF" : "UI";
-    head.appendChild(mark);
-
-    const headingBlock = document.createElement("div");
-    headingBlock.className = "ui-manager-option-heading";
-
-    const title = document.createElement("p");
-    title.className = "ui-manager-option-title";
-    title.textContent = variantLabel || formatUiManagerHumanLabel(bundle.label || bundle.optionPath);
-    headingBlock.appendChild(title);
-
-    if (sectionLabel) {
-      const section = document.createElement("p");
-      section.className = "ui-manager-option-copy is-section";
-      section.textContent = sectionLabel;
-      headingBlock.appendChild(section);
-    }
-
-    if (variantLabel && variantLabel.toLowerCase() !== (sectionLabel || "").toLowerCase()) {
-      const style = document.createElement("p");
-      style.className = "ui-manager-option-copy is-style";
-      style.textContent = `Style: ${variantLabel}`;
-      headingBlock.appendChild(style);
-    }
-    head.appendChild(headingBlock);
-
-    const toggle = document.createElement("label");
-    toggle.className = "ui-manager-option-toggle";
-    const toggleInput = document.createElement("input");
-    toggleInput.type = "checkbox";
-    toggleInput.checked = selectedPaths.has(bundle.optionPath);
-    toggleInput.dataset.optionToggle = "true";
-    toggleInput.dataset.optionPath = bundle.optionPath;
-    toggleInput.setAttribute("aria-label", `Flag ${bundle.label || bundle.optionPath} for use`);
-    toggle.appendChild(toggleInput);
-    const toggleText = document.createElement("span");
-    toggleText.textContent = "Use";
-    toggle.appendChild(toggleText);
-    head.appendChild(toggle);
-
-    if (bundle.previewImageUrl) {
-      const preview = document.createElement("div");
-      preview.className = "ui-manager-option-thumb";
-      const image = document.createElement("img");
-      image.src = bundle.previewImageUrl;
-      image.alt = `${bundle.label} preview`;
-      preview.appendChild(image);
-      head.appendChild(preview);
-    }
-
-    card.appendChild(head);
-
-    const facts = document.createElement("p");
-    facts.className = "ui-manager-option-facts";
-    facts.textContent = `${bundle.xmlFiles.length} ${bundle.xmlFiles.length === 1 ? "screen element" : "screen elements"}${bundle.tgaFiles.length && !bundle.isDefault ? ` • ${bundle.tgaFiles.length} ${bundle.tgaFiles.length === 1 ? "art file" : "art files"}` : ""}`;
-    card.appendChild(facts);
-
-    const pills = document.createElement("div");
-    pills.className = "ui-manager-pill-row";
-    pills.appendChild(createUiManagerPill(groupLabel));
-    if (relatedBundles.length > 1) {
-      pills.appendChild(createUiManagerPill(`${relatedBundles.length} styles`, "warning"));
-    }
-    if (selectedPaths.has(bundle.optionPath)) {
-      pills.appendChild(createUiManagerPill("Flagged", "success"));
-    } else if (bundle.activeState === "active") {
-      pills.appendChild(createUiManagerPill("Active", "success"));
-    } else if (bundle.activeState === "mixed") {
-      pills.appendChild(createUiManagerPill("Mixed", "warning"));
-    } else if (bundle.isDefault) {
-      pills.appendChild(createUiManagerPill("Default", "warning"));
-    }
-    card.appendChild(pills);
-    elements.uiManagerOptionList.appendChild(card);
-  }
-}
-function renderUiManagerPreviewAndBackups() {
-  clearElementContent(elements.uiManagerPreviewPanel);
-  clearElementContent(elements.uiManagerBackupList);
-  clearElementContent(elements.uiManagerRecoveryStats);
-  const bundle = getUiManagerSelectedBundle();
-  const bundleGroups = getUiManagerBundleGroups();
+function renderUiManagerRecovery() {
   const selectedPackage = getUiManagerSelectedPackageSummary();
   const uiManagerLocked = isUiManagerActionLocked();
-  const backups = Array.isArray(state.uiManager.detail?.backups) ? state.uiManager.detail.backups : [];
-  const backupSummary = state.uiManager.detail?.backupSummary || null;
-  elements.uiManagerRecoveryPackageName.textContent = selectedPackage?.name || "No package selected.";
-  elements.uiManagerRecoveryMeta.textContent = selectedPackage
-    ? `${backups.length} backup${backups.length === 1 ? "" : "s"} available for ${selectedPackage.name}.`
-    : "Choose a package to review backups and restore points.";
+  const detail = state.uiManager.detail?.name === selectedPackage?.name ? state.uiManager.detail : null;
+  const backups = Array.isArray(detail?.backups) ? detail.backups : [];
+  const backupSummary = detail?.backupSummary || null;
 
+  elements.uiManagerRecoveryPackageName.textContent = selectedPackage?.name || "No interface selected.";
+  elements.uiManagerRecoveryMeta.textContent = selectedPackage
+    ? `${pluralize(backups.length, "restore point")} for ${selectedPackage.name}. Restoring replaces the interface files and any character settings captured with it.`
+    : "Choose an interface to review its backups.";
+
+  clearElementContent(elements.uiManagerRecoveryStats);
   if (selectedPackage && backupSummary) {
     const stats = [
       `${backupSummary.backupCount || 0} of ${backupSummary.maxBackupCount || 0} kept`,
@@ -1870,200 +1973,53 @@ function renderUiManagerPreviewAndBackups() {
       `Auto-trim at ${formatByteValue(backupSummary.maxTotalSizeBytes || 0)}`
     ];
     for (const label of stats) {
-      elements.uiManagerRecoveryStats.appendChild(createUiManagerPill(label, "neutral"));
+      elements.uiManagerRecoveryStats.appendChild(createUiManagerElement("span", "uim-recovery-stat", label));
     }
   }
 
-  if (!bundle) {
-    elements.uiManagerPreviewPanel.appendChild(
-      createUiManagerEmptyState("Select an option bundle", "Choose a bundle from the option library to see its preview, file set, and restore context.")
-    );
-  } else {
-    const relatedBundles = bundleGroups.get(getUiManagerBundleGroupKey(bundle)) || [bundle];
-    const prettyTitle = formatUiManagerHumanLabel(bundle.label || bundle.optionPath);
-    const prettyCategory = formatUiManagerPrettyPath(bundle.categoryPath || "");
-    const humanGroupLabel = formatUiManagerHumanLabel(getUiManagerBundleGroupLabel(bundle));
-    const xmlCountLabel = `${bundle.xmlFiles.length} ${bundle.xmlFiles.length === 1 ? "screen element" : "screen elements"}`;
-    const artCountLabel = bundle.isDefault
-      ? "No extra artwork"
-      : `${bundle.tgaFiles.length} ${bundle.tgaFiles.length === 1 ? "art file" : "art files"}`;
-    const headerRow = document.createElement("div");
-    headerRow.className = "ui-manager-preview-header";
-
-    const headingCopy = document.createElement("div");
-    headingCopy.className = "ui-manager-preview-header-copy";
-
-    const title = document.createElement("p");
-    title.className = "ui-manager-option-title";
-    title.textContent = prettyTitle;
-    headingCopy.appendChild(title);
-
-    if (prettyCategory) {
-      const categoryLine = document.createElement("p");
-      categoryLine.className = "ui-manager-option-copy";
-      categoryLine.textContent = `Section: ${prettyCategory}`;
-      headingCopy.appendChild(categoryLine);
+  renderUiManagerRegion(elements.uiManagerBackupList, () => {
+    if (!selectedPackage) {
+      elements.uiManagerBackupList.appendChild(
+        createUiManagerEmptyState("No interface selected", "Choose an interface to open its restore points.")
+      );
+      return;
     }
 
-    const summaryLine = document.createElement("p");
-    summaryLine.className = "ui-manager-preview-summary";
-    summaryLine.textContent = `This style updates ${humanGroupLabel.toLowerCase()} and includes ${xmlCountLabel.toLowerCase()}${bundle.isDefault ? "." : ` plus ${artCountLabel.toLowerCase()}.`}`;
-    headingCopy.appendChild(summaryLine);
-    headerRow.appendChild(headingCopy);
-    elements.uiManagerPreviewPanel.appendChild(headerRow);
-
-    const preview = document.createElement("div");
-    preview.className = "ui-manager-preview-stage";
-    if (bundle.previewImageUrl) {
-      const image = document.createElement("img");
-      image.src = bundle.previewImageUrl;
-      image.alt = `${bundle.label} preview`;
-      preview.appendChild(image);
-    } else {
-      const copy = document.createElement("div");
-      copy.className = "ui-manager-option-preview is-empty";
-      copy.textContent = "No preview image was included for this style.";
-      preview.appendChild(copy);
+    if (!backups.length) {
+      elements.uiManagerBackupList.appendChild(
+        createUiManagerEmptyState("No backups yet", "A restore point is saved automatically before every prepare, apply, reset, or restore.")
+      );
+      return;
     }
-    elements.uiManagerPreviewPanel.appendChild(preview);
 
-    const details = document.createElement("div");
-    details.className = "ui-manager-preview-detail-grid";
+    for (const backup of backups) {
+      const item = createUiManagerElement("li", "uim-timeline-item");
+      item.dataset.backupId = backup.id;
 
-    const affectsCard = document.createElement("div");
-    affectsCard.className = "ui-manager-preview-detail-card";
-    affectsCard.innerHTML = `<span class="summary-label">Affects</span><strong>${humanGroupLabel}</strong>`;
-    details.appendChild(affectsCard);
+      const head = createUiManagerElement("div", "uim-timeline-head");
+      head.appendChild(createUiManagerElement("strong", "uim-timeline-title", formatUiManagerBackupReason(backup.reason)));
+      head.appendChild(createUiManagerElement("time", "uim-timeline-time", formatUiManagerBackupDate(backup.createdAt)));
+      item.appendChild(head);
 
-    const assetsCard = document.createElement("div");
-    assetsCard.className = "ui-manager-preview-detail-card";
-    assetsCard.innerHTML = `<span class="summary-label">Includes</span><strong>${xmlCountLabel}${bundle.isDefault ? "" : ` • ${artCountLabel}`}</strong>`;
-    details.appendChild(assetsCard);
-
-    elements.uiManagerPreviewPanel.appendChild(details);
-
-    if (relatedBundles.length > 1) {
-      const relatedLabel = document.createElement("p");
-      relatedLabel.className = "ui-manager-preview-related-label";
-      relatedLabel.textContent = "Other styles in this set";
-      elements.uiManagerPreviewPanel.appendChild(relatedLabel);
-
-      const relatedStrip = document.createElement("div");
-      relatedStrip.className = "ui-manager-package-file-strip";
-      for (const relatedBundle of relatedBundles) {
-        const tone = relatedBundle.optionPath === bundle.optionPath || relatedBundle.activeState === "active" ? "success" : "";
-        relatedStrip.appendChild(createUiManagerPill(formatUiManagerHumanLabel(relatedBundle.label || relatedBundle.optionPath), tone));
+      const iniCount = Array.isArray(backup.iniFiles) ? backup.iniFiles.length : 0;
+      const facts = [
+        backup.hasSnapshot ? "Full snapshot" : "INI-only",
+        formatByteValue(backup.sizeBytes || 0)
+      ];
+      if (iniCount) {
+        facts.push(`${iniCount} INI`);
       }
-      elements.uiManagerPreviewPanel.appendChild(relatedStrip);
+      item.appendChild(createUiManagerElement("p", "uim-timeline-facts", facts.join(" · ")));
+      item.appendChild(createUiManagerElement("p", "uim-timeline-id", backup.id));
+
+      const restore = createUiManagerElement("button", "uim-timeline-restore", "Restore");
+      restore.type = "button";
+      restore.dataset.backupId = backup.id;
+      restore.disabled = uiManagerLocked || state.uiManager.actionLoading;
+      item.appendChild(restore);
+      elements.uiManagerBackupList.appendChild(item);
     }
-
-    if (bundle.instructions) {
-      const instructions = document.createElement("p");
-      instructions.className = "ui-manager-preview-callout";
-      instructions.textContent = bundle.instructions;
-      elements.uiManagerPreviewPanel.appendChild(instructions);
-    }
-  }
-
-  if (!selectedPackage) {
-    elements.uiManagerBackupList.appendChild(
-      createUiManagerEmptyState("No package selected", "Select a package in Stage 2 to open its recovery history and restore points.")
-    );
-    return;
-  }
-
-  if (!backups.length) {
-    elements.uiManagerBackupList.appendChild(
-      createUiManagerEmptyState("No backups yet", "Backups will appear here after prepare, apply, reset, or restore actions create snapshots.")
-    );
-    return;
-  }
-
-  for (const backup of backups) {
-    const card = document.createElement("div");
-    card.className = "ui-manager-backup-card";
-    const title = document.createElement("p");
-    title.className = "ui-manager-backup-title";
-    title.textContent = backup.id;
-    card.appendChild(title);
-
-    const copy = document.createElement("p");
-    copy.className = "ui-manager-backup-copy";
-    copy.textContent = `${backup.reason || "manual"} • ${backup.createdAt || "Unknown date"}`;
-    card.appendChild(copy);
-
-    const metaStrip = document.createElement("div");
-    metaStrip.className = "ui-manager-backup-meta-strip";
-    metaStrip.appendChild(createUiManagerPill(formatByteValue(backup.sizeBytes || 0)));
-    metaStrip.appendChild(createUiManagerPill(backup.hasSnapshot ? "Full snapshot" : "INI-only", backup.hasSnapshot ? "" : "success"));
-    if (Array.isArray(backup.iniFiles) && backup.iniFiles.length) {
-      metaStrip.appendChild(createUiManagerPill(`${backup.iniFiles.length} INI`, "neutral"));
-    }
-    card.appendChild(metaStrip);
-
-    const restore = document.createElement("button");
-    restore.className = "secondary-button utility-button";
-    restore.type = "button";
-    restore.dataset.backupId = backup.id;
-    restore.textContent = "Restore Backup";
-    restore.disabled = uiManagerLocked;
-    card.appendChild(restore);
-    elements.uiManagerBackupList.appendChild(card);
-  }
-}
-function renderUiManagerActionState() {
-  const selectedPackage = getUiManagerSelectedPackageSummary();
-  const diff = buildUiManagerConfirmationDiff();
-  const activeStage = state.uiManager.activeStage || "targets";
-  const isConfirmStage = activeStage === "confirm";
-  const pendingComponentChanges = Array.isArray(diff.componentChanges)
-    ? diff.componentChanges.filter((entry) => entry.toPath)
-    : [];
-  const pendingSkinChanges = Array.isArray(diff.skinChanges) ? diff.skinChanges : [];
-  const uiManagerLocked = isUiManagerActionLocked();
-  const canApply = Boolean(
-    selectedPackage
-      && !selectedPackage.protected
-      && (pendingComponentChanges.length || pendingSkinChanges.length)
-  );
-  const canReset = Boolean(selectedPackage && selectedPackage.prepared && !selectedPackage.protected);
-
-  elements.uiManagerRecoveryButton.disabled = uiManagerLocked || !selectedPackage;
-  elements.uiManagerApplyOptionButton.disabled = uiManagerLocked || !canApply || state.uiManager.actionLoading || !isConfirmStage;
-  elements.uiManagerResetButton.disabled = uiManagerLocked || !canReset || state.uiManager.actionLoading || !isConfirmStage;
-  elements.uiManagerNextStageButton.textContent = activeStage === "components" ? "Review" : "Next";
-  elements.uiManagerActionMeta.textContent = activeStage === "targets"
-    ? "Stage 1: choose one or more characters, or use All Characters to target every UI settings file."
-    : activeStage === "packages"
-      ? !selectedPackage
-        ? "Stage 2: select the UI package you want to assign or customize."
-        : selectedPackage.prepared
-          ? `Stage 2: ${selectedPackage.name} is ready. Continue to UI Components or go straight to confirmation.`
-          : `Stage 2: ${selectedPackage.name} still needs preparation before component switching is available.`
-      : activeStage === "components"
-        ? "Stage 3: review the available component bundles and highlight the variant you want active."
-        : !selectedPackage
-          ? "Stage 4: complete the earlier stages to build a confirmation summary."
-          : selectedPackage.protected
-            ? "Stage 4: the protected default package can only be assigned via UISkin."
-            : selectedPackage.prepared
-              ? `${state.uiManager.selectedTargetPaths.length} target(s) selected. Review the summary, then apply the highlighted bundle or update UISkin.`
-              : "Stage 4: prepare this package before applying component changes.";
-}
-function renderUiManager() {
-  syncUiManagerSelection();
-  renderUiManagerNotice();
-  renderUiManagerPackageContextMenu();
-  renderUiManagerLaunchSurface();
-  renderUiManagerStageState();
-  renderUiManagerPackageList();
-  renderUiManagerPackageDetail();
-  renderUiManagerTargetList();
-  renderUiManagerOptionList();
-  renderUiManagerPreviewAndBackups();
-  renderUiManagerConfirmationSummary();
-  renderUiManagerActionState();
-  void ensureUiManagerPackageMetadataChecks();
+  });
 }
 async function loadUiManagerOverview(options = {}) {
   const { preserveNotice = false } = options;
@@ -2077,7 +2033,7 @@ async function loadUiManagerOverview(options = {}) {
 
   state.uiManager.overviewLoading = true;
   if (!preserveNotice) {
-    setUiManagerNotice("Refreshing UI Manager data...", "info", { persistent: true });
+    setUiManagerNotice("Scanning interfaces...", "info", { persistent: true });
   }
   renderUiManager();
 
@@ -2090,7 +2046,7 @@ async function loadUiManagerOverview(options = {}) {
     } else {
       state.uiManager.detail = null;
     }
-    setUiManagerNotice("UI Manager data refreshed.", "success");
+    setUiManagerNotice("Interfaces rescanned.", "success");
   } catch (error) {
     setUiManagerNotice(`Unable to load UI Manager data: ${error.message}`, "error");
   } finally {
@@ -2109,34 +2065,41 @@ async function loadUiManagerPackageDetails(packageName, options = {}) {
   state.uiManager.detailLoading = true;
   state.uiManager.selectedPackageName = packageName;
   if (!preserveNotice) {
-    setUiManagerNotice(`Loading ${packageName}...`, "info", { persistent: true });
+    setUiManagerNotice(`Reading ${packageName}...`, "info", { persistent: true });
   }
   renderUiManager();
 
   try {
-    state.uiManager.detail = await window.launcher.getUiPackageDetails(packageName);
-    const bundles = Array.isArray(state.uiManager.detail?.bundles) ? state.uiManager.detail.bundles : [];
-    const preferredBundle = bundles.find((entry) => entry.activeState === "active") || bundles[0] || null;
-    const activeBundlePaths = bundles.filter((entry) => entry.activeState === "active").map((entry) => entry.optionPath);
-    setUiManagerSelectedOptionPaths(state.uiManager.selectedOptionPaths.length ? state.uiManager.selectedOptionPaths : activeBundlePaths);
-    if (!state.uiManager.selectedOptionPaths.length && preferredBundle?.optionPath) {
-      state.uiManager.selectedOptionPaths = [preferredBundle.optionPath];
+    const detail = await window.launcher.getUiPackageDetails(packageName);
+    if (state.uiManager.selectedPackageName !== packageName) {
+      return;
     }
+    const previousStaged = state.uiManager.detail?.name === packageName ? state.uiManager.selectedOptionPaths : [];
+    state.uiManager.detail = detail;
+    if (previousStaged.length) {
+      setUiManagerSelectedOptionPaths(previousStaged);
+    } else {
+      resetUiManagerStagedOptionPaths();
+    }
+    const bundles = getUiManagerBundles();
     if (!bundles.some((entry) => entry.optionPath === state.uiManager.selectedOptionPath)) {
-      state.uiManager.selectedOptionPath = state.uiManager.selectedOptionPaths[0] || preferredBundle?.optionPath || "";
+      const preferredBundle = bundles.find((entry) => entry.activeState === "active") || bundles[0] || null;
+      state.uiManager.selectedOptionPath = preferredBundle?.optionPath || "";
     }
     if (!preserveNotice) {
       setUiManagerNotice(`Loaded ${packageName}.`, "success");
     }
   } catch (error) {
-    state.uiManager.detail = null;
+    if (state.uiManager.selectedPackageName === packageName) {
+      state.uiManager.detail = null;
+    }
     setUiManagerNotice(`Unable to load ${packageName}: ${error.message}`, "error");
   } finally {
     state.uiManager.detailLoading = false;
     renderUiManager();
   }
 }
-async function runUiManagerAction(message, action) {
+async function runUiManagerAction(message, action, options = {}) {
   if (isUiManagerActionLocked()) {
     setUiManagerLockedNotice();
     renderUiManager();
@@ -2154,34 +2117,45 @@ async function runUiManagerAction(message, action) {
         targets: result.targets
       };
     }
-    if (result?.details) {
-      state.uiManager.detail = result.details;
-      state.uiManager.selectedPackageName = result.details.name || state.uiManager.selectedPackageName;
-    } else if (state.uiManager.selectedPackageName) {
-      await loadUiManagerPackageDetails(state.uiManager.selectedPackageName, { preserveNotice: true });
-    }
     if (!result?.overview) {
-      const latestOverview = await window.launcher.getUiManagerOverview();
-      state.uiManager.overview = latestOverview;
+      state.uiManager.overview = await window.launcher.getUiManagerOverview();
+    }
+    if (result?.details) {
+      const nextPackageName = result.details.name || state.uiManager.selectedPackageName;
+      if (nextPackageName !== state.uiManager.selectedPackageName) {
+        // An import lands on the new interface; its roster starts from its own users.
+        state.uiManager.selectedTargetPaths = [];
+        state.uiManager.selectedOptionPath = "";
+      }
+      state.uiManager.detail = result.details;
+      state.uiManager.selectedPackageName = nextPackageName;
+    } else if (state.uiManager.selectedPackageName) {
+      state.uiManager.detail = await window.launcher.getUiPackageDetails(state.uiManager.selectedPackageName);
+    }
+    // Whatever was queued has now been written (or superseded by a reset/restore),
+    // so the loadout starts again from what is on disk.
+    resetUiManagerStagedOptionPaths();
+    const bundles = getUiManagerBundles();
+    if (!bundles.some((entry) => entry.optionPath === state.uiManager.selectedOptionPath)) {
+      state.uiManager.selectedOptionPath = (bundles.find((entry) => entry.activeState === "active") || bundles[0])?.optionPath || "";
     }
     resetUiManagerPackageMetadataHealthState();
     syncUiManagerSelection();
     const summaryMessage = result?.summary && Number.isFinite(result.summary.scannedCount)
       ? `Validated UI Meta Data for ${result.summary.scannedCount} option XML file(s); corrected ${result.summary.correctedCount || 0}.`
-      : "UI Manager action completed.";
+      : (typeof options.successMessage === "function" ? options.successMessage(result) : options.successMessage)
+        || "Done. Changes were written to disk.";
     setUiManagerNotice(summaryMessage, "success");
-    renderUiManager();
     return result;
   } catch (error) {
     setUiManagerNotice(error.message || "UI Manager action failed.", "error");
-    renderUiManager();
     return null;
   } finally {
     state.uiManager.actionLoading = false;
     renderUiManager();
   }
 }
-async function promptUiManagerAction(message, action) {
+async function promptUiManagerAction(message, action, options = {}) {
   if (isUiManagerActionLocked()) {
     setUiManagerLockedNotice();
     renderUiManager();
@@ -2190,7 +2164,7 @@ async function promptUiManagerAction(message, action) {
   openUiManagerConfirmModal(message, async () => {
     closeUiManagerConfirmModal();
     await action();
-  });
+  }, options);
 }
 function createExternalLinkElement(href, label) {
   const anchor = document.createElement("a");
@@ -3812,14 +3786,12 @@ function renderState(nextState) {
   if ((nextState?.gameDirectory || "") !== previousGameDirectory) {
     state.uiManager.overview = null;
     state.uiManager.detail = null;
-    state.uiManager.activeStage = "targets";
     state.uiManager.selectedPackageName = "";
     state.uiManager.selectedOptionPath = "";
     state.uiManager.selectedOptionPaths = [];
     state.uiManager.selectedTargetPaths = [];
     state.uiManager.targetSearchQuery = "";
     state.uiManager.targetServerFilter = "";
-    state.uiManager.targetPickerOpen = false;
     state.uiManager.noticeText = "";
   }
   setPatchNotesSearchEnabled(hasConfiguredPatchNotesSource());
@@ -4462,10 +4434,6 @@ function wireEvents() {
   elements.loginServerStatusBadge?.addEventListener("contextmenu", handleLoginServerContextMenu);
   elements.loginServerContextMenu?.addEventListener("click", handleLoginServerMenuAction);
 
-  bindHorizontalWheelScroll(elements.uiManagerPackageList);
-  bindHorizontalWheelScroll(elements.uiManagerTargetList);
-  bindHorizontalWheelScroll(elements.uiManagerOptionList);
-  bindHorizontalWheelScroll(elements.uiManagerStageTabs);
 
   elements.minimizeButton.addEventListener("click", async () => {
     await window.launcher.minimizeWindow();
@@ -4599,26 +4567,21 @@ function wireEvents() {
       renderUiManager();
     }
   });
-  elements.uiManagerRefreshButton.addEventListener("click", async () => {
+  const handleUiManagerRescan = async () => {
     if (isUiManagerActionLocked()) {
       setUiManagerLockedNotice();
       renderUiManager();
       return;
     }
     await loadUiManagerOverview();
-  });
-  elements.uiManagerModalRefreshButton.addEventListener("click", async () => {
-    if (isUiManagerActionLocked()) {
-      setUiManagerLockedNotice();
-      renderUiManager();
-      return;
-    }
-    await loadUiManagerOverview();
-  });
+  };
+  elements.uiManagerRefreshButton.addEventListener("click", handleUiManagerRescan);
+  elements.uiManagerModalRefreshButton.addEventListener("click", handleUiManagerRescan);
   elements.uiManagerRecoveryButton.addEventListener("click", () => {
     if (elements.uiManagerRecoveryButton.disabled) {
       return;
     }
+    renderUiManagerRecovery();
     openUiManagerRecoveryModal();
   });
   elements.uiManagerCloseButton.addEventListener("click", () => {
@@ -4633,6 +4596,11 @@ function wireEvents() {
   elements.uiManagerRecoveryBackdrop.addEventListener("click", () => {
     closeUiManagerRecoveryModal();
   });
+  const importUiManagerFolder = async (sourcePath) => {
+    await runUiManagerAction("Importing UI folder...", () => window.launcher.importUiPackageFolder(sourcePath), {
+      successMessage: (result) => `Imported ${result?.details?.name || "the UI folder"}. Prepare it to unlock its window styles.`
+    });
+  };
   elements.uiManagerImportButton.addEventListener("click", async () => {
     if (isUiManagerActionLocked()) {
       setUiManagerLockedNotice();
@@ -4643,13 +4611,16 @@ function wireEvents() {
     if (result?.canceled || !result?.sourcePath) {
       return;
     }
-    await runUiManagerAction("Importing UI package folder...", () => window.launcher.importUiPackageFolder(result.sourcePath));
+    await importUiManagerFolder(result.sourcePath);
   });
   elements.uiManagerDropZone.addEventListener("dragover", (event) => {
     event.preventDefault();
     elements.uiManagerDropZone.classList.add("is-dragging");
   });
-  elements.uiManagerDropZone.addEventListener("dragleave", () => {
+  elements.uiManagerDropZone.addEventListener("dragleave", (event) => {
+    if (event.relatedTarget && elements.uiManagerDropZone.contains(event.relatedTarget)) {
+      return;
+    }
     elements.uiManagerDropZone.classList.remove("is-dragging");
   });
   elements.uiManagerDropZone.addEventListener("drop", async (event) => {
@@ -4660,20 +4631,38 @@ function wireEvents() {
       renderUiManager();
       return;
     }
-    const droppedPath = event.dataTransfer?.files?.[0]?.path;
+    const droppedFile = event.dataTransfer?.files?.[0];
+    // Electron removed File.path; the preload bridges webUtils.getPathForFile instead.
+    const droppedPath = droppedFile
+      ? (typeof window.launcher.getPathForFile === "function" ? window.launcher.getPathForFile(droppedFile) : "") || droppedFile.path || ""
+      : "";
     if (!droppedPath) {
       setUiManagerNotice("Drop a folder from your filesystem to import it.", "error");
       return;
     }
-    await runUiManagerAction("Importing UI package folder...", () => window.launcher.importUiPackageFolder(droppedPath));
+    await importUiManagerFolder(droppedPath);
   });
   elements.uiManagerPackageList.addEventListener("click", async (event) => {
     closeUiManagerPackageContextMenu();
+    renderUiManagerPackageContextMenu();
     const button = event.target.closest("button[data-package-name]");
     if (!button) {
       return;
     }
     await selectUiManagerPackage(button.dataset.packageName);
+  });
+  elements.uiManagerPackageList.addEventListener("keydown", (event) => {
+    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
+      return;
+    }
+    const rows = Array.from(elements.uiManagerPackageList.querySelectorAll("button[data-package-name]"));
+    const currentIndex = rows.indexOf(event.target.closest?.("button[data-package-name]"));
+    if (currentIndex < 0) {
+      return;
+    }
+    event.preventDefault();
+    const nextRow = rows[Math.min(rows.length - 1, Math.max(0, currentIndex + (event.key === "ArrowDown" ? 1 : -1)))];
+    nextRow?.focus();
   });
   elements.uiManagerPackageList.addEventListener("contextmenu", async (event) => {
     const button = event.target.closest("button[data-package-name]");
@@ -4693,33 +4682,51 @@ function wireEvents() {
     if (state.uiManager.selectedPackageName !== button.dataset.packageName) {
       closeUiManagerPackageContextMenu();
       renderUiManagerPackageContextMenu();
+    }
+  });
+  const promptUiManagerValidate = async (packageName) => {
+    await promptUiManagerAction(
+      `Validate UI Meta Data in ${packageName}? This will scan the Options folder recursively, create a backup, and correct any invalid first-line UI Meta Data entries.`,
+      async () => {
+        await runUiManagerAction(
+          `Validating UI Meta Data in ${packageName}...`,
+          () => window.launcher.validateUiPackageOptionComments(packageName)
+        );
+      },
+      {
+        title: "Validate UI metadata",
+        acceptLabel: "Validate"
+      }
+    );
+  };
+  elements.uiManagerValidateButton?.addEventListener("click", async () => {
+    if (elements.uiManagerValidateButton.disabled || !state.uiManager.selectedPackageName) {
       return;
     }
+    await promptUiManagerValidate(state.uiManager.selectedPackageName);
   });
   elements.uiManagerPackageDetail.addEventListener("click", (event) => {
     const packageActionButton = event.target.closest("button[data-ui-manager-package-action]");
-    if (packageActionButton) {
-      if (packageActionButton.dataset.uiManagerPackageAction === "prepare" && state.uiManager.selectedPackageName) {
-        promptUiManagerAction(
-          `Prepare ${state.uiManager.selectedPackageName}? This will create a backup, normalize the folder structure, and stamp UI Meta Data.`,
-          async () => {
-            await runUiManagerAction(
-              `Preparing ${state.uiManager.selectedPackageName}...`,
-              () => window.launcher.prepareUiPackage(state.uiManager.selectedPackageName)
-            );
-          }
-        );
-      }
+    if (!packageActionButton) {
       return;
     }
-
-    const button = event.target.closest("button[data-package-detail-tab]");
-    if (!button) {
-      return;
+    if (packageActionButton.dataset.uiManagerPackageAction === "prepare" && state.uiManager.selectedPackageName) {
+      const packageName = state.uiManager.selectedPackageName;
+      promptUiManagerAction(
+        `Prepare ${packageName}? This will create a backup, normalize the folder structure, and stamp UI Meta Data.`,
+        async () => {
+          await runUiManagerAction(
+            `Preparing ${packageName}...`,
+            () => window.launcher.prepareUiPackage(packageName),
+            { successMessage: `Prepared ${packageName}. Its window styles are ready to equip.` }
+          );
+        },
+        {
+          title: "Prepare interface",
+          acceptLabel: "Prepare"
+        }
+      );
     }
-
-    state.uiManager.packageDetailTab = button.dataset.packageDetailTab === "files" ? "files" : "overview";
-    renderUiManagerPackageDetail();
   });
   elements.uiManagerPackageContextMenu.addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-ui-manager-package-context-action]");
@@ -4731,32 +4738,19 @@ function wireEvents() {
     closeUiManagerPackageContextMenu();
     renderUiManagerPackageContextMenu();
     if (button.dataset.uiManagerPackageContextAction === "validate-comments" && packageName) {
-      await promptUiManagerAction(
-        `Validate UI Meta Data in ${packageName}? This will scan the Options folder recursively, create a backup, and correct any invalid first-line UI Meta Data entries.`,
-        async () => {
-          await runUiManagerAction(
-            `Validating UI Meta Data in ${packageName}...`,
-            () => window.launcher.validateUiPackageOptionComments(packageName)
-          );
-        }
-      );
+      await promptUiManagerValidate(packageName);
     }
   });
-  elements.uiManagerStageTabs.addEventListener("click", (event) => {
-    const button = event.target.closest("button[data-ui-manager-stage]");
-    if (!button) {
+  const focusUiManagerOption = (optionPath) => {
+    const bundle = getUiManagerBundles().find((entry) => entry.optionPath === optionPath);
+    if (!bundle) {
       return;
     }
-
-    if (button.getAttribute("aria-disabled") === "true") {
-      return;
-    }
-
-    setUiManagerActiveStage(button.dataset.uiManagerStage);
+    state.uiManager.selectedOptionPath = bundle.optionPath;
     renderUiManager();
-  });
+  };
   elements.uiManagerOptionList.addEventListener("click", (event) => {
-    if (event.target.closest(".ui-manager-option-toggle") || event.target.closest("input[data-option-toggle='true']")) {
+    if (event.target.closest(".uim-equip") || event.target.closest("input[data-option-toggle='true']")) {
       return;
     }
 
@@ -4764,14 +4758,7 @@ function wireEvents() {
     if (!card) {
       return;
     }
-    const bundles = Array.isArray(state.uiManager.detail?.bundles) ? state.uiManager.detail.bundles : [];
-    const bundle = bundles.find((entry) => entry.optionPath === card.dataset.optionPath);
-    if (!bundle) {
-      return;
-    }
-
-    state.uiManager.selectedOptionPath = bundle.optionPath;
-    renderUiManager();
+    focusUiManagerOption(card.dataset.optionPath);
   });
   elements.uiManagerOptionList.addEventListener("change", (event) => {
     const toggleInput = event.target.closest("input[data-option-toggle='true']");
@@ -4780,6 +4767,7 @@ function wireEvents() {
     }
 
     updateUiManagerStagedOptionPath(toggleInput.dataset.optionPath, Boolean(toggleInput.checked));
+    state.uiManager.selectedOptionPath = toggleInput.dataset.optionPath;
     renderUiManager();
   });
   elements.uiManagerOptionList.addEventListener("keydown", (event) => {
@@ -4797,23 +4785,23 @@ function wireEvents() {
     }
 
     event.preventDefault();
-    state.uiManager.selectedOptionPath = card.dataset.optionPath;
+    focusUiManagerOption(card.dataset.optionPath);
+  });
+  elements.uiManagerPreviewPanel.addEventListener("click", (event) => {
+    const equipButton = event.target.closest("button[data-inspector-equip]");
+    if (!equipButton || equipButton.disabled) {
+      return;
+    }
+    updateUiManagerStagedOptionPath(equipButton.dataset.inspectorEquip, true);
     renderUiManager();
-  });
-  elements.uiManagerOptionPrevButton.addEventListener("click", () => {
-    scrollUiManagerRail(elements.uiManagerOptionList, -1);
-  });
-  elements.uiManagerOptionNextButton.addEventListener("click", () => {
-    scrollUiManagerRail(elements.uiManagerOptionList, 1);
   });
   elements.uiManagerOptionSearchInput.addEventListener("input", (event) => {
     state.uiManager.optionSearchQuery = event.target.value || "";
     renderUiManager();
   });
-  document.querySelectorAll("[data-ui-manager-option-filter]").forEach((pill) => {
-    pill.addEventListener("click", () => {
-      state.uiManager.optionFilterMode = pill.dataset.uiManagerOptionFilter || "all";
-      document.querySelectorAll("[data-ui-manager-option-filter]").forEach((p) => p.classList.toggle("is-active", p === pill));
+  document.querySelectorAll("[data-ui-manager-option-filter]").forEach((button) => {
+    button.addEventListener("click", () => {
+      state.uiManager.optionFilterMode = button.dataset.uiManagerOptionFilter || "all";
       renderUiManager();
     });
   });
@@ -4833,6 +4821,18 @@ function wireEvents() {
     toggleUiManagerTargetSelection(targetInput.value, targetInput.checked);
     renderUiManager();
   });
+  elements.uiManagerConfirmationSummary.addEventListener("click", (event) => {
+    const revertButton = event.target.closest("button[data-ledger-revert]");
+    if (!revertButton) {
+      return;
+    }
+    if (revertButton.dataset.ledgerRevert === "skin") {
+      toggleUiManagerTargetSelection(revertButton.dataset.ledgerValue, false);
+    } else if (revertButton.dataset.ledgerRevert === "component") {
+      updateUiManagerStagedOptionPath(revertButton.dataset.ledgerValue, false);
+    }
+    renderUiManager();
+  });
   elements.uiManagerBackupList.addEventListener("click", async (event) => {
     const button = event.target.closest("button[data-backup-id]");
     if (!button || !state.uiManager.selectedPackageName) {
@@ -4843,43 +4843,40 @@ function wireEvents() {
       renderUiManager();
       return;
     }
+    const packageName = state.uiManager.selectedPackageName;
+    const backupId = button.dataset.backupId;
+    const backup = (state.uiManager.detail?.backups || []).find((entry) => entry.id === backupId);
+    const backupLabel = backup
+      ? `"${formatUiManagerBackupReason(backup.reason)}" from ${formatUiManagerBackupDate(backup.createdAt)}`
+      : `backup ${backupId}`;
     await promptUiManagerAction(
-      `Restore backup ${button.dataset.backupId}? This will replace the current package files and restore any INI snapshots captured in that backup.`,
+      `Restore ${packageName} to ${backupLabel}? ${backup && !backup.hasSnapshot ? "The character UI settings captured in that backup" : "The interface files and any character UI settings captured in that backup"} will replace what is on disk now. Your current state is saved as a new restore point first.`,
       async () => {
+        closeUiManagerRecoveryModal();
         await runUiManagerAction(
-          `Restoring backup ${button.dataset.backupId}...`,
-          () => window.launcher.restoreUiManagerBackup({
-            packageName: state.uiManager.selectedPackageName,
-            backupId: button.dataset.backupId
-          })
+          `Restoring backup ${backupId}...`,
+          () => window.launcher.restoreUiManagerBackup({ packageName, backupId }),
+          { successMessage: `Restored ${packageName} from the selected backup.` }
         );
+      },
+      {
+        title: "Restore this backup?",
+        acceptLabel: "Restore",
+        tone: "danger"
       }
     );
   });
   elements.uiManagerSelectAllTargetsButton.addEventListener("click", () => {
-    state.uiManager.selectedTargetPaths = getUiManagerTargets().map((entry) => entry.path);
+    if (!state.uiManager.selectedPackageName) {
+      return;
+    }
+    for (const target of getUiManagerFilteredTargets()) {
+      toggleUiManagerTargetSelection(target.path, true);
+    }
     renderUiManager();
   });
   elements.uiManagerClearTargetsButton.addEventListener("click", () => {
     state.uiManager.selectedTargetPaths = [];
-    renderUiManager();
-  });
-  elements.uiManagerPreviousStageButton.addEventListener("click", () => {
-    const previousStage = getUiManagerAdjacentStage(-1);
-    if (!previousStage) {
-      return;
-    }
-
-    setUiManagerActiveStage(previousStage);
-    renderUiManager();
-  });
-  elements.uiManagerNextStageButton.addEventListener("click", () => {
-    const nextStage = getUiManagerAdjacentStage(1);
-    if (!nextStage || !canUiManagerOpenStage(nextStage)) {
-      return;
-    }
-
-    setUiManagerActiveStage(nextStage);
     renderUiManager();
   });
   elements.uiManagerApplyOptionButton.addEventListener("click", async () => {
@@ -4888,51 +4885,75 @@ function wireEvents() {
       renderUiManager();
       return;
     }
-    const diff = buildUiManagerConfirmationDiff();
-    const pendingComponentChanges = Array.isArray(diff.componentChanges)
-      ? diff.componentChanges.filter((entry) => entry.toPath)
-      : [];
-    const pendingSkinChanges = Array.isArray(diff.skinChanges) ? diff.skinChanges : [];
-    if (!state.uiManager.selectedPackageName || (!pendingComponentChanges.length && !pendingSkinChanges.length)) {
+    const packageName = state.uiManager.selectedPackageName;
+    const plan = getUiManagerApplyPlan();
+    if (!packageName || !plan.pendingCount) {
       return;
     }
+    const packageLabel = getUiManagerPackageDisplayName(plan.selectedPackage) || packageName;
 
+    const pendingComponentChanges = plan.componentChanges;
+    const pendingSkinChanges = plan.skinChanges;
     const pendingOptionPaths = pendingComponentChanges.map((entry) => entry.toPath);
-    const batchSuffix = pendingSkinChanges.length
-      ? ` Selected characters will also switch to UISkin=${state.uiManager.selectedPackageName}.`
-      : "";
-    const applyLabel = pendingComponentChanges.length
-      ? pendingComponentChanges.length === 1
+    const selectedTargetPaths = [...state.uiManager.selectedTargetPaths];
+    const skinTargetPaths = pendingSkinChanges.map((entry) => entry.path);
+    const labelParts = [];
+    if (pendingComponentChanges.length) {
+      labelParts.push(pendingComponentChanges.length === 1
         ? `1 component change (${pendingComponentChanges[0].groupLabel})`
-        : `${pendingComponentChanges.length} component changes`
-      : pendingSkinChanges.length === 1
-        ? "1 UISkin change"
-        : `${pendingSkinChanges.length} UISkin changes`;
+        : `${pendingComponentChanges.length} component changes`);
+    }
+    if (pendingSkinChanges.length) {
+      labelParts.push(pendingSkinChanges.length === 1 ? "1 UISkin change" : `${pendingSkinChanges.length} UISkin changes`);
+    }
+    const applyLabel = labelParts.join(" and ");
+    const detailLines = [
+      ...pendingComponentChanges.map((change) => ({
+        kind: "component",
+        subject: formatUiManagerHumanLabel(change.groupLabel),
+        from: change.from,
+        to: change.to
+      })),
+      ...pendingSkinChanges.map((change) => ({
+        kind: "skin",
+        subject: `${change.characterName} (${change.serverName})`,
+        from: change.from,
+        to: change.to
+      }))
+    ];
+
     await promptUiManagerAction(
-      `Apply ${applyLabel} in ${state.uiManager.selectedPackageName}?${batchSuffix}`,
+      `Apply ${applyLabel} in ${packageLabel}?`,
       async () => {
-        await runUiManagerAction(
-          pendingComponentChanges.length
-            ? `Applying ${applyLabel}...`
-            : `Applying ${applyLabel}...`,
-          async () => {
-            if (!pendingComponentChanges.length) {
-              return window.launcher.setUiSkinTargets({
-                packageName: state.uiManager.selectedPackageName,
-                iniPaths: state.uiManager.selectedTargetPaths
-              });
-            }
-            let result = null;
-            for (const optionPath of pendingOptionPaths) {
-              result = await window.launcher.activateUiOption({
-                packageName: state.uiManager.selectedPackageName,
-                optionPath,
-                iniPaths: state.uiManager.selectedTargetPaths
-              });
-            }
-            return result;
+        await runUiManagerAction(`Applying ${applyLabel}...`, async () => {
+          if (!pendingOptionPaths.length) {
+            return window.launcher.setUiSkinTargets({
+              packageName,
+              iniPaths: skinTargetPaths
+            });
           }
-        );
+          if (pendingOptionPaths.length > 1 && typeof window.launcher.activateUiOptions === "function") {
+            return window.launcher.activateUiOptions({
+              packageName,
+              optionPaths: pendingOptionPaths,
+              iniPaths: selectedTargetPaths
+            });
+          }
+          let result = null;
+          for (const optionPath of pendingOptionPaths) {
+            result = await window.launcher.activateUiOption({
+              packageName,
+              optionPath,
+              iniPaths: selectedTargetPaths
+            });
+          }
+          return result;
+        }, { successMessage: `Applied ${pluralize(plan.pendingCount, "change")} to ${packageLabel}.` });
+      },
+      {
+        title: "Apply these changes?",
+        detailLines,
+        acceptLabel: `Apply ${pluralize(plan.pendingCount, "change")}`
       }
     );
   });
@@ -4942,16 +4963,23 @@ function wireEvents() {
       renderUiManager();
       return;
     }
-    if (!state.uiManager.selectedPackageName) {
+    const packageName = state.uiManager.selectedPackageName;
+    if (!packageName) {
       return;
     }
     await promptUiManagerAction(
-      `Reset ${state.uiManager.selectedPackageName}? This will back it up, delete the current package root contents except Options, and rebuild the root from Options/Default.`,
+      `Reset ${packageName}? This will back it up, delete the current package root contents except Options, and rebuild the root from Options/Default.`,
       async () => {
         await runUiManagerAction(
-          `Resetting ${state.uiManager.selectedPackageName}...`,
-          () => window.launcher.resetUiPackage(state.uiManager.selectedPackageName)
+          `Resetting ${packageName}...`,
+          () => window.launcher.resetUiPackage(packageName),
+          { successMessage: `Reset ${packageName} to its Options/Default layout.` }
         );
+      },
+      {
+        title: "Reset this interface?",
+        acceptLabel: "Reset interface",
+        tone: "danger"
       }
     );
   });

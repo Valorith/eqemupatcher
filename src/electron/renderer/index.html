@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>EQEmu Launcher</title>
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./ui-manager.css" />
   </head>
   <body>
     <div class="shell">
@@ -278,33 +279,39 @@
             </div>
           </section>
           <section id="uiManagerTabPanel" class="tab-panel hidden" role="tabpanel" aria-labelledby="uiManagerTabButton">
-            <div class="ui-manager-tab-shell">
-              <div class="ui-manager-hero-card">
-                <div class="ui-manager-hero-copy">
-                  <p class="eyebrow">UI Manager</p>
-                  <h2 class="section-title">Customize EverQuest UI Packages</h2>
-                  <p class="ui-manager-copy">
-                    Import packages, prepare option libraries, preview alternate components, and assign the active UI skin to your characters without touching the raw folder structure by hand.
-                  </p>
+            <div class="uim-launch">
+              <p class="uim-launch-kicker">UI Manager</p>
+              <h2 class="uim-launch-title">Interface Workshop</h2>
+              <p class="uim-launch-copy">
+                Swap window styles, assign a UI to each character, and roll back from automatic backups without digging through <code>uifiles</code> by hand.
+              </p>
+              <dl class="uim-launch-ledger">
+                <div class="uim-launch-stat">
+                  <dt>Interfaces</dt>
+                  <dd id="uiManagerPackageCount">0</dd>
                 </div>
-                <div class="ui-manager-hero-actions">
-                  <button id="openUiManagerButton" class="primary-button ui-manager-open-button" type="button">Open UI Manager</button>
-                  <button id="uiManagerRefreshButton" class="ghost-button ui-manager-refresh-button" type="button">Refresh UI Data</button>
+                <div class="uim-launch-stat">
+                  <dt>Prepared</dt>
+                  <dd id="uiManagerPreparedCount">0</dd>
+                </div>
+                <div class="uim-launch-stat">
+                  <dt>Characters</dt>
+                  <dd id="uiManagerTargetCount">0</dd>
+                </div>
+              </dl>
+              <div class="uim-launch-current">
+                <span id="uiManagerStatusBadge" class="uim-status-mark" data-tone="attention">Standby</span>
+                <div class="uim-launch-current-copy">
+                  <strong id="uiManagerPreviewName">No interface selected.</strong>
+                  <p id="uiManagerPreviewMeta">Open the workshop to scan your uifiles folder.</p>
                 </div>
               </div>
-              <div class="ui-manager-summary-grid">
-                <div class="summary-item">
-                  <span class="summary-label">Packages</span>
-                  <strong id="uiManagerPackageCount">0</strong>
-                </div>
-                <div class="summary-item">
-                  <span class="summary-label">Prepared</span>
-                  <strong id="uiManagerPreparedCount">0</strong>
-                </div>
-                <div class="summary-item">
-                  <span class="summary-label">Characters</span>
-                  <strong id="uiManagerTargetCount">0</strong>
-                </div>
+              <div class="uim-launch-actions">
+                <button id="openUiManagerButton" class="uim-launch-open" type="button">
+                  <span>Open Workshop</span>
+                  <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"></path></svg>
+                </button>
+                <button id="uiManagerRefreshButton" class="uim-launch-rescan" type="button">Rescan</button>
               </div>
             </div>
           </section>
@@ -565,227 +572,175 @@
       </section>
     </div>
 
-    <div id="uiManagerModal" class="modal-shell hidden" aria-hidden="true">
-      <div id="uiManagerBackdrop" class="modal-backdrop"></div>
-      <section class="modal-panel ui-manager-modal-panel" role="dialog" aria-modal="true" aria-labelledby="uiManagerTitle">
-        <div class="modal-header ui-manager-modal-header">
-          <div>
-            <p class="eyebrow ui-manager-modal-eyebrow">
+    <div id="uiManagerModal" class="modal-shell uim-shell hidden" aria-hidden="true">
+      <div id="uiManagerBackdrop" class="modal-backdrop uim-backdrop"></div>
+      <section class="uim-panel" role="dialog" aria-modal="true" aria-labelledby="uiManagerTitle">
+        <span class="uim-corner uim-corner-tl" aria-hidden="true"></span>
+        <span class="uim-corner uim-corner-tr" aria-hidden="true"></span>
+        <span class="uim-corner uim-corner-bl" aria-hidden="true"></span>
+        <span class="uim-corner uim-corner-br" aria-hidden="true"></span>
+
+        <header class="uim-header">
+          <div class="uim-header-title">
+            <p class="uim-kicker">
               <span>UI Manager</span>
               <span class="ui-manager-beta-badge">Beta</span>
             </p>
-            <h2 id="uiManagerTitle" class="section-title">Package Workspace</h2>
+            <h2 id="uiManagerTitle" class="uim-title">Interface Workshop</h2>
           </div>
-          <div class="ui-manager-header-actions">
-            <button id="uiManagerRecoveryButton" class="ghost-button ui-manager-header-button ui-manager-recovery-button" type="button">Recovery</button>
-            <button id="uiManagerModalRefreshButton" class="ghost-button ui-manager-header-button" type="button">Refresh</button>
-            <button id="uiManagerCloseButton" class="icon-button modal-close-button" type="button" aria-label="Close UI Manager">
-              <span aria-hidden="true">×</span>
+          <p id="uiManagerHeaderMeta" class="uim-header-meta"></p>
+          <div class="uim-header-actions">
+            <button id="uiManagerModalRefreshButton" class="uim-quiet-button" type="button" title="Rescan uifiles and character UI settings">
+              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M20 6v5h-5"></path><path d="M4 18v-5h5"></path><path d="M18.1 9A7 7 0 0 0 6.7 6.7L4 9"></path><path d="M5.9 15a7 7 0 0 0 11.4 2.3L20 15"></path></svg>
+              <span>Rescan</span>
+            </button>
+            <button id="uiManagerCloseButton" class="uim-close-button" type="button" aria-label="Close UI Manager">
+              <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
             </button>
           </div>
-        </div>
-        <div id="uiManagerNotice" class="ui-manager-notice hidden" data-tone="info"></div>
-        <div id="uiManagerPackageContextMenu" class="ui-manager-package-context-menu hidden" role="menu" aria-label="Package actions">
-          <button id="uiManagerPackageValidateAction" class="ui-manager-package-context-action" type="button" role="menuitem" data-ui-manager-package-context-action="validate-comments">
-            Validate UI Meta Data
+        </header>
+
+        <div id="uiManagerNotice" class="uim-notice hidden" data-tone="info" role="status" aria-live="polite"></div>
+
+        <div id="uiManagerPackageContextMenu" class="uim-context-menu hidden" role="menu" aria-label="Interface actions">
+          <button id="uiManagerPackageValidateAction" class="uim-context-action" type="button" role="menuitem" data-ui-manager-package-context-action="validate-comments">
+            Validate UI metadata
           </button>
         </div>
-        <div class="ui-manager-workspace">
-          <section class="ui-manager-main ui-manager-main-wizard">
-            <div id="uiManagerStageTabs" class="ui-manager-stage-tabs" role="tablist" aria-label="UI Manager stages">
-              <button id="uiManagerStageTargetsButton" class="ui-manager-stage-tab is-active" type="button" role="tab" aria-selected="true" aria-controls="uiManagerTargetsStage" data-ui-manager-stage="targets">
-                <span class="ui-manager-stage-number">1</span>
-                <span class="ui-manager-stage-copy">
-                  <strong>Select Character(s)</strong>
-                  <small>Search targets and choose one, many, or all</small>
-                </span>
-              </button>
-              <button id="uiManagerStagePackagesButton" class="ui-manager-stage-tab" type="button" role="tab" aria-selected="false" aria-controls="uiManagerPackagesStage" data-ui-manager-stage="packages">
-                <span class="ui-manager-stage-number">2</span>
-                <span class="ui-manager-stage-copy">
-                  <strong>Select UI Package</strong>
-                  <small>Pick the package you want to assign or customize</small>
-                </span>
-              </button>
-              <button id="uiManagerStageComponentsButton" class="ui-manager-stage-tab" type="button" role="tab" aria-selected="false" aria-controls="uiManagerComponentsStage" data-ui-manager-stage="components">
-                <span class="ui-manager-stage-number">3</span>
-                <span class="ui-manager-stage-copy">
-                  <strong>UI Components</strong>
-                  <small>Review active and available component variants</small>
-                </span>
-              </button>
-              <button id="uiManagerStageConfirmButton" class="ui-manager-stage-tab" type="button" role="tab" aria-selected="false" aria-controls="uiManagerConfirmStage" data-ui-manager-stage="confirm">
-                <span class="ui-manager-stage-number">4</span>
-                <span class="ui-manager-stage-copy">
-                  <strong>Confirmation</strong>
-                  <small>Review selections, backups, and execute changes</small>
-                </span>
-              </button>
+
+        <div class="uim-bench">
+          <aside id="uiManagerDropZone" class="uim-column uim-library" aria-labelledby="uiManagerLibraryHeading">
+            <div class="uim-section-head">
+              <h3 id="uiManagerLibraryHeading" class="uim-section-title"><span class="uim-numeral" aria-hidden="true">I</span>Interfaces</h3>
+              <span id="uiManagerSidebarMeta" class="uim-section-meta">0</span>
             </div>
-            <div class="ui-manager-stage-viewport">
-              <section id="uiManagerTargetsStage" class="ui-manager-stage-panel" role="tabpanel" aria-labelledby="uiManagerStageTargetsButton">
-                <div class="ui-manager-stage-grid ui-manager-stage-grid-targets">
-                  <section class="ui-manager-panel ui-manager-stage-primary">
-                    <div class="ui-manager-section-header">
-                      <div>
-                        <p class="eyebrow">Targets</p>
-                        <h3 class="ui-manager-section-title">Character Selection</h3>
-                      </div>
-                      <span id="uiManagerTargetMeta" class="ui-manager-section-meta">0 selected</span>
-                    </div>
-                    <div class="ui-manager-target-stage-shell">
-                      <div class="ui-manager-target-stage-toolbar">
-                        <select id="uiManagerTargetServerFilter" class="ui-manager-target-server-filter" aria-label="Filter characters by server">
-                          <option value="">All Servers</option>
-                        </select>
-                        <input id="uiManagerTargetSearchInput" class="ui-manager-target-search-input" type="search" placeholder="Search characters or servers..." aria-label="Search character UI settings">
-                        <div class="ui-manager-inline-actions">
-                          <button id="uiManagerSelectAllTargetsButton" class="ghost-button ui-manager-inline-button" type="button">All</button>
-                          <button id="uiManagerClearTargetsButton" class="ghost-button ui-manager-inline-button" type="button">Clear</button>
-                        </div>
-                      </div>
-                      <div id="uiManagerTargetList" class="ui-manager-target-list ui-manager-scroll-region"></div>
-                    </div>
-                  </section>
-                </div>
-              </section>
-              <section id="uiManagerPackagesStage" class="ui-manager-stage-panel hidden" role="tabpanel" aria-labelledby="uiManagerStagePackagesButton">
-                <div class="ui-manager-stage-grid ui-manager-stage-grid-packages">
-                  <section class="ui-manager-panel ui-manager-stage-primary">
-                    <div class="ui-manager-section-header">
-                      <div>
-                        <p class="eyebrow">Packages</p>
-                        <h3 class="ui-manager-section-title">Library</h3>
-                      </div>
-                      <div class="ui-manager-section-header-actions">
-                        <span id="uiManagerSidebarMeta" class="ui-manager-section-meta">0 loaded</span>
-                        <button id="uiManagerImportButton" class="ghost-button ui-manager-inline-button" type="button">Import Folder</button>
-                      </div>
-                    </div>
-                    <div id="uiManagerDropZone" class="ui-manager-drop-zone ui-manager-stage-drop-zone" tabindex="0">
-                      <div>
-                        <strong>Drop a UI package folder here</strong>
-                        <p class="ui-manager-drop-copy">Import a new UI package into `uifiles` from this stage.</p>
-                      </div>
-                    </div>
-                    <div id="uiManagerPackageList" class="ui-manager-package-list ui-manager-scroll-region"></div>
-                  </section>
-                  <section class="ui-manager-panel ui-manager-stage-secondary">
-                    <div class="ui-manager-section-header">
-                      <div>
-                        <p class="eyebrow">Workspace</p>
-                        <h3 class="ui-manager-section-title">Package Overview</h3>
-                      </div>
-                      <span id="uiManagerPackageMeta" class="ui-manager-section-meta">No selection</span>
-                    </div>
-                    <div id="uiManagerPackageDetail" class="ui-manager-package-detail ui-manager-scroll-region"></div>
-                  </section>
-                </div>
-              </section>
-              <section id="uiManagerComponentsStage" class="ui-manager-stage-panel hidden" role="tabpanel" aria-labelledby="uiManagerStageComponentsButton">
-                <div class="ui-manager-stage-grid ui-manager-stage-grid-components">
-                  <section class="ui-manager-panel ui-manager-stage-primary">
-                    <div class="ui-manager-section-header">
-                      <div>
-                        <p class="eyebrow">Components</p>
-                        <h3 class="ui-manager-section-title">Option Library</h3>
-                      </div>
-                      <div class="ui-manager-section-actions">
-                        <span id="uiManagerOptionMeta" class="ui-manager-section-meta">Select a package</span>
-                        <div class="ui-manager-carousel-controls" aria-label="Component carousel controls">
-                          <button id="uiManagerOptionPrevButton" class="ui-manager-carousel-button" type="button" aria-label="Previous components">‹</button>
-                          <button id="uiManagerOptionNextButton" class="ui-manager-carousel-button" type="button" aria-label="Next components">›</button>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="ui-manager-option-toolbar">
-                      <input id="uiManagerOptionSearchInput" class="ui-manager-option-search-input" type="search" placeholder="Search components..." aria-label="Search option bundles">
-                      <div class="ui-manager-option-filters">
-                        <button class="ui-manager-option-filter-pill is-active" type="button" data-ui-manager-option-filter="all">All</button>
-                        <button class="ui-manager-option-filter-pill" type="button" data-ui-manager-option-filter="active">Active</button>
-                        <button class="ui-manager-option-filter-pill" type="button" data-ui-manager-option-filter="flagged">Flagged</button>
-                      </div>
-                    </div>
-                    <div id="uiManagerOptionList" class="ui-manager-option-list ui-manager-scroll-region"></div>
-                  </section>
-                  <section class="ui-manager-panel ui-manager-stage-secondary">
-                    <div class="ui-manager-section-header">
-                      <div>
-                        <p class="eyebrow">Selection</p>
-                        <h3 class="ui-manager-section-title">Component Preview</h3>
-                      </div>
-                    </div>
-                    <div id="uiManagerPreviewPanel" class="ui-manager-preview-panel ui-manager-scroll-region"></div>
-                  </section>
-                </div>
-              </section>
-              <section id="uiManagerConfirmStage" class="ui-manager-stage-panel hidden" role="tabpanel" aria-labelledby="uiManagerStageConfirmButton">
-                <div class="ui-manager-stage-grid ui-manager-stage-grid-confirm">
-                  <section class="ui-manager-panel ui-manager-stage-primary">
-                    <div class="ui-manager-section-header">
-                      <div>
-                        <p class="eyebrow">Confirmation</p>
-                        <h3 class="ui-manager-section-title">Review Your Selections</h3>
-                      </div>
-                    </div>
-                    <div id="uiManagerConfirmationSummary" class="ui-manager-confirmation-summary ui-manager-scroll-region"></div>
-                  </section>
-                </div>
-              </section>
+            <div id="uiManagerPackageList" class="uim-package-list uim-scroll" role="listbox" aria-labelledby="uiManagerLibraryHeading"></div>
+            <div class="uim-dropwell">
+              <button id="uiManagerImportButton" class="uim-import-button" type="button">
+                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5"></path><path d="M4 16v3a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-3"></path></svg>
+                <span>Import UI folder</span>
+              </button>
+              <p class="uim-dropwell-copy">or drop a UI folder here</p>
             </div>
+          </aside>
+
+          <section class="uim-column uim-loadout" aria-labelledby="uiManagerLoadoutHeading">
+            <div class="uim-package-head">
+              <div class="uim-package-head-copy">
+                <p id="uiManagerPackageMeta" class="uim-package-status" data-tone="neutral">No interface selected</p>
+                <h3 id="uiManagerPackageName" class="uim-package-name">Choose an interface</h3>
+                <p id="uiManagerPackagePath" class="uim-package-path"></p>
+              </div>
+              <div class="uim-package-actions">
+                <button id="uiManagerRecoveryButton" class="uim-tool-button" type="button" title="Browse and restore backups for this interface">
+                  <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"></path><path d="M3 3v5h5"></path><path d="M12 7v5l3 2"></path></svg>
+                  <span>Backups</span>
+                </button>
+                <button id="uiManagerValidateButton" class="uim-tool-button" type="button" title="Check and repair the source comments that track where each window came from">
+                  <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3 8.5-7 10-4-1.5-7-5-7-10V6l7-3Z"></path><path d="M9 12l2 2 4-4"></path></svg>
+                  <span>Validate</span>
+                </button>
+                <button id="uiManagerResetButton" class="uim-tool-button is-danger" type="button" title="Rebuild this interface from its Options/Default layout">
+                  <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M4 4v6h6"></path><path d="M20 12A8 8 0 0 0 5.3 7.7L4 10"></path><path d="M20 20v-6h-6"></path><path d="M4 12a8 8 0 0 0 14.7 4.3L20 14"></path></svg>
+                  <span>Reset</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="uim-section-head uim-loadout-head">
+              <h3 id="uiManagerLoadoutHeading" class="uim-section-title"><span class="uim-numeral" aria-hidden="true">II</span>Loadout</h3>
+              <span id="uiManagerOptionMeta" class="uim-section-meta"></span>
+              <div id="uiManagerLoadoutTools" class="uim-loadout-tools">
+                <label class="uim-search">
+                  <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4 4"></path></svg>
+                  <input id="uiManagerOptionSearchInput" type="search" placeholder="Find a window or style" aria-label="Search window styles">
+                </label>
+                <div class="uim-filter" role="group" aria-label="Filter window styles">
+                  <button class="uim-filter-button is-active" type="button" data-ui-manager-option-filter="all" aria-pressed="true">All</button>
+                  <button class="uim-filter-button" type="button" data-ui-manager-option-filter="changed" aria-pressed="false">Changed</button>
+                </div>
+              </div>
+            </div>
+            <div id="uiManagerPackageDetail" class="uim-loadout-state"></div>
+            <div id="uiManagerOptionList" class="uim-slot-list uim-scroll"></div>
+            <div id="uiManagerPreviewPanel" class="uim-inspector" aria-live="polite"></div>
           </section>
-        </div>
-        <div class="ui-manager-action-bar">
-          <div id="uiManagerActionMeta" class="ui-manager-action-meta">Choose a package to start managing its UI files.</div>
-          <div class="ui-manager-stage-actions">
-            <button id="uiManagerPreviousStageButton" class="ghost-button ui-manager-stage-nav-button" type="button">Back</button>
-            <button id="uiManagerNextStageButton" class="secondary-button ui-manager-stage-nav-button" type="button">Next</button>
-          </div>
-          <div class="ui-manager-action-buttons">
-            <button id="uiManagerApplyOptionButton" class="primary-button utility-button" type="button">Apply Option</button>
-            <button id="uiManagerResetButton" class="ghost-button utility-button ui-manager-danger-button" type="button">Reset UI</button>
-          </div>
+
+          <aside class="uim-column uim-roster" aria-labelledby="uiManagerRosterHeading">
+            <div class="uim-section-head">
+              <h3 id="uiManagerRosterHeading" class="uim-section-title"><span class="uim-numeral" aria-hidden="true">III</span>Characters</h3>
+              <span id="uiManagerTargetMeta" class="uim-section-meta">0 selected</span>
+            </div>
+            <div class="uim-roster-tools">
+              <label class="uim-search">
+                <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><circle cx="11" cy="11" r="6.5"></circle><path d="M16 16l4 4"></path></svg>
+                <input id="uiManagerTargetSearchInput" type="search" placeholder="Find a character" aria-label="Search characters">
+              </label>
+              <select id="uiManagerTargetServerFilter" class="uim-select" aria-label="Filter characters by server">
+                <option value="">All servers</option>
+              </select>
+            </div>
+            <div class="uim-roster-bulk">
+              <button id="uiManagerSelectAllTargetsButton" class="uim-text-button" type="button">Select all</button>
+              <button id="uiManagerClearTargetsButton" class="uim-text-button" type="button">Clear</button>
+            </div>
+            <div id="uiManagerTargetList" class="uim-roster-list uim-scroll" role="group" aria-label="Characters"></div>
+
+            <div class="uim-ledger">
+              <div class="uim-section-head">
+                <h3 class="uim-section-title"><span class="uim-numeral" aria-hidden="true">IV</span>Ledger</h3>
+                <span id="uiManagerLedgerCount" class="uim-section-meta">Nothing pending</span>
+              </div>
+              <div id="uiManagerConfirmationSummary" class="uim-ledger-list uim-scroll"></div>
+              <p id="uiManagerActionMeta" class="uim-ledger-note">Choose an interface to begin.</p>
+              <button id="uiManagerApplyOptionButton" class="uim-apply-button" type="button" disabled>
+                <span id="uiManagerApplyLabel">Apply changes</span>
+              </button>
+            </div>
+          </aside>
         </div>
       </section>
     </div>
 
-    <div id="uiManagerRecoveryModal" class="modal-shell hidden" aria-hidden="true">
-      <div id="uiManagerRecoveryBackdrop" class="modal-backdrop"></div>
-      <section class="modal-panel ui-manager-recovery-modal-panel" role="dialog" aria-modal="true" aria-labelledby="uiManagerRecoveryTitle">
-        <div class="modal-header">
+    <div id="uiManagerRecoveryModal" class="modal-shell uim-shell uim-dialog-shell hidden" aria-hidden="true">
+      <div id="uiManagerRecoveryBackdrop" class="modal-backdrop uim-backdrop"></div>
+      <section class="uim-dialog uim-recovery-dialog" role="dialog" aria-modal="true" aria-labelledby="uiManagerRecoveryTitle">
+        <header class="uim-dialog-head">
           <div>
-            <p class="eyebrow">Recovery</p>
-            <h2 id="uiManagerRecoveryTitle" class="section-title">Backups & Restore</h2>
+            <p class="uim-kicker"><span>Backups</span></p>
+            <h2 id="uiManagerRecoveryTitle" class="uim-dialog-title">Restore points</h2>
           </div>
-          <button id="uiManagerRecoveryCloseButton" class="icon-button modal-close-button" type="button" aria-label="Close recovery">
-            <span aria-hidden="true">×</span>
+          <button id="uiManagerRecoveryCloseButton" class="uim-close-button" type="button" aria-label="Close backups">
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
           </button>
+        </header>
+        <div class="uim-recovery-summary">
+          <p id="uiManagerRecoveryPackageName" class="uim-recovery-package">No interface selected.</p>
+          <p id="uiManagerRecoveryMeta" class="uim-recovery-meta">Choose an interface to review its backups.</p>
+          <div id="uiManagerRecoveryStats" class="uim-recovery-stats"></div>
         </div>
-        <div class="ui-manager-recovery-summary">
-          <p id="uiManagerRecoveryPackageName" class="ui-manager-preview-name">No package selected.</p>
-          <p id="uiManagerRecoveryMeta" class="ui-manager-package-subcopy">Choose a package to review backups and restore points.</p>
-        </div>
-        <div id="uiManagerRecoveryStats" class="ui-manager-recovery-stats"></div>
-        <div id="uiManagerBackupList" class="ui-manager-backup-list ui-manager-scroll-region"></div>
+        <ol id="uiManagerBackupList" class="uim-timeline uim-scroll"></ol>
       </section>
     </div>
 
-    <div id="uiManagerConfirmModal" class="modal-shell hidden" aria-hidden="true">
-      <div id="uiManagerConfirmBackdrop" class="modal-backdrop"></div>
-      <section class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="uiManagerConfirmTitle">
-        <div class="modal-header">
+    <div id="uiManagerConfirmModal" class="modal-shell uim-shell uim-dialog-shell hidden" aria-hidden="true">
+      <div id="uiManagerConfirmBackdrop" class="modal-backdrop uim-backdrop"></div>
+      <section class="uim-dialog uim-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="uiManagerConfirmTitle" aria-describedby="uiManagerConfirmMessage">
+        <header class="uim-dialog-head">
           <div>
-            <p class="eyebrow">Confirm</p>
-            <h2 id="uiManagerConfirmTitle" class="section-title">UI Manager Action</h2>
+            <p class="uim-kicker"><span>Confirm</span></p>
+            <h2 id="uiManagerConfirmTitle" class="uim-dialog-title">UI Manager action</h2>
           </div>
-          <button id="uiManagerConfirmCloseButton" class="icon-button modal-close-button" type="button" aria-label="Close confirmation">
-            <span aria-hidden="true">×</span>
+          <button id="uiManagerConfirmCloseButton" class="uim-close-button" type="button" aria-label="Close confirmation">
+            <svg viewBox="0 0 24 24" focusable="false" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
           </button>
-        </div>
-        <p id="uiManagerConfirmMessage" class="modal-copy">Confirm this action.</p>
-        <div class="utility-list utility-list-inline">
-          <button id="uiManagerConfirmCancelButton" class="secondary-button utility-button" type="button">Cancel</button>
-          <button id="uiManagerConfirmAcceptButton" class="primary-button utility-button" type="button">Continue</button>
+        </header>
+        <p id="uiManagerConfirmMessage" class="uim-confirm-message">Confirm this action.</p>
+        <ul id="uiManagerConfirmDetail" class="uim-confirm-detail hidden"></ul>
+        <p class="uim-confirm-safety">A backup is taken automatically before any files change.</p>
+        <div class="uim-dialog-actions">
+          <button id="uiManagerConfirmCancelButton" class="uim-quiet-button" type="button">Cancel</button>
+          <button id="uiManagerConfirmAcceptButton" class="uim-apply-button uim-confirm-accept" type="button">Continue</button>
         </div>
       </section>
     </div>

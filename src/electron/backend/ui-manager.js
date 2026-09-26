@@ -882,13 +882,20 @@ class UiManager {
   }
 
   async activateUiOption({ packageName, optionPath, iniPaths = [] }) {
-    const packagePath = await this.assertMutablePackage(packageName);
+    return this.activateUiOptions({ packageName, optionPaths: [optionPath], iniPaths });
+  }
+
+  async resolveUiOptionBundle(packagePath, optionPath) {
     const normalizedOptionPath = normalizeRelativePath(optionPath);
     if (!normalizedOptionPath || !normalizedOptionPath.startsWith("Options/")) {
       throw new Error("A valid UI option path is required.");
     }
 
-    const bundleDirectory = path.join(packagePath, normalizedOptionPath);
+    const bundleDirectory = path.resolve(packagePath, normalizedOptionPath);
+    const optionsRoot = path.join(packagePath, "Options");
+    if (!bundleDirectory.startsWith(`${optionsRoot}${path.sep}`) && bundleDirectory !== optionsRoot) {
+      throw new Error(`Refusing to read a UI option outside Options: ${normalizedOptionPath}`);
+    }
     if (!(await exists(bundleDirectory))) {
       throw new Error(`UI option not found: ${normalizedOptionPath}`);
     }
@@ -899,22 +906,42 @@ class UiManager {
       throw new Error("The selected UI option does not contain any XML files.");
     }
 
+    const tgaFileNames = isDefaultOptionPath(normalizedOptionPath)
+      ? []
+      : entries
+        .filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === ".tga")
+        .map((entry) => entry.name);
+
+    return { normalizedOptionPath, bundleDirectory, xmlFileNames, tgaFileNames };
+  }
+
+  // Applies several option bundles under a single backup, so a large batch
+  // cannot push the user's older restore points out of the retention window.
+  async activateUiOptions({ packageName, optionPaths = [], iniPaths = [] }) {
+    const packagePath = await this.assertMutablePackage(packageName);
+    const requestedPaths = Array.from(new Set((Array.isArray(optionPaths) ? optionPaths : []).map((entry) => normalizeRelativePath(entry)).filter(Boolean)));
+    if (!requestedPaths.length) {
+      throw new Error("A valid UI option path is required.");
+    }
+
+    // Resolve everything before touching disk so a bad path aborts the whole batch.
+    const bundles = [];
+    for (const optionPath of requestedPaths) {
+      bundles.push(await this.resolveUiOptionBundle(packagePath, optionPath));
+    }
+
     const validatedIniPaths = await this.validateIniTargets(iniPaths);
     const backup = await this.createBackup(packageName, {
       reason: "activate",
       iniPaths: validatedIniPaths
     });
 
-    for (const xmlFileName of xmlFileNames) {
-      await copyFileEnsuringParent(path.join(bundleDirectory, xmlFileName), path.join(packagePath, xmlFileName));
-    }
-
-    if (!isDefaultOptionPath(normalizedOptionPath)) {
-      const tgaFileNames = entries
-        .filter((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === ".tga")
-        .map((entry) => entry.name);
-      for (const tgaFileName of tgaFileNames) {
-        await copyFileEnsuringParent(path.join(bundleDirectory, tgaFileName), path.join(packagePath, tgaFileName));
+    for (const bundle of bundles) {
+      for (const xmlFileName of bundle.xmlFileNames) {
+        await copyFileEnsuringParent(path.join(bundle.bundleDirectory, xmlFileName), path.join(packagePath, xmlFileName));
+      }
+      for (const tgaFileName of bundle.tgaFileNames) {
+        await copyFileEnsuringParent(path.join(bundle.bundleDirectory, tgaFileName), path.join(packagePath, tgaFileName));
       }
     }
 
@@ -926,7 +953,9 @@ class UiManager {
       });
     }
 
-    this.emitLog(`Activated ${normalizedOptionPath} for ${packageName}.`, "success");
+    for (const bundle of bundles) {
+      this.emitLog(`Activated ${bundle.normalizedOptionPath} for ${packageName}.`, "success");
+    }
     return {
       backup,
       details: await this.getUiPackageDetails(packageName)
@@ -1085,7 +1114,7 @@ class UiManager {
   }
 
   async createBackup(packageName, options = {}) {
-    const { reason = "manual", iniPaths = [], includePackageSnapshot = true } = options;
+    const { reason = "manual", iniPaths = [], includePackageSnapshot = true, prune = true } = options;
     const packagePath = await this.assertPackageExists(packageName);
     const backupId = createBackupId(reason);
     const backupDirectory = path.join(this.getPackageBackupRoot(packageName), backupId);
@@ -1119,7 +1148,9 @@ class UiManager {
 
     metadata.sizeBytes = await getDirectorySize(backupDirectory);
     await writeText(path.join(backupDirectory, "metadata.json"), JSON.stringify(metadata, null, 2));
-    await this.pruneUiManagerBackups(packageName);
+    if (prune) {
+      await this.pruneUiManagerBackups(packageName);
+    }
     return metadata;
   }
 
@@ -1183,7 +1214,11 @@ class UiManager {
 
   async restoreUiManagerBackup({ packageName, backupId }) {
     const packagePath = await this.assertPackageExists(packageName);
-    const backupDirectory = path.join(this.getPackageBackupRoot(packageName), backupId);
+    const normalizedBackupId = String(backupId || "").trim();
+    if (!normalizedBackupId || normalizedBackupId !== path.basename(normalizedBackupId) || normalizedBackupId === "." || normalizedBackupId === "..") {
+      throw new Error("The requested backup could not be found.");
+    }
+    const backupDirectory = path.join(this.getPackageBackupRoot(packageName), normalizedBackupId);
     const metadataPath = path.join(backupDirectory, "metadata.json");
     const snapshotDirectory = path.join(backupDirectory, "snapshot");
 
@@ -1193,23 +1228,42 @@ class UiManager {
 
     const metadata = JSON.parse(await readText(metadataPath));
     const hasSnapshot = Boolean(metadata.hasSnapshot ?? (await exists(snapshotDirectory)));
+    if (hasSnapshot && !(await exists(snapshotDirectory))) {
+      throw new Error("The requested backup could not be found.");
+    }
+
+    const gameDirectory = this.getGameDirectoryOrThrow();
+    const gameRootWithSeparator = gameDirectory.endsWith(path.sep) ? gameDirectory : `${gameDirectory}${path.sep}`;
+    const iniRestores = (Array.isArray(metadata.iniFiles) ? metadata.iniFiles : [])
+      .map((iniFile) => ({
+        sourcePath: path.join(backupDirectory, "ini", path.basename(String(iniFile?.backupFile || ""))),
+        destinationPath: path.resolve(String(iniFile?.originalPath || ""))
+      }))
+      .filter((entry) => entry.destinationPath.startsWith(gameRootWithSeparator));
+
+    // Save what is on disk now so a restore can itself be undone. Pruning waits
+    // until afterwards so it can never delete the backup being restored.
+    await this.createBackup(packageName, {
+      reason: "restore",
+      iniPaths: iniRestores.map((entry) => entry.destinationPath),
+      includePackageSnapshot: hasSnapshot,
+      prune: false
+    });
+
     if (hasSnapshot) {
-      if (!(await exists(snapshotDirectory))) {
-        throw new Error("The requested backup could not be found.");
-      }
       await removeDirectoryContents(packagePath);
       await copyDirectoryContents(snapshotDirectory, packagePath);
     }
 
-    for (const iniFile of Array.isArray(metadata.iniFiles) ? metadata.iniFiles : []) {
-      const sourcePath = path.join(backupDirectory, "ini", iniFile.backupFile);
-      if (!(await exists(sourcePath))) {
+    for (const entry of iniRestores) {
+      if (!(await exists(entry.sourcePath))) {
         continue;
       }
-      await copyFileEnsuringParent(sourcePath, iniFile.originalPath);
+      await copyFileEnsuringParent(entry.sourcePath, entry.destinationPath);
     }
 
-    this.emitLog(`Restored UI Manager backup ${backupId} for ${packageName}.`, "success");
+    await this.pruneUiManagerBackups(packageName);
+    this.emitLog(`Restored UI Manager backup ${normalizedBackupId} for ${packageName}.`, "success");
     return {
       details: await this.getUiPackageDetails(packageName),
       targets: await this.listTargets()

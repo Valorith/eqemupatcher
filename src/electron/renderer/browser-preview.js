@@ -199,113 +199,214 @@
     };
   }
 
-  function createUiManagerOverview() {
+  // In-memory stand-in for the UI Manager backend. Nothing here touches disk;
+  // it mutates plain objects so apply/reset/restore visibly change the preview.
+  const PREVIEW_GAME_DIRECTORY = "C:\\Preview\\EverQuest";
+  const PREVIEW_UI_FILES_DIRECTORY = `${PREVIEW_GAME_DIRECTORY}\\uifiles`;
+  const PREVIEW_ART = {
+    dragon: "/src/electron/assets/hero/generated/dragon-cavern-v1.png",
+    rof: "/src/electron/assets/hero/rof.png",
+    sof: "/src/electron/assets/hero/sof.png",
+    titanium: "/src/electron/assets/hero/titanium.png",
+    underfoot: "/src/electron/assets/hero/underfoot.png",
+    mirror: "/src/electron/assets/hero/brokenmirror.png"
+  };
+
+  function createPreviewBundle(optionPath, xmlFiles, options = {}) {
+    const segments = optionPath.split("/");
     return {
-      gameDirectory: "C:\\Preview\\EverQuest",
-      uiFilesDirectory: "C:\\Preview\\EverQuest\\uifiles",
-      canManage: true,
-      packages: [
-        {
-          name: "Clumsy Gold",
-          path: "C:\\Preview\\EverQuest\\uifiles\\Clumsy Gold",
-          protected: false,
-          prepared: true,
-          optionCount: 3,
-          rootXmlCount: 12
-        },
-        {
-          name: "Clumsy Classic",
-          path: "C:\\Preview\\EverQuest\\uifiles\\Clumsy Classic",
-          protected: false,
-          prepared: false,
-          optionCount: 1,
-          rootXmlCount: 9
-        }
-      ],
-      targets: [
-        {
-          path: "C:\\Preview\\EverQuest\\UI_Clumsy_CW.ini",
-          fileName: "UI_Clumsy_CW.ini",
-          characterName: "Clumsy",
-          serverName: "CW",
-          uiSkin: "Clumsy Gold"
-        },
-        {
-          path: "C:\\Preview\\EverQuest\\UI_Tester_CW.ini",
-          fileName: "UI_Tester_CW.ini",
-          characterName: "Tester",
-          serverName: "CW",
-          uiSkin: "Default"
-        }
-      ]
+      optionPath,
+      label: segments.at(-1),
+      categoryPath: segments.slice(1, -1).join("/"),
+      isDefault: /\/default$/i.test(optionPath),
+      xmlFiles,
+      tgaFiles: options.tgaFiles || [],
+      previewImageUrl: options.previewImageUrl || "",
+      instructions: options.instructions || "",
+      activeState: options.active ? "active" : options.mixed ? "mixed" : "inactive"
     };
   }
 
-  function createUiManagerDetail(packageName = "Clumsy Gold") {
-    return {
-      name: packageName,
-      path: `C:\\Preview\\EverQuest\\uifiles\\${packageName}`,
-      protected: false,
-      prepared: packageName !== "Clumsy Classic",
-      rootFiles: ["EQUI_Inventory.xml", "EQUI_TargetWindow.xml", "window_pieces04.tga"],
+  const uiManagerPackages = {
+    "Clumsy Gold": {
+      prepared: true,
+      rootXmlCount: 14,
       bundles: [
-        {
-          optionPath: "Options/Default",
-          label: "Default",
-          categoryPath: "",
-          isDefault: true,
-          xmlFiles: ["EQUI_Inventory.xml"],
-          tgaFiles: [],
-          previewImageUrl: "",
-          instructions: "Baseline package configuration.",
-          activeState: "inactive"
-        },
-        {
-          optionPath: "Options/Art/Dragon",
-          label: "Dragon",
-          categoryPath: "Art",
-          isDefault: false,
-          xmlFiles: ["EQUI_TargetWindow.xml"],
+        createPreviewBundle("Options/Inventory/Default", ["EQUI_Inventory.xml"], { active: true }),
+        createPreviewBundle("Options/Inventory/Compact", ["EQUI_Inventory.xml"], {
+          previewImageUrl: PREVIEW_ART.titanium,
+          tgaFiles: ["inventory_compact.tga"],
+          instructions: "Shrinks the bag grid and moves the coin purse under the paper doll."
+        }),
+        createPreviewBundle("Options/Inventory/Wide", ["EQUI_Inventory.xml"], { tgaFiles: ["inventory_wide.tga"] }),
+        createPreviewBundle("Options/Target/Dragon", ["EQUI_TargetWindow.xml"], {
+          active: true,
+          previewImageUrl: PREVIEW_ART.dragon,
           tgaFiles: ["window_pieces04.tga"],
-          previewImageUrl: "/src/electron/assets/hero/generated/dragon-cavern-v1.png",
-          instructions: "Uses the new launcher visual language for feature previews.",
-          activeState: "active"
-        },
-        {
-          optionPath: "Options/Art/Classic",
-          label: "Classic",
-          categoryPath: "Art",
-          isDefault: false,
-          xmlFiles: ["EQUI_TargetWindow.xml"],
-          tgaFiles: [],
-          previewImageUrl: "",
-          instructions: "A lower-contrast fallback for comparison.",
-          activeState: "inactive"
-        }
-      ],
-      backups: [
-        {
-          id: "preview-reset-backup",
-          packageName,
-          reason: "reset",
-          createdAt: "2026-04-20T18:00:00.000Z",
-          sizeBytes: 10240,
-          hasSnapshot: true,
-          iniFiles: []
-        }
-      ],
+          instructions: "Uses the dragon-scale frame from the launcher art. Pairs well with the Gold player window."
+        }),
+        createPreviewBundle("Options/Target/Classic", ["EQUI_TargetWindow.xml"], {
+          previewImageUrl: PREVIEW_ART.mirror,
+          instructions: "A lower-contrast fallback for comparison."
+        }),
+        createPreviewBundle("Options/Player/Gold", ["EQUI_PlayerWindow.xml"], {
+          active: true,
+          previewImageUrl: PREVIEW_ART.rof,
+          tgaFiles: ["player_gold.tga"]
+        }),
+        createPreviewBundle("Options/Player/Slim Bars", ["EQUI_PlayerWindow.xml"], {
+          previewImageUrl: PREVIEW_ART.sof,
+          tgaFiles: ["player_slim.tga"],
+          instructions: "Thinner HP, mana, and endurance bars with numeric readouts."
+        }),
+        createPreviewBundle("Options/Spells/Classic Gems", ["EQUI_CastSpellWnd.xml", "EQUI_SpellBookWnd.xml"], { active: true }),
+        createPreviewBundle("Options/Spells/Large Icons", ["EQUI_CastSpellWnd.xml", "EQUI_SpellBookWnd.xml"], {
+          previewImageUrl: PREVIEW_ART.underfoot,
+          tgaFiles: ["spell_gems_large.tga", "spellbook_large.tga"],
+          instructions: "Doubles gem size for high-resolution displays. Requires a UI reload (/loadskin) after applying."
+        }),
+        createPreviewBundle("Options/Buffs/Default", ["EQUI_BuffWindow.xml"], { mixed: true }),
+        createPreviewBundle("Options/Buffs/Timers", ["EQUI_BuffWindow.xml"], { tgaFiles: ["buff_timers.tga"] })
+      ]
+    },
+    "Clumsy Classic": {
+      prepared: false,
+      rootXmlCount: 9,
+      bundles: []
+    },
+    "Vert": {
+      prepared: true,
+      rootXmlCount: 11,
+      metadataIssues: 2,
+      bundles: [
+        createPreviewBundle("Options/Hotbar/Vertical", ["EQUI_HotButtonWnd.xml"], { active: true, previewImageUrl: PREVIEW_ART.sof }),
+        createPreviewBundle("Options/Hotbar/Horizontal", ["EQUI_HotButtonWnd.xml"], {})
+      ]
+    },
+    default: {
+      prepared: false,
+      protected: true,
+      rootXmlCount: 212,
+      bundles: []
+    }
+  };
+
+  const uiManagerTargets = [
+    ["Clumsy", "CW", "Clumsy Gold"],
+    ["Tester", "CW", "Default"],
+    ["Athazin", "CW", "Clumsy Gold"],
+    ["Eloquii", "CW", "Vert"],
+    ["Mortem", "CW", "Default"],
+    ["Kelsa", "PEQ", "Default"],
+    ["Ranthor", "PEQ", "Clumsy Gold"]
+  ].map(([characterName, serverName, uiSkin]) => ({
+    path: `${PREVIEW_GAME_DIRECTORY}\\UI_${characterName}_${serverName}.ini`,
+    fileName: `UI_${characterName}_${serverName}.ini`,
+    characterName,
+    serverName,
+    uiSkin
+  }));
+
+  const uiManagerBackups = {};
+  let uiManagerBackupSequence = 0;
+
+  function recordPreviewBackup(packageName, reason, options = {}) {
+    uiManagerBackupSequence += 1;
+    const createdAt = new Date(Date.now() - (options.ageMinutes || 0) * 60000).toISOString();
+    const backup = {
+      id: `${createdAt.replace(/[:.]/g, "-")}-${reason}`,
+      packageName,
+      reason,
+      createdAt,
+      sizeBytes: options.snapshot === false ? 2048 : 1843200 + uiManagerBackupSequence * 40960,
+      hasSnapshot: options.snapshot !== false,
+      iniFiles: (options.iniPaths || []).map((originalPath, index) => ({
+        originalPath,
+        backupFile: `${String(index + 1).padStart(2, "0")}__${originalPath.split("\\").at(-1)}`
+      }))
+    };
+    uiManagerBackups[packageName] = [backup, ...(uiManagerBackups[packageName] || [])].slice(0, 8);
+    return backup;
+  }
+
+  recordPreviewBackup("Clumsy Gold", "prepare", { ageMinutes: 60 * 24 * 9 });
+  recordPreviewBackup("Clumsy Gold", "set-uiskin", { ageMinutes: 60 * 24 * 3, snapshot: false, iniPaths: [uiManagerTargets[2].path] });
+  recordPreviewBackup("Clumsy Gold", "activate", { ageMinutes: 90, iniPaths: [uiManagerTargets[0].path] });
+
+  function getPreviewPackageSummary(name) {
+    const pkg = uiManagerPackages[name];
+    return {
+      name,
+      path: `${PREVIEW_UI_FILES_DIRECTORY}\\${name}`,
+      protected: Boolean(pkg.protected),
+      prepared: Boolean(pkg.prepared),
+      optionCount: pkg.prepared ? pkg.bundles.length : 0,
+      rootXmlCount: pkg.rootXmlCount
+    };
+  }
+
+  function createUiManagerOverview() {
+    return {
+      gameDirectory: PREVIEW_GAME_DIRECTORY,
+      uiFilesDirectory: PREVIEW_UI_FILES_DIRECTORY,
+      canManage: true,
+      packages: Object.keys(uiManagerPackages)
+        .sort((left, right) => left.localeCompare(right, undefined, { sensitivity: "base" }))
+        .map(getPreviewPackageSummary),
+      targets: uiManagerTargets.map((target) => ({ ...target }))
+    };
+  }
+
+  function createUiManagerDetail(packageName) {
+    const pkg = uiManagerPackages[packageName];
+    if (!pkg) {
+      throw new Error(`UI package not found: ${packageName}`);
+    }
+    const backups = uiManagerBackups[packageName] || [];
+    return {
+      ...getPreviewPackageSummary(packageName),
+      rootFiles: ["EQUI_Inventory.xml", "EQUI_TargetWindow.xml", "window_pieces04.tga"],
+      bundles: pkg.prepared ? pkg.bundles.map((bundle) => ({ ...bundle })) : [],
+      backups: backups.map((backup) => ({ ...backup })),
       backupSummary: {
-        backupCount: 1,
-        totalSizeBytes: 10240,
-        maxBackupCount: 20,
-        maxTotalSizeBytes: 536870912
+        backupCount: backups.length,
+        totalSizeBytes: backups.reduce((sum, backup) => sum + backup.sizeBytes, 0),
+        maxBackupCount: 8,
+        maxTotalSizeBytes: 134217728
       }
     };
   }
 
+  function wait(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  function activatePreviewBundles(packageName, optionPaths) {
+    const pkg = uiManagerPackages[packageName];
+    for (const optionPath of optionPaths) {
+      const bundle = pkg.bundles.find((entry) => entry.optionPath === optionPath);
+      if (!bundle) {
+        throw new Error(`UI option not found: ${optionPath}`);
+      }
+      const key = bundle.xmlFiles.join("|").toLowerCase();
+      for (const entry of pkg.bundles) {
+        if (entry.xmlFiles.join("|").toLowerCase() === key) {
+          entry.activeState = "inactive";
+        }
+      }
+      bundle.activeState = "active";
+    }
+  }
+
+  function setPreviewUiSkin(packageName, iniPaths) {
+    for (const target of uiManagerTargets) {
+      if (iniPaths.includes(target.path)) {
+        target.uiSkin = packageName;
+      }
+    }
+  }
+
   let currentState = createState(previewMode);
-  let uiManagerOverview = createUiManagerOverview();
-  let uiManagerDetail = createUiManagerDetail();
 
   function emit(event) {
     for (const listener of listeners) {
@@ -391,7 +492,8 @@
       };
     },
     async getUiManagerOverview() {
-      return clone(uiManagerOverview);
+      await wait(180);
+      return createUiManagerOverview();
     },
     async openUiManagerImportDialog() {
       return {
@@ -399,62 +501,118 @@
         sourcePath: ""
       };
     },
-    async importUiPackageFolder() {
+    getPathForFile(file) {
+      return file?.name ? `C:\\Users\\Preview\\Downloads\\${file.name}` : "";
+    },
+    async importUiPackageFolder(sourcePath) {
+      await wait(400);
+      const packageName = String(sourcePath || "").split(/[\\/]/).filter(Boolean).at(-1) || "Imported UI";
+      if (uiManagerPackages[packageName]) {
+        throw new Error(`A UI package named ${packageName} already exists.`);
+      }
+      uiManagerPackages[packageName] = { prepared: false, rootXmlCount: 6, bundles: [] };
       return {
-        overview: clone(uiManagerOverview),
-        details: clone(uiManagerDetail)
+        overview: createUiManagerOverview(),
+        details: createUiManagerDetail(packageName)
       };
     },
     async prepareUiPackage(packageName) {
-      uiManagerDetail = createUiManagerDetail(packageName);
+      await wait(500);
+      recordPreviewBackup(packageName, "prepare");
+      const pkg = uiManagerPackages[packageName];
+      pkg.prepared = true;
+      if (!pkg.bundles.length) {
+        pkg.bundles = [
+          createPreviewBundle("Options/Inventory/Default", ["EQUI_Inventory.xml"], { active: true }),
+          createPreviewBundle("Options/Inventory/Classic Bags", ["EQUI_Inventory.xml"], { previewImageUrl: PREVIEW_ART.titanium })
+        ];
+      }
       return {
-        details: clone(uiManagerDetail)
+        details: createUiManagerDetail(packageName)
       };
     },
-    async validateUiPackageOptionComments() {
+    async validateUiPackageOptionComments(packageName) {
+      await wait(400);
+      recordPreviewBackup(packageName, "validate-ui-metadata");
+      const corrected = uiManagerPackages[packageName]?.metadataIssues || 0;
+      if (uiManagerPackages[packageName]) {
+        uiManagerPackages[packageName].metadataIssues = 0;
+      }
       return {
-        details: clone(uiManagerDetail),
+        details: createUiManagerDetail(packageName),
         summary: {
-          scannedCount: 3,
-          correctedCount: 0
+          scannedCount: uiManagerPackages[packageName]?.bundles.length || 0,
+          correctedCount: corrected
         }
       };
     },
     async checkUiPackageMetadata(packageName) {
+      await wait(250);
+      const pkg = uiManagerPackages[packageName];
+      const invalidCount = pkg?.metadataIssues || 0;
       return {
         packageName,
-        status: "healthy",
-        scannedCount: 3,
-        invalidCount: 0,
-        healthy: true
+        status: !pkg?.prepared ? "unavailable" : invalidCount ? "issues" : "healthy",
+        scannedCount: pkg?.bundles.length || 0,
+        invalidCount,
+        healthy: !invalidCount
       };
     },
     async getUiPackageDetails(packageName) {
-      uiManagerDetail = createUiManagerDetail(packageName);
-      return clone(uiManagerDetail);
+      await wait(120);
+      return createUiManagerDetail(packageName);
     },
-    async activateUiOption() {
+    async activateUiOption({ packageName, optionPath, iniPaths = [] }) {
+      return window.launcher.activateUiOptions({ packageName, optionPaths: [optionPath], iniPaths });
+    },
+    async activateUiOptions({ packageName, optionPaths = [], iniPaths = [] }) {
+      await wait(500);
+      recordPreviewBackup(packageName, "activate", { iniPaths });
+      activatePreviewBundles(packageName, optionPaths);
+      setPreviewUiSkin(packageName, iniPaths);
       return {
-        details: clone(uiManagerDetail)
+        details: createUiManagerDetail(packageName)
       };
     },
-    async setUiSkinTargets() {
+    async setUiSkinTargets({ packageName, iniPaths = [] }) {
+      await wait(350);
+      if (!iniPaths.length) {
+        throw new Error("Select at least one character UI settings file.");
+      }
+      recordPreviewBackup(packageName, "set-uiskin", { snapshot: false, iniPaths });
+      setPreviewUiSkin(packageName, iniPaths);
       return {
-        targets: clone(uiManagerOverview.targets)
+        targets: uiManagerTargets.map((target) => ({ ...target }))
       };
     },
-    async resetUiPackage() {
+    async resetUiPackage(packageName) {
+      await wait(500);
+      recordPreviewBackup(packageName, "reset");
+      const pkg = uiManagerPackages[packageName];
+      const seenGroups = new Set();
+      for (const bundle of pkg.bundles) {
+        bundle.activeState = "inactive";
+      }
+      for (const bundle of pkg.bundles) {
+        const key = bundle.xmlFiles.join("|").toLowerCase();
+        if (!seenGroups.has(key) && bundle.isDefault) {
+          bundle.activeState = "active";
+          seenGroups.add(key);
+        }
+      }
       return {
-        details: clone(uiManagerDetail)
+        details: createUiManagerDetail(packageName)
       };
     },
-    async listUiManagerBackups() {
-      return clone(uiManagerDetail.backups);
+    async listUiManagerBackups(packageName) {
+      return createUiManagerDetail(packageName).backups;
     },
-    async restoreUiManagerBackup() {
+    async restoreUiManagerBackup({ packageName }) {
+      await wait(450);
+      recordPreviewBackup(packageName, "restore");
       return {
-        details: clone(uiManagerDetail),
-        targets: clone(uiManagerOverview.targets)
+        details: createUiManagerDetail(packageName),
+        targets: uiManagerTargets.map((target) => ({ ...target }))
       };
     },
     async startPatch() {
